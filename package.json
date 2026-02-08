@@ -1,13 +1,17 @@
 {
   "name": "percival-labs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "bun run --filter @percival/registry dev",
     "dev:agents": "bun run --filter @percival/agents dev",
+    "dev:verifier": "bun run --filter @percival/verifier dev",
+    "dev:web": "bun run --filter @percival/web dev",
+    "dev:all": "bun run dev & bun run dev:verifier & bun run dev:web & bun run dev:agents",
     "test": "bun test --recursive",
     "test:registry": "bun test apps/registry/tests/",
+    "test:verifier": "bun test apps/verifier/tests/",
     "seed": "bun run packages/db/src/seed.ts",
     "seed:pai": "bun run packages/db/src/seed-pai.ts"
   }

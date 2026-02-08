@@ -4,8 +4,13 @@
   "private": true,
   "module": "src/index.ts",
   "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "test": "bun test"
+  },
   "dependencies": {
     "@percival/shared": "workspace:*",
-    "@percival/db": "workspace:*"
+    "@percival/db": "workspace:*",
+    "hono": "^4.0.0"
   }
 }

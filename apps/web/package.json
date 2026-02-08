@@ -1,0 +1,13 @@
+{
+  "name": "@percival/web",
+  "version": "0.1.0",
+  "private": true,
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  }
+}

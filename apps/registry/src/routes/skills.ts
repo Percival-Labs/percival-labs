@@ -20,8 +20,10 @@ import {
   getRatingStats,
   getInstallCount,
 } from '@percival/db';
-import { calculateTrustScore } from '@percival/shared';
+import { calculateTrustScore, parseSkillMd } from '@percival/shared';
 import type { SkillManifest } from '@percival/shared';
+import { runL1ManifestCheck } from '../../../verifier/src/stages/l1-manifest';
+import { runL2StaticAnalysis } from '../../../verifier/src/stages/l2-static';
 
 export function skillRoutes(db: Database): Hono {
   const app = new Hono();
@@ -287,21 +289,71 @@ export function skillRoutes(db: Database): Hono {
       }
     }
 
-    createAudit(db, {
-      version_id: versionId,
-      stage: 'static',
-      status: 'pending',
-      results: {},
-    });
-
+    // Set skill to pending
     if (skill.visibility === 'draft') {
       updateSkillVisibility(db, skill.id, 'pending');
     }
 
+    // ── Inline Verification (L1 + L2) ──
+    const skillContent = body.manifest.content as string || body.readme || '';
+    const manifestObj = body.manifest as Record<string, unknown>;
+
+    // L1: Manifest check
+    const l1 = runL1ManifestCheck(skillContent, manifestObj);
+    createAudit(db, {
+      version_id: versionId,
+      stage: 'static',
+      status: l1.status,
+      results: { level: 'L1', ...l1.results },
+    });
+
+    // L2: Static analysis (only if L1 doesn't hard-fail)
+    let l2Status: 'pass' | 'fail' | 'escalate' = 'pending' as any;
+    let l2Summary = '';
+    if (l1.status === 'pass' || l1.results.score >= 50) {
+      const l2 = runL2StaticAnalysis(skillContent, manifestObj, body.readme);
+      createAudit(db, {
+        version_id: versionId,
+        stage: 'static',
+        status: l2.status,
+        results: { level: 'L2', ...l2.results },
+      });
+      l2Status = l2.status;
+      l2Summary = l2.results.summary;
+    }
+
+    // Determine overall status
+    let overallStatus: 'pass' | 'fail' | 'escalate' | 'pending' = 'pending';
+    if (l1.status === 'fail' && l1.results.score < 50) {
+      overallStatus = 'fail';
+    } else if (l2Status === 'fail') {
+      overallStatus = 'fail';
+    } else if (l2Status === 'escalate') {
+      overallStatus = 'escalate';
+    } else if (l1.status === 'pass' && l2Status === 'pass') {
+      overallStatus = 'pass';
+    }
+
+    // Update version audit status
+    db.run('UPDATE versions SET audit_status = ? WHERE id = ?', [overallStatus, versionId]);
+
+    // Auto-publish if both pass
+    if (overallStatus === 'pass') {
+      updateSkillVisibility(db, skill.id, 'published');
+    }
+
     return c.json({
       version_id: versionId,
-      audit_status: 'pending',
-      message: 'Version submitted for verification',
+      audit_status: overallStatus,
+      verification: {
+        l1: { status: l1.status, score: l1.results.score, errors: l1.results.errors },
+        l2: l2Status !== ('pending' as any) ? { status: l2Status, summary: l2Summary } : null,
+      },
+      message: overallStatus === 'pass'
+        ? 'Version verified and published'
+        : overallStatus === 'fail'
+        ? 'Version failed verification'
+        : 'Version submitted — requires additional review',
     }, 201);
   });
 

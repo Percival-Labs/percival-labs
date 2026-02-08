@@ -1,0 +1,12 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+# Copy workspace files
+COPY package.json bun.lock* ./
+COPY apps/web/package.json apps/web/
+# Install
+RUN bun install --frozen-lockfile || bun install
+# Copy source
+COPY apps/web/ apps/web/
+COPY tsconfig.json ./
+EXPOSE 3400
+CMD ["bun", "run", "apps/web/src/index.ts"]
