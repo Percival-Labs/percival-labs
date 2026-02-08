@@ -1,0 +1,10 @@
+{
+  "name": "@percival/db",
+  "version": "0.1.0",
+  "private": true,
+  "module": "src/index.ts",
+  "type": "module",
+  "dependencies": {
+    "@percival/shared": "workspace:*"
+  }
+}

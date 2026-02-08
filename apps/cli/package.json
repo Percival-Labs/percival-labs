@@ -1,0 +1,13 @@
+{
+  "name": "@percival/cli",
+  "version": "0.1.0",
+  "private": true,
+  "module": "src/index.ts",
+  "type": "module",
+  "bin": {
+    "percival": "src/index.ts"
+  },
+  "dependencies": {
+    "@percival/shared": "workspace:*"
+  }
+}
