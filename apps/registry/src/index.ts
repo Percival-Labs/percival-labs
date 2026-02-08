@@ -4,9 +4,12 @@
 import { Hono } from 'hono';
 import { initDatabase } from '@percival/db';
 import { setupMiddleware } from './middleware/headers';
+import { rateLimiter } from './middleware/rate-limit';
 import { skillRoutes } from './routes/skills';
 import { publisherRoutes } from './routes/publishers';
 import { healthRoutes } from './routes/health';
+import { openapiRoutes } from './routes/openapi';
+import { authRoutes, authMiddleware } from './auth/github';
 
 // ── Configuration ──
 
@@ -31,9 +34,13 @@ const app = new Hono();
 
 // Middleware
 setupMiddleware(app);
+app.use('*', rateLimiter());
+app.use('/v1/*', authMiddleware);
 
 // Mount routes
 app.route('/health', healthRoutes(db));
+app.route('/auth', authRoutes(db));
+app.route('/', openapiRoutes());
 app.route('/v1/skills', skillRoutes(db));
 app.route('/v1/publishers', publisherRoutes(db));
 
@@ -42,7 +49,7 @@ app.get('/', (c) => {
   return c.json({
     name: 'Percival Labs Registry',
     description: 'Security-verified registry for Skills.md and MCP servers',
-    version: '0.1.0',
+    version: '0.2.0',
     api_version: 'v1',
     endpoints: {
       health: '/health',
@@ -50,6 +57,9 @@ app.get('/', (c) => {
       categories: '/health/categories',
       skills: '/v1/skills',
       publishers: '/v1/publishers',
+      auth: '/auth/github',
+      docs: '/docs',
+      openapi: '/v1/openapi.json',
     },
     principles: [
       'Closed by default — verified to publish',
