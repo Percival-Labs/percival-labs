@@ -1,11 +1,18 @@
 // Agent Team Coordinator
 // Manages the full lifecycle: decompose tasks via coordinator, assign to workers, execute, collect results.
+// Integrates with @percival/agent-memory for persistent context and episodic storage.
 
 import Anthropic from '@anthropic-ai/sdk';
+import type { Database } from 'bun:sqlite';
 import { loadIdentities, type AgentIdentity } from './identity/loader';
 import { TaskDAG, type TaskNode } from './tasks/dag';
 import { matchTaskToAgent } from './tasks/scheduler';
 import { executeAgentTask, type AgentExecutionResult } from './agent';
+import { initMemoryDatabase } from '@percival/agent-memory';
+import { assembleContext } from '@percival/agent-memory';
+import { storeEpisode } from '@percival/agent-memory';
+import type { ContextPackage } from '@percival/agent-memory';
+import { eventBus } from './events';
 
 /**
  * Parse the coordinator's decomposition response into subtask definitions.
@@ -85,11 +92,61 @@ function parseDecomposition(
   return subtasks;
 }
 
+/**
+ * Format a ContextPackage into a readable markdown string for system prompt injection.
+ */
+function formatContextPackage(ctx: ContextPackage): string {
+  const parts: string[] = [];
+
+  // Working memory
+  const wmKeys = Object.keys(ctx.working_memory);
+  if (wmKeys.length > 0) {
+    parts.push('### Working Memory');
+    for (const key of wmKeys) {
+      parts.push(`- **${key}**: ${ctx.working_memory[key]}`);
+    }
+    parts.push('');
+  }
+
+  // Recent episodes
+  if (ctx.recent_episodes.length > 0) {
+    parts.push('### Recent Experience');
+    for (const ep of ctx.recent_episodes) {
+      parts.push(`- [${ep.importance.toFixed(1)}] ${ep.content}`);
+    }
+    parts.push('');
+  }
+
+  // Relevant facts
+  if (ctx.relevant_facts.length > 0) {
+    parts.push('### Known Facts');
+    for (const f of ctx.relevant_facts) {
+      parts.push(`- [${f.confidence.toFixed(1)}] ${f.content}`);
+    }
+    parts.push('');
+  }
+
+  // Project state
+  if (ctx.project_state) {
+    parts.push('### Project State');
+    parts.push(`- **Name**: ${ctx.project_state.name}`);
+    parts.push(`- **Phase**: ${ctx.project_state.current_phase}`);
+    if (ctx.project_state.blockers.length > 0) {
+      parts.push(`- **Blockers**: ${ctx.project_state.blockers.join(', ')}`);
+    }
+    parts.push('');
+  }
+
+  return parts.join('\n');
+}
+
 export class AgentTeam {
   private identities: AgentIdentity[];
   private dag: TaskDAG;
   private client: Anthropic | null;
   private coordinator: AgentIdentity | null;
+  private memoryDb: Database | null = null;
+  private tickCount = 0;
 
   constructor(identitiesDir: string) {
     this.identities = loadIdentities(identitiesDir);
@@ -108,6 +165,63 @@ export class AgentTeam {
       console.warn('[team] ANTHROPIC_API_KEY not set. Agent execution will be skipped.');
       this.client = null;
     }
+
+    // Initialize memory database
+    const dbPath = process.env.DB_PATH || './data/agent-memory.db';
+    try {
+      this.memoryDb = initMemoryDatabase(dbPath);
+      console.log(`[team] Memory database initialized at ${dbPath}`);
+      this.ensureAgentsRegistered();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[team] Memory database init failed: ${msg}. Running without persistent memory.`);
+      this.memoryDb = null;
+    }
+  }
+
+  /**
+   * UPSERT each agent identity into the memory DB agents table.
+   * Prevents FK violations when storing episodes.
+   */
+  private ensureAgentsRegistered(): void {
+    if (!this.memoryDb) return;
+
+    for (const identity of this.identities) {
+      const agentId = identity.name.toLowerCase();
+      const existing = this.memoryDb.query(
+        'SELECT id FROM agents WHERE id = ?'
+      ).get(agentId) as { id: string } | null;
+
+      if (existing) {
+        this.memoryDb.run(
+          `UPDATE agents SET name = ?, role = ?, expertise = ?, personality = ?, model_preference = ?, status = 'idle'
+           WHERE id = ?`,
+          [
+            identity.name,
+            identity.role,
+            JSON.stringify(identity.expertise),
+            identity.personality,
+            identity.modelPreference,
+            agentId,
+          ]
+        );
+      } else {
+        this.memoryDb.run(
+          `INSERT INTO agents (id, name, role, expertise, personality, model_preference, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'idle')`,
+          [
+            agentId,
+            identity.name,
+            identity.role,
+            JSON.stringify(identity.expertise),
+            identity.personality,
+            identity.modelPreference,
+          ]
+        );
+      }
+    }
+
+    console.log(`[team] ${this.identities.length} agents registered in memory DB`);
   }
 
   /**
@@ -133,6 +247,12 @@ export class AgentTeam {
       assignedTo: this.coordinator?.name || null,
       dependsOn: [],
       output: null,
+    });
+
+    eventBus.publish('task_submitted', {
+      taskId: parentId,
+      title: input.title,
+      priority,
     });
 
     // If we have a coordinator and API client, decompose into subtasks
@@ -171,6 +291,12 @@ export class AgentTeam {
           output: `Decomposed into ${subtaskIds.length} subtasks: ${subtaskIds.join(', ')}`,
           status: 'completed',
         });
+
+        eventBus.publish('task_decomposed', {
+          parentTaskId: parentId,
+          subtaskIds,
+          subtaskCount: subtaskIds.length,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[team] Coordinator decomposition failed:', msg);
@@ -199,13 +325,20 @@ export class AgentTeam {
    * Returns the results from this tick.
    */
   async tick(): Promise<AgentExecutionResult[]> {
+    this.tickCount++;
+    const tickNum = this.tickCount;
+
+    eventBus.publish('tick_started', { tickNumber: tickNum });
+
     if (!this.client) {
       console.warn('[team] No API client available. Skipping tick.');
+      eventBus.publish('tick_completed', { tickNumber: tickNum, executed: 0, skipped: true });
       return [];
     }
 
     const readyTasks = this.dag.getReadyTasks();
     if (readyTasks.length === 0) {
+      eventBus.publish('tick_completed', { tickNumber: tickNum, executed: 0, noReadyTasks: true });
       return [];
     }
 
@@ -237,27 +370,71 @@ export class AgentTeam {
       }
     }
 
+    eventBus.publish('tick_completed', {
+      tickNumber: tickNum,
+      executed: results.length,
+      succeeded: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+    });
+
     return results;
   }
 
   /**
    * Execute a single task with an agent and update the DAG.
+   * Integrates with agent memory for context assembly and episode storage.
    */
   private async executeAndStore(
     task: TaskNode,
     agent: AgentIdentity,
   ): Promise<AgentExecutionResult> {
+    const agentId = agent.name.toLowerCase();
+
     // Mark as in progress
     this.dag.updateTask(task.id, {
       status: 'in_progress',
       assignedTo: agent.name,
     });
 
+    eventBus.publish('task_assigned', {
+      taskId: task.id,
+      taskTitle: task.title,
+      agentName: agent.name,
+    });
+
+    eventBus.publish('agent_started', {
+      agentName: agent.name,
+      taskId: task.id,
+      taskTitle: task.title,
+    });
+
+    // Update agent status in memory DB
+    if (this.memoryDb) {
+      try {
+        this.memoryDb.run(
+          `UPDATE agents SET status = 'active' WHERE id = ?`,
+          [agentId]
+        );
+      } catch { /* non-critical */ }
+    }
+
+    // Assemble memory context
+    let memoryContext = '';
+    if (this.memoryDb) {
+      try {
+        const ctx = assembleContext(this.memoryDb, agentId, { budgetTokens: 2000 });
+        memoryContext = formatContextPackage(ctx);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[team] Memory context assembly failed for ${agent.name}: ${msg}`);
+      }
+    }
+
     const result = await executeAgentTask(
       this.client!,
       agent,
       task,
-      '', // Memory context — can be enriched later
+      memoryContext,
     );
 
     // Update DAG with result
@@ -265,6 +442,53 @@ export class AgentTeam {
       status: result.success ? 'completed' : 'blocked',
       output: result.output,
     });
+
+    // Store episode in memory
+    if (this.memoryDb) {
+      try {
+        const importance = result.success ? 0.6 : 0.8;
+        const tags = [
+          `task:${task.id}`,
+          result.success ? 'success' : 'failure',
+          task.priority,
+        ];
+        const content = result.success
+          ? `Completed task "${task.title}": ${result.output.slice(0, 300)}`
+          : `Failed task "${task.title}": ${result.output.slice(0, 300)}`;
+
+        storeEpisode(this.memoryDb, agentId, content, importance, tags);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[team] Episode storage failed for ${agent.name}: ${msg}`);
+      }
+
+      // Reset agent status
+      try {
+        this.memoryDb.run(
+          `UPDATE agents SET status = 'idle' WHERE id = ?`,
+          [agentId]
+        );
+      } catch { /* non-critical */ }
+    }
+
+    // Emit completion/failure event
+    if (result.success) {
+      eventBus.publish('agent_completed', {
+        agentName: agent.name,
+        taskId: task.id,
+        taskTitle: task.title,
+        duration: result.duration,
+        outputLength: result.output.length,
+      });
+    } else {
+      eventBus.publish('agent_failed', {
+        agentName: agent.name,
+        taskId: task.id,
+        taskTitle: task.title,
+        duration: result.duration,
+        error: result.output.slice(0, 200),
+      });
+    }
 
     return result;
   }

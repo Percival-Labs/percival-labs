@@ -56,6 +56,11 @@ services:
       resources:
         limits:
           memory: 16G
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3200/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
       registry:
         condition: service_healthy
@@ -66,6 +71,11 @@ services:
       dockerfile: docker/Dockerfile.web
     ports:
       - "127.0.0.1:3400:3400"
+    environment:
+      - PORT=3400
+      - AGENTS_URL=http://agents:3200
+      - AGENTS_PUBLIC_URL=http://localhost:3200
+      - REGISTRY_URL=http://registry:3100
     deploy:
       resources:
         limits:
@@ -73,6 +83,8 @@ services:
     depends_on:
       registry:
         condition: service_healthy
+      agents:
+        condition: service_started
 
 volumes:
   percival-data:

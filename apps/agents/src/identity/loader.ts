@@ -5,6 +5,17 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Agent } from '@percival/agent-memory';
 
+export interface RoleCard {
+  domain: string;
+  inputs: string;
+  delivers: string;
+  autonomy: string;
+  definitionOfDone: string;
+  hardNoes: string;
+  escalation: string;
+  methods: string;
+}
+
 export interface AgentIdentity {
   name: string;
   role: string;
@@ -12,6 +23,7 @@ export interface AgentIdentity {
   expertise: string[];
   personality: string;
   communication: string;
+  roleCard?: RoleCard;
 }
 
 /**
@@ -49,6 +61,35 @@ function extractField(body: string, label: string): string {
 }
 
 /**
+ * Parse the ## Role Card section from the markdown body into a RoleCard.
+ */
+function parseRoleCard(body: string): RoleCard | undefined {
+  const sectionMatch = body.match(/## Role Card\n([\s\S]*?)(?:\n##|\n*$)/);
+  if (!sectionMatch) return undefined;
+
+  const section = sectionMatch[1]!;
+  const get = (label: string): string => {
+    const m = section.match(new RegExp(`^${label}:\\s*(.+)$`, 'mi'));
+    return m ? m[1]!.trim() : '';
+  };
+
+  const card: RoleCard = {
+    domain: get('Domain'),
+    inputs: get('Inputs'),
+    delivers: get('Delivers'),
+    autonomy: get('Autonomy'),
+    definitionOfDone: get('Definition of Done'),
+    hardNoes: get('Hard Noes'),
+    escalation: get('Escalation'),
+    methods: get('Methods'),
+  };
+
+  // Only return if at least one field was populated
+  const hasContent = Object.values(card).some(v => v.length > 0);
+  return hasContent ? card : undefined;
+}
+
+/**
  * Parse a single SKILL.md file content into an AgentIdentity.
  */
 export function parseIdentity(content: string): AgentIdentity {
@@ -64,6 +105,7 @@ export function parseIdentity(content: string): AgentIdentity {
     : [];
   const personality = extractField(body, 'Personality');
   const communication = extractField(body, 'Communication');
+  const roleCard = parseRoleCard(body);
 
   return {
     name,
@@ -72,6 +114,7 @@ export function parseIdentity(content: string): AgentIdentity {
     expertise,
     personality,
     communication,
+    roleCard,
   };
 }
 

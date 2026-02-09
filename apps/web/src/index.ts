@@ -3,10 +3,14 @@
 
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
+import { studioHTML } from './studio';
 
 // ── Configuration ──
 
 const PORT = Number(process.env.PORT) || 3400;
+const AGENTS_URL = process.env.AGENTS_URL || 'http://localhost:3200';
+// Browser-accessible URL for client-side JS (Docker containers use internal URLs)
+const AGENTS_PUBLIC_URL = process.env.AGENTS_PUBLIC_URL || 'http://localhost:3200';
 
 // ── Build App ──
 
@@ -45,9 +49,9 @@ app.get('/dashboard', async (c) => {
   let categories: string[] = [];
   try {
     const [statsRes, skillsRes, catsRes] = await Promise.all([
-      fetch(\`\${REGISTRY_URL}/health/stats\`),
-      fetch(\`\${REGISTRY_URL}/v1/skills?limit=50\`),
-      fetch(\`\${REGISTRY_URL}/health/categories\`),
+      fetch(`${REGISTRY_URL}/health/stats`),
+      fetch(`${REGISTRY_URL}/v1/skills?limit=50`),
+      fetch(`${REGISTRY_URL}/health/categories`),
     ]);
     if (statsRes.ok) stats = await statsRes.json() as any;
     if (skillsRes.ok) {
@@ -63,6 +67,11 @@ app.get('/dashboard', async (c) => {
   return c.html(dashboardHTML(stats, skills, categories));
 });
 
+// Studio — agent observation UI
+app.get('/studio', (c) => {
+  return c.html(studioHTML(AGENTS_PUBLIC_URL));
+});
+
 // Health check
 app.get('/health', (c) => {
   return c.json({ status: 'ok', service: '@percival/web', version: '0.2.0' });
@@ -74,16 +83,16 @@ app.notFound((c) => {
 });
 
 function dashboardHTML(stats: any, skills: any[], categories: string[]) {
-  const skillRows = skills.map((s: any) => \`
+  const skillRows = skills.map((s: any) => `
     <tr>
-      <td style="padding:.5rem .75rem"><strong>\${esc(s.name)}</strong><br><span style="color:#6b7280;font-size:.75rem">\${esc(s.slug)}</span></td>
-      <td style="padding:.5rem .75rem">\${esc(s.category)}</td>
-      <td style="padding:.5rem .75rem">\${esc(s.latest_version || '-')}</td>
-      <td style="padding:.5rem .75rem">\${statusBadge(s.visibility)}</td>
-      <td style="padding:.5rem .75rem;color:#6b7280">\${esc(s.trust_score?.toString() || '-')}</td>
-    </tr>\`).join('');
+      <td style="padding:.5rem .75rem"><strong>${esc(s.name)}</strong><br><span style="color:#6b7280;font-size:.75rem">${esc(s.slug)}</span></td>
+      <td style="padding:.5rem .75rem">${esc(s.category)}</td>
+      <td style="padding:.5rem .75rem">${esc(s.latest_version || '-')}</td>
+      <td style="padding:.5rem .75rem">${statusBadge(s.visibility)}</td>
+      <td style="padding:.5rem .75rem;color:#6b7280">${esc(s.trust_score?.toString() || '-')}</td>
+    </tr>`).join('');
 
-  return \`<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Dashboard - Percival Labs</title>
@@ -120,23 +129,23 @@ tr:hover{background:#1a2236}
   </div>
 
   <div class="stats">
-    <div class="stat-card"><div class="value">\${stats.total_skills || 0}</div><div class="label">Skills</div></div>
-    <div class="stat-card"><div class="value">\${stats.total_publishers || 0}</div><div class="label">Publishers</div></div>
-    <div class="stat-card"><div class="value">\${stats.total_mcp_servers || 0}</div><div class="label">MCP Servers</div></div>
-    <div class="stat-card"><div class="value">\${categories.length}</div><div class="label">Categories</div></div>
+    <div class="stat-card"><div class="value">${stats.total_skills || 0}</div><div class="label">Skills</div></div>
+    <div class="stat-card"><div class="value">${stats.total_publishers || 0}</div><div class="label">Publishers</div></div>
+    <div class="stat-card"><div class="value">${stats.total_mcp_servers || 0}</div><div class="label">MCP Servers</div></div>
+    <div class="stat-card"><div class="value">${categories.length}</div><div class="label">Categories</div></div>
   </div>
 
   <div class="categories">
-    \${categories.map(c => \`<span class="cat-tag">\${esc(c)}</span>\`).join('')}
+    ${categories.map(c => `<span class="cat-tag">${esc(c)}</span>`).join('')}
   </div>
 
   <table>
     <thead><tr><th>Skill</th><th>Category</th><th>Version</th><th>Status</th><th>Trust</th></tr></thead>
     <tbody>
-      \${skillRows || '<tr><td colspan="5" style="padding:2rem;text-align:center;color:#6b7280">No skills found. Start the registry first.</td></tr>'}
+      ${skillRows || '<tr><td colspan="5" style="padding:2rem;text-align:center;color:#6b7280">No skills found. Start the registry first.</td></tr>'}
     </tbody>
   </table>
-</div></body></html>\`;
+</div></body></html>`;
 }
 
 function statusBadge(status: string): string {
@@ -144,7 +153,7 @@ function statusBadge(status: string): string {
     : status === 'pending' ? 'badge-pending'
     : status === 'suspended' || status === 'revoked' ? 'badge-failed'
     : 'badge-draft';
-  return \`<span class="badge \${cls}">\${esc(status)}</span>\`;
+  return `<span class="badge ${cls}">${esc(status)}</span>`;
 }
 
 function esc(s: string): string {

@@ -1,15 +1,16 @@
 // Percival Labs — Agent Service
 // Hono API server for the agent team infrastructure.
-// Endpoints: task submission, status, team health, memory inspection.
+// Endpoints: task submission, status, team health, memory inspection, SSE events, auto-tick.
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { join } from 'node:path';
 import { AgentTeam } from './team';
+import { eventBus } from './events';
 
 const app = new Hono();
 
-// ── CORS for local dev ──
+// ── CORS for local dev + cross-origin Studio ──
 app.use('*', cors());
 
 // ── Initialize agent team ──
@@ -26,13 +27,27 @@ const executionHistory: Map<string, Array<{
   completedAt: string;
 }>> = new Map();
 
+// ── Auto-tick state ──
+let autoTickInterval: ReturnType<typeof setInterval> | null = null;
+let autoTickIntervalMs = 10_000;
+let tickInProgress = false;
+
 // ── Health check ──
 app.get('/', (c) => {
   return c.json({
     service: '@percival/agents',
-    version: '0.1.0',
+    version: '0.2.0',
     status: 'running',
     timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Health check (standard path for Docker) ──
+app.get('/health', (c) => {
+  return c.json({
+    status: 'ok',
+    service: '@percival/agents',
+    version: '0.2.0',
   });
 });
 
@@ -142,6 +157,9 @@ app.get('/v1/agents/status', (c) => {
       role: a.role,
       modelPreference: a.modelPreference,
       expertise: a.expertise,
+      personality: a.personality,
+      communication: a.communication,
+      roleCard: a.roleCard || null,
     })),
     tasks: taskSummary,
     allTasks: dagTasks,
@@ -203,7 +221,6 @@ app.get('/v1/agents/memory/:agentId', (c) => {
     },
     assignedTasks: agentTasks,
     executionHistory: agentHistory,
-    note: 'Memory context is currently ephemeral. Integration with @percival/agent-memory for persistent memory is planned.',
   });
 });
 
@@ -213,6 +230,137 @@ app.get('/v1/agents/tasks', (c) => {
   return c.json({
     tasks: status.tasks,
     total: status.tasks.length,
+  });
+});
+
+// ── GET /v1/agents/events — SSE stream of agent events ──
+app.get('/v1/agents/events', (c) => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+
+      function send(data: string) {
+        try {
+          controller.enqueue(encoder.encode(data));
+        } catch {
+          // Stream closed
+        }
+      }
+
+      // Send connected event
+      send(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+      // Backfill recent events
+      const recent = eventBus.getRecentEvents(50);
+      for (const event of recent) {
+        send(`data: ${JSON.stringify(event)}\n\n`);
+      }
+
+      // Listen for new events
+      function onEvent(event: unknown) {
+        send(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      eventBus.on('agent_event', onEvent);
+
+      // Heartbeat every 30s
+      const heartbeat = setInterval(() => {
+        send(`: heartbeat\n\n`);
+      }, 30_000);
+
+      // Cleanup when stream closes
+      const cleanup = () => {
+        eventBus.off('agent_event', onEvent);
+        clearInterval(heartbeat);
+      };
+
+      // The stream's cancel signal
+      c.req.raw.signal?.addEventListener('abort', cleanup);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+});
+
+// ── GET /v1/agents/events/history — Recent events as JSON ──
+app.get('/v1/agents/events/history', (c) => {
+  const count = parseInt(c.req.query('count') || '50', 10);
+  const events = eventBus.getRecentEvents(Math.min(count, 500));
+  return c.json({ events, total: events.length });
+});
+
+// ── POST /v1/agents/auto-tick/start — Start auto-tick loop ──
+app.post('/v1/agents/auto-tick/start', async (c) => {
+  if (autoTickInterval) {
+    return c.json({ message: 'Auto-tick already running', intervalMs: autoTickIntervalMs });
+  }
+
+  try {
+    const body = await c.req.json<{ intervalMs?: number }>().catch(() => ({}));
+    const requestedInterval = (body as { intervalMs?: number }).intervalMs;
+    if (requestedInterval && requestedInterval >= 5000) {
+      autoTickIntervalMs = requestedInterval;
+    }
+  } catch {
+    // Use default interval
+  }
+
+  autoTickInterval = setInterval(async () => {
+    if (tickInProgress) return;
+    tickInProgress = true;
+    try {
+      const results = await team.tick();
+
+      // Store execution history
+      for (const result of results) {
+        if (!executionHistory.has(result.taskId)) {
+          executionHistory.set(result.taskId, []);
+        }
+        executionHistory.get(result.taskId)!.push({
+          ...result,
+          completedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error('[auto-tick] Error:', err instanceof Error ? err.message : String(err));
+    } finally {
+      tickInProgress = false;
+    }
+  }, autoTickIntervalMs);
+
+  eventBus.publish('auto_tick_started', { intervalMs: autoTickIntervalMs });
+
+  return c.json({
+    message: 'Auto-tick started',
+    intervalMs: autoTickIntervalMs,
+  });
+});
+
+// ── POST /v1/agents/auto-tick/stop — Stop auto-tick loop ──
+app.post('/v1/agents/auto-tick/stop', (c) => {
+  if (!autoTickInterval) {
+    return c.json({ message: 'Auto-tick not running' });
+  }
+
+  clearInterval(autoTickInterval);
+  autoTickInterval = null;
+
+  eventBus.publish('auto_tick_stopped', {});
+
+  return c.json({ message: 'Auto-tick stopped' });
+});
+
+// ── GET /v1/agents/auto-tick/status — Auto-tick status ──
+app.get('/v1/agents/auto-tick/status', (c) => {
+  return c.json({
+    running: autoTickInterval !== null,
+    intervalMs: autoTickIntervalMs,
   });
 });
 
