@@ -233,6 +233,18 @@ app.get('/v1/agents/tasks', (c) => {
   });
 });
 
+// ── GET /v1/agents/rpg-stats — RPG character stats for all agents ──
+app.get('/v1/agents/rpg-stats', (c) => {
+  const profiles = team.getRPGProfiles();
+  const affinities = team.getAffinities();
+
+  return c.json({
+    profiles,
+    affinities,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ── GET /v1/agents/events — SSE stream of agent events ──
 app.get('/v1/agents/events', (c) => {
   const stream = new ReadableStream({
@@ -376,4 +388,6 @@ console.log(`[agents] Starting on port ${port}`);
 export default {
   port,
   fetch: app.fetch,
+  // SSE streams need long-lived connections — disable Bun's default 10s idle timeout
+  idleTimeout: 120,
 };

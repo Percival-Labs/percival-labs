@@ -12,7 +12,11 @@ import { initMemoryDatabase } from '@percival/agent-memory';
 import { assembleContext } from '@percival/agent-memory';
 import { storeEpisode } from '@percival/agent-memory';
 import type { ContextPackage } from '@percival/agent-memory';
+import { join as joinPath } from 'node:path';
 import { eventBus } from './events';
+import { initAffinityTable, getAllAffinities } from './rpg/affinity';
+import { getAllRPGProfiles } from './rpg/stats';
+import type { RPGProfile, AffinityPair } from './rpg/types';
 
 /**
  * Parse the coordinator's decomposition response into subtask definitions.
@@ -166,12 +170,14 @@ export class AgentTeam {
       this.client = null;
     }
 
-    // Initialize memory database
-    const dbPath = process.env.DB_PATH || './data/agent-memory.db';
+    // Initialize memory database (resolve relative to monorepo root via import.meta)
+    const defaultDbPath = joinPath(import.meta.dir, '..', '..', '..', 'data', 'agent-memory.db');
+    const dbPath = process.env.DB_PATH || defaultDbPath;
     try {
       this.memoryDb = initMemoryDatabase(dbPath);
       console.log(`[team] Memory database initialized at ${dbPath}`);
       this.ensureAgentsRegistered();
+      initAffinityTable(this.memoryDb);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[team] Memory database init failed: ${msg}. Running without persistent memory.`);
@@ -515,5 +521,21 @@ export class AgentTeam {
    */
   getDAG(): TaskDAG {
     return this.dag;
+  }
+
+  /**
+   * Get RPG profiles for all agents (computed from DB state).
+   */
+  getRPGProfiles(): RPGProfile[] {
+    if (!this.memoryDb) return [];
+    return getAllRPGProfiles(this.memoryDb);
+  }
+
+  /**
+   * Get all pairwise affinity relationships.
+   */
+  getAffinities(): AffinityPair[] {
+    if (!this.memoryDb) return [];
+    return getAllAffinities(this.memoryDb);
   }
 }

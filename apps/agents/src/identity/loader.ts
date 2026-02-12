@@ -16,6 +16,13 @@ export interface RoleCard {
   methods: string;
 }
 
+export interface VoiceDirective {
+  personality: string;
+  tone: string;
+  rules: string[];
+  conflictsWith: string[];
+}
+
 export interface AgentIdentity {
   name: string;
   role: string;
@@ -24,6 +31,7 @@ export interface AgentIdentity {
   personality: string;
   communication: string;
   roleCard?: RoleCard;
+  voice?: VoiceDirective;
 }
 
 /**
@@ -90,6 +98,50 @@ function parseRoleCard(body: string): RoleCard | undefined {
 }
 
 /**
+ * Parse the ## Voice section from the markdown body into a VoiceDirective.
+ */
+function parseVoice(body: string): VoiceDirective | undefined {
+  const sectionMatch = body.match(/## Voice\n([\s\S]*?)(?:\n##|\n*$)/);
+  if (!sectionMatch) return undefined;
+
+  const section = sectionMatch[1]!;
+  const get = (label: string): string => {
+    const m = section.match(new RegExp(`^${label}:\\s*(.+)$`, 'mi'));
+    return m ? m[1]!.trim() : '';
+  };
+
+  // Parse rules: lines starting with "- " under "Rules:"
+  const rules: string[] = [];
+  const rulesMatch = section.match(/Rules:\n((?:\s*- .+\n?)*)/);
+  if (rulesMatch) {
+    const ruleLines = rulesMatch[1]!.split('\n');
+    for (const line of ruleLines) {
+      const ruleMatch = line.match(/^\s*- (.+)$/);
+      if (ruleMatch) rules.push(ruleMatch[1]!.trim());
+    }
+  }
+
+  // Parse conflicts-with
+  const conflictsRaw = get('Conflicts-with');
+  const conflictsWith = conflictsRaw
+    ? conflictsRaw.split(/,\s*/).map(c => {
+        // Strip parenthetical explanations: "Forge (reason)" → "Forge"
+        return c.replace(/\s*\(.*?\)\s*$/, '').trim();
+      }).filter(Boolean)
+    : [];
+
+  const voice: VoiceDirective = {
+    personality: get('Personality'),
+    tone: get('Tone'),
+    rules,
+    conflictsWith,
+  };
+
+  const hasContent = voice.personality || voice.tone || rules.length > 0;
+  return hasContent ? voice : undefined;
+}
+
+/**
  * Parse a single SKILL.md file content into an AgentIdentity.
  */
 export function parseIdentity(content: string): AgentIdentity {
@@ -106,6 +158,7 @@ export function parseIdentity(content: string): AgentIdentity {
   const personality = extractField(body, 'Personality');
   const communication = extractField(body, 'Communication');
   const roleCard = parseRoleCard(body);
+  const voice = parseVoice(body);
 
   return {
     name,
@@ -115,6 +168,7 @@ export function parseIdentity(content: string): AgentIdentity {
     personality,
     communication,
     roleCard,
+    voice,
   };
 }
 

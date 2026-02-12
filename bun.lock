@@ -38,6 +38,13 @@
         "@types/bun": "latest",
       },
     },
+    "apps/terrarium": {
+      "name": "@percival/terrarium",
+      "version": "0.1.0",
+      "dependencies": {
+        "hono": "^4.0.0",
+      },
+    },
     "apps/verifier": {
       "name": "@percival/verifier",
       "version": "0.1.0",
@@ -92,6 +99,8 @@
     "@percival/registry": ["@percival/registry@workspace:apps/registry"],
 
     "@percival/shared": ["@percival/shared@workspace:packages/shared"],
+
+    "@percival/terrarium": ["@percival/terrarium@workspace:apps/terrarium"],
 
     "@percival/verifier": ["@percival/verifier@workspace:apps/verifier"],
 
