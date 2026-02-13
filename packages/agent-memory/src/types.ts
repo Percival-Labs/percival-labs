@@ -19,6 +19,7 @@ export interface Episode {
   context_tags: string[];
   created_at: string; // ISO string
   archived: boolean;
+  tainted: boolean;   // true if content came from external/untrusted source
 }
 
 export interface Fact {
@@ -30,6 +31,7 @@ export interface Fact {
   context_tags: string[];
   created_at: string; // ISO string
   archived: boolean;
+  tainted: boolean;   // true if content came from external/untrusted source
 }
 
 export interface WorkingMemoryEntry {

@@ -7,25 +7,69 @@ import { cors } from 'hono/cors';
 import { join } from 'node:path';
 import { AgentTeam } from './team';
 import { eventBus } from './events';
+import { agentAuth } from './middleware/auth';
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3400,http://localhost:3500,http://localhost:3600').split(',');
 
 const app = new Hono();
 
-// ── CORS for local dev + cross-origin Studio ──
-app.use('*', cors());
+// ── CORS — restricted to known origins ──
+app.use('*', cors({
+  origin: ALLOWED_ORIGINS,
+  allowMethods: ['GET', 'POST'],
+  allowHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+}));
+
+// ── API Key authentication ──
+app.use('*', agentAuth);
 
 // ── Initialize agent team ──
 const identitiesDir = join(import.meta.dir, '..', 'identities');
 const team = new AgentTeam(identitiesDir);
 
-// Track execution history for debug inspection
-const executionHistory: Map<string, Array<{
+// Track execution history for debug inspection (bounded)
+const MAX_HISTORY_ENTRIES = 1000;
+const MAX_ENTRIES_PER_TASK = 50;
+
+interface ExecutionEntry {
   agentName: string;
   taskId: string;
   output: string;
   success: boolean;
   duration: number;
   completedAt: string;
-}>> = new Map();
+}
+
+const executionHistory: Map<string, ExecutionEntry[]> = new Map();
+let totalHistoryEntries = 0;
+
+function recordExecution(entry: ExecutionEntry) {
+  if (!executionHistory.has(entry.taskId)) {
+    executionHistory.set(entry.taskId, []);
+  }
+  const taskHistory = executionHistory.get(entry.taskId)!;
+
+  // Per-task cap
+  if (taskHistory.length >= MAX_ENTRIES_PER_TASK) {
+    taskHistory.shift();
+    totalHistoryEntries--;
+  }
+
+  // Global cap — evict oldest task's oldest entry
+  if (totalHistoryEntries >= MAX_HISTORY_ENTRIES) {
+    for (const [taskId, entries] of executionHistory) {
+      if (entries.length > 0) {
+        entries.shift();
+        totalHistoryEntries--;
+        if (entries.length === 0) executionHistory.delete(taskId);
+        break;
+      }
+    }
+  }
+
+  taskHistory.push(entry);
+  totalHistoryEntries++;
+}
 
 // ── Auto-tick state ──
 let autoTickInterval: ReturnType<typeof setInterval> | null = null;
@@ -110,15 +154,9 @@ app.post('/v1/agents/tick', async (c) => {
   try {
     const results = await team.tick();
 
-    // Store execution history
+    // Store execution history (bounded)
     for (const result of results) {
-      if (!executionHistory.has(result.taskId)) {
-        executionHistory.set(result.taskId, []);
-      }
-      executionHistory.get(result.taskId)!.push({
-        ...result,
-        completedAt: new Date().toISOString(),
-      });
+      recordExecution({ ...result, completedAt: new Date().toISOString() });
     }
 
     return c.json({
@@ -233,6 +271,11 @@ app.get('/v1/agents/tasks', (c) => {
   });
 });
 
+// ── GET /v1/agents/budget — Current budget status ──
+app.get('/v1/agents/budget', (c) => {
+  return c.json(team.getBudgetStatus());
+});
+
 // ── GET /v1/agents/rpg-stats — RPG character stats for all agents ──
 app.get('/v1/agents/rpg-stats', (c) => {
   const profiles = team.getRPGProfiles();
@@ -295,7 +338,6 @@ app.get('/v1/agents/events', (c) => {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     },
   });
 });
@@ -329,15 +371,9 @@ app.post('/v1/agents/auto-tick/start', async (c) => {
     try {
       const results = await team.tick();
 
-      // Store execution history
+      // Store execution history (bounded)
       for (const result of results) {
-        if (!executionHistory.has(result.taskId)) {
-          executionHistory.set(result.taskId, []);
-        }
-        executionHistory.get(result.taskId)!.push({
-          ...result,
-          completedAt: new Date().toISOString(),
-        });
+        recordExecution({ ...result, completedAt: new Date().toISOString() });
       }
     } catch (err) {
       console.error('[auto-tick] Error:', err instanceof Error ? err.message : String(err));

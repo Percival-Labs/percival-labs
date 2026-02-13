@@ -56,10 +56,13 @@ export function assembleContext(
     workingUsed += cost;
   }
 
-  // 2. Recent episodes (30%) — already sorted by importance * recency
+  // 2. Recent episodes (30%) — already sorted by importance * recency (tainted deprioritized)
   const allEpisodes = recallEpisodes(db, agentId, { limit: 50 });
   const episodeStrings = allEpisodes.map(
-    (ep) => `[${ep.created_at}] (${ep.importance.toFixed(2)}) ${ep.content}`
+    (ep) => {
+      const prefix = ep.tainted ? '[EXTERNAL/UNTRUSTED] ' : '';
+      return `${prefix}[${ep.created_at}] (${ep.importance.toFixed(2)}) ${ep.content}`;
+    }
   );
   const trimmedEpisodeStrings = trimToTokenBudget(episodeStrings, episodeBudget);
   const recentEpisodes: Episode[] = allEpisodes.slice(
@@ -67,11 +70,15 @@ export function assembleContext(
     trimmedEpisodeStrings.length
   );
 
-  // 3. Relevant facts (35%) — confidence-scored, includes shared facts
+  // 3. Relevant facts (35%) — confidence-scored, includes shared facts (tainted deprioritized)
   const allFacts = recallFacts(db, { agentId, limit: 100 });
+  // Sort tainted facts to the end
+  allFacts.sort((a, b) => (a.tainted === b.tainted ? 0 : a.tainted ? 1 : -1));
   const factStrings = allFacts.map(
-    (f) =>
-      `[${f.confidence.toFixed(2)}] ${f.content} (src: ${f.source})`
+    (f) => {
+      const prefix = f.tainted ? '[EXTERNAL/UNTRUSTED] ' : '';
+      return `${prefix}[${f.confidence.toFixed(2)}] ${f.content} (src: ${f.source})`;
+    }
   );
   const trimmedFactStrings = trimToTokenBudget(factStrings, factBudget);
   const relevantFacts: Fact[] = allFacts.slice(0, trimmedFactStrings.length);

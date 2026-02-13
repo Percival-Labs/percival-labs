@@ -25,6 +25,19 @@ interface GitHubTokenResponse {
   scope: string;
 }
 
+// ── OAuth State Store (CSRF protection) ──
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const pendingStates = new Map<string, number>(); // state -> expiresAt
+
+// Periodic cleanup of expired states
+setInterval(() => {
+  const now = Date.now();
+  for (const [state, expiresAt] of pendingStates) {
+    if (expiresAt < now) pendingStates.delete(state);
+  }
+}, STATE_CLEANUP_INTERVAL_MS);
+
 export function authRoutes(db: Database): Hono {
   const app = new Hono();
 
@@ -35,6 +48,8 @@ export function authRoutes(db: Database): Hono {
     }
 
     const state = crypto.randomUUID();
+    pendingStates.set(state, Date.now() + STATE_TTL_MS);
+
     const params = new URLSearchParams({
       client_id: GITHUB_CLIENT_ID,
       redirect_uri: CALLBACK_URL,
@@ -50,6 +65,17 @@ export function authRoutes(db: Database): Hono {
     const code = c.req.query('code');
     if (!code) {
       return c.json({ error: 'Missing authorization code' }, 400);
+    }
+
+    // Validate OAuth state parameter (CSRF protection)
+    const state = c.req.query('state');
+    if (!state || !pendingStates.has(state)) {
+      return c.json({ error: 'Invalid or expired OAuth state', code: 'INVALID_STATE' }, 400);
+    }
+    const expiresAt = pendingStates.get(state)!;
+    pendingStates.delete(state);
+    if (Date.now() > expiresAt) {
+      return c.json({ error: 'OAuth state expired', code: 'STATE_EXPIRED' }, 400);
     }
 
     if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
@@ -173,13 +199,22 @@ export async function authMiddleware(c: any, next: () => Promise<void>) {
     }
   }
 
-  // Fallback to X-Publisher-Id header (for backward compatibility / dev)
-  const headerPublisherId = c.req.header('X-Publisher-Id');
-  if (headerPublisherId) {
-    c.set('publisherId', headerPublisherId);
-    return next();
+  // Fallback to X-Publisher-Id header (development only)
+  if (process.env.NODE_ENV === 'development') {
+    const headerPublisherId = c.req.header('X-Publisher-Id');
+    if (headerPublisherId) {
+      c.set('publisherId', headerPublisherId);
+      return next();
+    }
   }
 
-  // No auth — still allow for read-only endpoints
+  // No auth — allow read-only methods, block writes
+  const method = c.req.method;
+  if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
+    if (!c.get('publisherId')) {
+      return c.json({ error: 'Authentication required', code: 'UNAUTHORIZED' }, 401);
+    }
+  }
+
   await next();
 }

@@ -1,6 +1,12 @@
 // Task DAG — Directed Acyclic Graph for task orchestration
 // Manages task nodes with dependency tracking, status transitions, and ready-queue extraction.
 
+// ── Limits ──
+export const MAX_TASK_DEPTH = 3;
+export const MAX_SUBTASKS_PER_DECOMPOSITION = 5;
+export const MAX_TOTAL_TASKS = 200;
+export const MAX_CONCURRENT_TASKS = 20;
+
 export interface TaskNode {
   id: string;
   title: string;
@@ -11,6 +17,8 @@ export interface TaskNode {
   dependsOn: string[];
   output: string | null;
   createdAt: string;
+  depth: number;
+  parentId: string | null;
 }
 
 let idCounter = 0;
@@ -32,12 +40,34 @@ export class TaskDAG {
   /**
    * Add a new task to the DAG.
    * Returns the generated task ID.
+   * Enforces depth limits, total task limits, and validates dependencies.
    */
   addTask(task: Omit<TaskNode, 'id' | 'createdAt'>): string {
+    // Enforce total task limit
+    if (this.nodes.size >= MAX_TOTAL_TASKS) {
+      throw new Error(`Maximum total tasks (${MAX_TOTAL_TASKS}) reached. Cannot add more tasks.`);
+    }
+
+    // Calculate depth from parent
+    let depth = task.depth ?? 0;
+    if (task.parentId) {
+      const parent = this.nodes.get(task.parentId);
+      if (parent) {
+        depth = parent.depth + 1;
+      }
+    }
+
+    // Enforce depth limit
+    if (depth > MAX_TASK_DEPTH) {
+      throw new Error(`Maximum task depth (${MAX_TASK_DEPTH}) exceeded at depth ${depth}. Task: "${task.title}"`);
+    }
+
     const id = generateId();
     const node: TaskNode = {
       ...task,
       id,
+      depth,
+      parentId: task.parentId ?? null,
       createdAt: new Date().toISOString(),
     };
 
@@ -47,12 +77,6 @@ export class TaskDAG {
         throw new Error(`Dependency task "${depId}" does not exist in DAG`);
       }
     }
-
-    // Check for cycles: the new node's dependencies must not transitively depend on the new node
-    // Since the node is new (not yet in the graph), cycles can only occur if
-    // dependsOn references form a loop. Because the node ID is fresh and not
-    // referenced by any existing node, no cycle is possible at insertion time.
-    // We still validate deps exist above.
 
     this.nodes.set(id, node);
     return id;
@@ -98,6 +122,16 @@ export class TaskDAG {
    * - All dependencies have status 'completed'
    */
   getReadyTasks(): TaskNode[] {
+    // Count currently in-progress tasks
+    let inProgressCount = 0;
+    for (const node of this.nodes.values()) {
+      if (node.status === 'in_progress') inProgressCount++;
+    }
+
+    // Respect concurrent task limit
+    const availableSlots = Math.max(0, MAX_CONCURRENT_TASKS - inProgressCount);
+    if (availableSlots === 0) return [];
+
     const ready: TaskNode[] = [];
 
     for (const node of this.nodes.values()) {
@@ -123,7 +157,8 @@ export class TaskDAG {
 
     ready.sort((a, b) => (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2));
 
-    return ready;
+    // Only return up to available slots
+    return ready.slice(0, availableSlots);
   }
 
   /**
@@ -172,7 +207,7 @@ export class TaskDAG {
     const dag = new TaskDAG();
     // First pass: insert all nodes without dep validation (they reference each other)
     for (const node of nodes) {
-      dag.nodes.set(node.id, { ...node });
+      dag.nodes.set(node.id, { ...node, depth: node.depth ?? 0, parentId: node.parentId ?? null });
     }
     // Second pass: validate all dependency references exist
     for (const node of dag.nodes.values()) {

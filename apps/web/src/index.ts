@@ -36,7 +36,7 @@ app.get('/auth/success', (c) => {
 .card{background:#111827;padding:2rem;border-radius:1rem;border:1px solid rgba(34,211,238,.3);max-width:480px;text-align:center}
 h2{color:#22d3ee;margin-bottom:1rem}code{background:#0a0e17;padding:.5rem;border-radius:.25rem;display:block;margin:1rem 0;word-break:break-all;font-size:.75rem}
 a{color:#22d3ee;text-decoration:none}</style></head>
-<body><div class="card"><h2>Authenticated</h2><p>Your API token:</p><code id="token">${token}</code>
+<body><div class="card"><h2>Authenticated</h2><p>Your API token:</p><code id="token">${esc(token)}</code>
 <p style="margin-top:1rem;font-size:.875rem;color:#9ca3af">Use this token in the <code style="display:inline;padding:.125rem .25rem">Authorization: Bearer &lt;token&gt;</code> header.</p>
 <p style="margin-top:1rem"><a href="/dashboard">Go to Dashboard</a></p></div></body></html>`);
 });

@@ -9,16 +9,17 @@ export function storeEpisode(
   agentId: string,
   content: string,
   importance: number,
-  contextTags: string[]
+  contextTags: string[],
+  tainted: boolean = false,
 ): Episode {
   const id = crypto.randomUUID();
   const created_at = new Date().toISOString();
   const tagsJson = JSON.stringify(contextTags);
 
   db.run(
-    `INSERT INTO episodes (id, agent_id, content, importance, context_tags, created_at, archived)
-     VALUES (?, ?, ?, ?, ?, ?, 0)`,
-    [id, agentId, content, importance, tagsJson, created_at]
+    `INSERT INTO episodes (id, agent_id, content, importance, context_tags, created_at, archived, tainted)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+    [id, agentId, content, importance, tagsJson, created_at, tainted ? 1 : 0]
   );
 
   return {
@@ -29,6 +30,7 @@ export function storeEpisode(
     context_tags: contextTags,
     created_at,
     archived: false,
+    tainted,
   };
 }
 
@@ -61,12 +63,12 @@ export function recallEpisodes(
 
   const whereClause = conditions.join(" AND ");
 
-  // Score = importance * recency_factor
+  // Score = importance * recency_factor (tainted content deprioritized)
   // Recency: episodes from the last hour get full weight, older ones decay
   const query = `
     SELECT
-      id, agent_id, content, importance, context_tags, created_at, archived,
-      (importance * (1.0 / (1.0 + (julianday('now') - julianday(created_at)) * 24.0))) AS score
+      id, agent_id, content, importance, context_tags, created_at, archived, tainted,
+      (importance * (1.0 / (1.0 + (julianday('now') - julianday(created_at)) * 24.0)) * CASE WHEN tainted = 1 THEN 0.5 ELSE 1.0 END) AS score
     FROM episodes
     WHERE ${whereClause}
     ORDER BY score DESC
@@ -83,6 +85,7 @@ export function recallEpisodes(
     context_tags: string;
     created_at: string;
     archived: number;
+    tainted: number;
     score: number;
   }>;
 
@@ -94,6 +97,7 @@ export function recallEpisodes(
     context_tags: JSON.parse(row.context_tags) as string[],
     created_at: row.created_at,
     archived: row.archived === 1,
+    tainted: row.tainted === 1,
   }));
 
   // Filter by tags in application code (JSON array matching)

@@ -1,7 +1,11 @@
 // Percival Labs - JWT Token Management
 // Lightweight JWT using Hono's built-in jwt helper
 
-const JWT_SECRET = process.env.JWT_SECRET || 'percival-labs-dev-secret-change-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET environment variable is required. Exiting.');
+  process.exit(1);
+}
 const TOKEN_EXPIRY_HOURS = 24 * 7; // 7 days
 
 export interface TokenPayload {

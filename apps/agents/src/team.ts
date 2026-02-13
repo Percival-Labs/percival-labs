@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Database } from 'bun:sqlite';
 import { loadIdentities, type AgentIdentity } from './identity/loader';
-import { TaskDAG, type TaskNode } from './tasks/dag';
+import { TaskDAG, type TaskNode, MAX_SUBTASKS_PER_DECOMPOSITION } from './tasks/dag';
 import { matchTaskToAgent } from './tasks/scheduler';
 import { executeAgentTask, type AgentExecutionResult } from './agent';
 import { initMemoryDatabase } from '@percival/agent-memory';
@@ -17,6 +17,7 @@ import { eventBus } from './events';
 import { initAffinityTable, getAllAffinities } from './rpg/affinity';
 import { getAllRPGProfiles } from './rpg/stats';
 import type { RPGProfile, AffinityPair } from './rpg/types';
+import { BudgetTracker } from './policy/budget';
 
 /**
  * Parse the coordinator's decomposition response into subtask definitions.
@@ -53,6 +54,8 @@ function parseDecomposition(
             assignedTo: null,
             dependsOn: [],
             output: null,
+            depth: 0,       // Will be overridden by caller
+            parentId: null,  // Will be overridden by caller
           });
         }
       }
@@ -76,6 +79,8 @@ function parseDecomposition(
         assignedTo: null,
         dependsOn: [],
         output: null,
+        depth: 0,
+        parentId: null,
       });
     }
   }
@@ -90,6 +95,8 @@ function parseDecomposition(
       assignedTo: null,
       dependsOn: [],
       output: null,
+      depth: 0,
+      parentId: null,
     });
   }
 
@@ -151,10 +158,22 @@ export class AgentTeam {
   private coordinator: AgentIdentity | null;
   private memoryDb: Database | null = null;
   private tickCount = 0;
+  private budget: BudgetTracker;
 
   constructor(identitiesDir: string) {
     this.identities = loadIdentities(identitiesDir);
     this.dag = new TaskDAG();
+
+    // Initialize budget tracker
+    this.budget = new BudgetTracker();
+    this.budget.on('budget_warning', (data) => {
+      console.warn(`[budget] WARNING: ${(data.percentage * 100).toFixed(0)}% of daily budget used ($${data.current.toFixed(4)}/$${data.limit.toFixed(2)})`);
+      eventBus.publish('budget_warning', data);
+    });
+    this.budget.on('budget_exhausted', (data) => {
+      console.error(`[budget] EXHAUSTED: Daily budget reached ($${data.current.toFixed(4)}/$${data.limit.toFixed(2)})`);
+      eventBus.publish('budget_exhausted', data);
+    });
 
     // Find the coordinator identity
     this.coordinator = this.identities.find(
@@ -253,6 +272,8 @@ export class AgentTeam {
       assignedTo: this.coordinator?.name || null,
       dependsOn: [],
       output: null,
+      depth: 0,
+      parentId: null,
     });
 
     eventBus.publish('task_submitted', {
@@ -284,11 +305,12 @@ export class AgentTeam {
           ].join('\n'),
         );
 
-        const subtaskDefs = parseDecomposition(decompositionResult.output, parentId);
+        const subtaskDefs = parseDecomposition(decompositionResult.output, parentId)
+          .slice(0, MAX_SUBTASKS_PER_DECOMPOSITION); // Cap subtask count
 
         const subtaskIds: string[] = [];
         for (const def of subtaskDefs) {
-          const subId = this.dag.addTask(def);
+          const subId = this.dag.addTask({ ...def, depth: 1, parentId });
           subtaskIds.push(subId);
         }
 
@@ -424,6 +446,24 @@ export class AgentTeam {
       } catch { /* non-critical */ }
     }
 
+    // Budget check before execution
+    const budgetCheck = this.budget.canExecute(task.id);
+    if (!budgetCheck.allowed) {
+      console.warn(`[team] Budget blocked task "${task.id}": ${budgetCheck.reason}`);
+      this.dag.updateTask(task.id, { status: 'blocked', output: `Budget: ${budgetCheck.reason}` });
+      eventBus.publish('task_budget_blocked', { taskId: task.id, reason: budgetCheck.reason });
+      return {
+        agentName: agent.name,
+        taskId: task.id,
+        output: `Budget blocked: ${budgetCheck.reason}`,
+        success: false,
+        duration: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        model: '',
+      };
+    }
+
     // Assemble memory context
     let memoryContext = '';
     if (this.memoryDb) {
@@ -442,6 +482,11 @@ export class AgentTeam {
       task,
       memoryContext,
     );
+
+    // Record budget usage
+    if (result.inputTokens > 0 || result.outputTokens > 0) {
+      this.budget.record(task.id, result.model, result.inputTokens, result.outputTokens);
+    }
 
     // Update DAG with result
     this.dag.updateTask(task.id, {
@@ -537,5 +582,12 @@ export class AgentTeam {
   getAffinities(): AffinityPair[] {
     if (!this.memoryDb) return [];
     return getAllAffinities(this.memoryDb);
+  }
+
+  /**
+   * Get current budget status.
+   */
+  getBudgetStatus() {
+    return this.budget.getStatus();
   }
 }

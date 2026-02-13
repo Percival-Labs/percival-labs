@@ -10,7 +10,8 @@ export function learnFact(
   confidence: number,
   source: string,
   contextTags: string[],
-  agentId?: string | null
+  agentId?: string | null,
+  tainted: boolean = false,
 ): Fact {
   const id = crypto.randomUUID();
   const created_at = new Date().toISOString();
@@ -18,9 +19,9 @@ export function learnFact(
   const resolvedAgentId = agentId ?? null;
 
   db.run(
-    `INSERT INTO facts (id, agent_id, content, confidence, source, context_tags, created_at, archived)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-    [id, resolvedAgentId, content, confidence, source, tagsJson, created_at]
+    `INSERT INTO facts (id, agent_id, content, confidence, source, context_tags, created_at, archived, tainted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+    [id, resolvedAgentId, content, confidence, source, tagsJson, created_at, tainted ? 1 : 0]
   );
 
   return {
@@ -32,6 +33,7 @@ export function learnFact(
     context_tags: contextTags,
     created_at,
     archived: false,
+    tainted,
   };
 }
 
@@ -69,7 +71,7 @@ export function recallFacts(
   const whereClause = conditions.join(" AND ");
 
   const query = `
-    SELECT id, agent_id, content, confidence, source, context_tags, created_at, archived
+    SELECT id, agent_id, content, confidence, source, context_tags, created_at, archived, tainted
     FROM facts
     WHERE ${whereClause}
     ORDER BY confidence DESC, created_at DESC
@@ -87,6 +89,7 @@ export function recallFacts(
     context_tags: string;
     created_at: string;
     archived: number;
+    tainted: number;
   }>;
 
   let facts: Fact[] = rows.map((row) => ({
@@ -98,6 +101,7 @@ export function recallFacts(
     context_tags: JSON.parse(row.context_tags) as string[],
     created_at: row.created_at,
     archived: row.archived === 1,
+    tainted: row.tainted === 1,
   }));
 
   // Filter by tags in application code

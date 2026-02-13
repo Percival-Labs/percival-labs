@@ -11,6 +11,9 @@ export interface AgentExecutionResult {
   output: string;
   success: boolean;
   duration: number;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
 }
 
 /**
@@ -119,6 +122,9 @@ export async function executeAgentTask(
       output,
       success: true,
       duration,
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+      model,
     };
   } catch (err) {
     const duration = Date.now() - startTime;
@@ -132,6 +138,9 @@ export async function executeAgentTask(
       output: `Error: ${errorMessage}`,
       success: false,
       duration,
+      inputTokens: 0,
+      outputTokens: 0,
+      model,
     };
   }
 }

@@ -192,7 +192,7 @@ export function skillRoutes(db: Database): Hono {
 
   // POST /v1/skills — Create a new skill
   app.post('/', async (c) => {
-    const publisherId = c.get('publisherId') || c.req.header('X-Publisher-Id');
+    const publisherId = c.get('publisherId');
     if (!publisherId) {
       return c.json({ error: 'Authentication required', code: 'UNAUTHORIZED' }, 401);
     }
@@ -239,7 +239,7 @@ export function skillRoutes(db: Database): Hono {
 
   // PUT /v1/skills/:slug/versions/:version — Publish a version
   app.put('/:slug/versions/:version', async (c) => {
-    const publisherId = c.get('publisherId') || c.req.header('X-Publisher-Id');
+    const publisherId = c.get('publisherId');
     if (!publisherId) {
       return c.json({ error: 'Authentication required', code: 'UNAUTHORIZED' }, 401);
     }

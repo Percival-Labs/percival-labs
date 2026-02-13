@@ -1,0 +1,31 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lock* ./
+COPY apps/website/package.json apps/website/
+RUN bun install --frozen-lockfile || bun install
+
+# Copy source
+COPY apps/website/ apps/website/
+COPY tsconfig.json ./
+
+# Build
+RUN cd apps/website && bun run build
+
+# Production
+FROM oven/bun:1 AS runner
+WORKDIR /app
+
+COPY --from=base /app/apps/website/.next/standalone ./
+COPY --from=base /app/apps/website/.next/static apps/website/.next/static
+COPY --from=base /app/apps/website/public apps/website/public
+
+# Non-root user
+RUN addgroup --system percival && \
+    adduser --system --ingroup percival percival && \
+    chown -R percival:percival /app
+USER percival
+EXPOSE 3400
+ENV PORT=3400
+CMD ["bun", "run", "apps/website/server.js"]

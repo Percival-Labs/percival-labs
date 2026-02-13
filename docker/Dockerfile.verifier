@@ -12,7 +12,11 @@ COPY packages/shared/ packages/shared/
 COPY packages/db/ packages/db/
 COPY apps/verifier/ apps/verifier/
 COPY tsconfig.json ./
-# Create data dir
-RUN mkdir -p data
+# Create data dir and non-root user
+RUN mkdir -p data && \
+    addgroup --system percival && \
+    adduser --system --ingroup percival percival && \
+    chown -R percival:percival /app
+USER percival
 EXPOSE 3300
 CMD ["bun", "run", "apps/verifier/src/index.ts"]

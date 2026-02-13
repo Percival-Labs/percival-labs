@@ -8,13 +8,16 @@ export type AgentEventType =
   | 'task_submitted'
   | 'task_decomposed'
   | 'task_assigned'
+  | 'task_budget_blocked'
   | 'agent_started'
   | 'agent_completed'
   | 'agent_failed'
   | 'tick_started'
   | 'tick_completed'
   | 'auto_tick_started'
-  | 'auto_tick_stopped';
+  | 'auto_tick_stopped'
+  | 'budget_warning'
+  | 'budget_exhausted';
 
 export interface AgentEvent {
   id: string;

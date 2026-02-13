@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS episodes (
   context_tags TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   archived INTEGER NOT NULL DEFAULT 0,
+  tainted INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 `;
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS facts (
   context_tags TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   archived INTEGER NOT NULL DEFAULT 0,
+  tainted INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 `;
@@ -108,6 +110,22 @@ CREATE TABLE IF NOT EXISTS compaction_log (
 );
 `;
 
+// ── Migration: Add tainted column to existing DBs ──
+function migrateTaintedColumn(db: Database): void {
+  // Check if episodes already has tainted column
+  const episodeCols = db.query("PRAGMA table_info(episodes)").all() as Array<{ name: string }>;
+  if (!episodeCols.some(c => c.name === 'tainted')) {
+    db.exec("ALTER TABLE episodes ADD COLUMN tainted INTEGER NOT NULL DEFAULT 0");
+    console.log('[schema] Migrated: added tainted column to episodes');
+  }
+
+  const factCols = db.query("PRAGMA table_info(facts)").all() as Array<{ name: string }>;
+  if (!factCols.some(c => c.name === 'tainted')) {
+    db.exec("ALTER TABLE facts ADD COLUMN tainted INTEGER NOT NULL DEFAULT 0");
+    console.log('[schema] Migrated: added tainted column to facts');
+  }
+}
+
 const INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_episodes_agent ON episodes(agent_id);",
   "CREATE INDEX IF NOT EXISTS idx_episodes_importance ON episodes(importance);",
@@ -124,6 +142,8 @@ const INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);",
   "CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);",
   "CREATE INDEX IF NOT EXISTS idx_compaction_agent ON compaction_log(agent_id);",
+  "CREATE INDEX IF NOT EXISTS idx_episodes_tainted ON episodes(tainted);",
+  "CREATE INDEX IF NOT EXISTS idx_facts_tainted ON facts(tainted);",
 ];
 
 export function initMemoryDatabase(dbPath: string): Database {
@@ -145,6 +165,9 @@ export function initMemoryDatabase(dbPath: string): Database {
   db.exec(CREATE_DECISIONS);
   db.exec(CREATE_TASKS);
   db.exec(CREATE_COMPACTION_LOG);
+
+  // Run migrations for existing DBs
+  migrateTaintedColumn(db);
 
   // Create indexes
   for (const idx of INDEXES) {

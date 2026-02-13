@@ -12,7 +12,11 @@ COPY packages/shared/ packages/shared/
 COPY packages/db/ packages/db/
 COPY apps/registry/ apps/registry/
 COPY tsconfig.json ./
-# Create data dir
-RUN mkdir -p data
+# Create data dir and non-root user
+RUN mkdir -p data && \
+    addgroup --system percival && \
+    adduser --system --ingroup percival percival && \
+    chown -R percival:percival /app
+USER percival
 EXPOSE 3100
 CMD ["bun", "run", "apps/registry/src/index.ts"]

@@ -1,0 +1,31 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lock* ./
+COPY apps/roundtable/package.json apps/roundtable/
+RUN bun install --frozen-lockfile || bun install
+
+# Copy source
+COPY apps/roundtable/ apps/roundtable/
+COPY tsconfig.json ./
+
+# Build
+RUN cd apps/roundtable && bun run build
+
+# Production
+FROM oven/bun:1 AS runner
+WORKDIR /app
+
+COPY --from=base /app/apps/roundtable/.next/standalone ./
+COPY --from=base /app/apps/roundtable/.next/static apps/roundtable/.next/static
+COPY --from=base /app/apps/roundtable/public apps/roundtable/public
+
+# Non-root user
+RUN addgroup --system percival && \
+    adduser --system --ingroup percival percival && \
+    chown -R percival:percival /app
+USER percival
+EXPOSE 3600
+ENV PORT=3600
+CMD ["bun", "run", "apps/roundtable/server.js"]
