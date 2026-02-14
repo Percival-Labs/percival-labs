@@ -12,10 +12,7 @@ COPY packages/roundtable-db/ packages/roundtable-db/
 COPY apps/roundtable-api/ apps/roundtable-api/
 COPY tsconfig.json ./
 
-# Non-root user
-RUN addgroup --system percival && \
-    adduser --system --ingroup percival percival && \
-    chown -R percival:percival /app
-USER percival
+# Use built-in non-root user
+USER bun
 EXPOSE 3601
 CMD ["bun", "run", "apps/roundtable-api/src/index.ts"]

@@ -98,6 +98,24 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 `;
 
+const CREATE_ARTICLES = `
+CREATE TABLE IF NOT EXISTS articles (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  title TEXT,
+  content TEXT,
+  summary TEXT,
+  apply_analysis TEXT,
+  signal_analysis TEXT,
+  score INTEGER CHECK(score >= 1 AND score <= 10),
+  route TEXT CHECK(route IN ('morning', 'night', 'archive')),
+  discord_message_id TEXT,
+  source_channel TEXT,
+  processed_at TEXT NOT NULL,
+  feedback TEXT
+);
+`;
+
 const CREATE_COMPACTION_LOG = `
 CREATE TABLE IF NOT EXISTS compaction_log (
   id TEXT PRIMARY KEY,
@@ -144,6 +162,10 @@ const INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_compaction_agent ON compaction_log(agent_id);",
   "CREATE INDEX IF NOT EXISTS idx_episodes_tainted ON episodes(tainted);",
   "CREATE INDEX IF NOT EXISTS idx_facts_tainted ON facts(tainted);",
+  "CREATE INDEX IF NOT EXISTS idx_articles_score ON articles(score);",
+  "CREATE INDEX IF NOT EXISTS idx_articles_route ON articles(route);",
+  "CREATE INDEX IF NOT EXISTS idx_articles_processed ON articles(processed_at);",
+  "CREATE INDEX IF NOT EXISTS idx_articles_url ON articles(url);",
 ];
 
 export function initMemoryDatabase(dbPath: string): Database {
@@ -164,6 +186,7 @@ export function initMemoryDatabase(dbPath: string): Database {
   db.exec(CREATE_PROJECT_STATE);
   db.exec(CREATE_DECISIONS);
   db.exec(CREATE_TASKS);
+  db.exec(CREATE_ARTICLES);
   db.exec(CREATE_COMPACTION_LOG);
 
   // Run migrations for existing DBs

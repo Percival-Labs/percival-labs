@@ -7,16 +7,14 @@ COPY packages/db/package.json packages/db/
 COPY apps/registry/package.json apps/registry/
 # Install
 RUN bun install --frozen-lockfile || bun install
-# Copy source
+# Copy source (registry imports from verifier via relative paths)
 COPY packages/shared/ packages/shared/
 COPY packages/db/ packages/db/
 COPY apps/registry/ apps/registry/
+COPY apps/verifier/ apps/verifier/
 COPY tsconfig.json ./
-# Create data dir and non-root user
-RUN mkdir -p data && \
-    addgroup --system percival && \
-    adduser --system --ingroup percival percival && \
-    chown -R percival:percival /app
-USER percival
+# Create data dir and use built-in non-root user
+RUN mkdir -p data && chown -R bun:bun /app
+USER bun
 EXPOSE 3100
 CMD ["bun", "run", "apps/registry/src/index.ts"]

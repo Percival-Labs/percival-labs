@@ -1,0 +1,19 @@
+{
+  "name": "@percival/discord",
+  "version": "0.1.0",
+  "private": true,
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@percival/shared": "workspace:*",
+    "@percival/agent-memory": "workspace:*",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "discord.js": "^14.16.0",
+    "@mozilla/readability": "^0.5.0",
+    "linkedom": "^0.18.0"
+  }
+}

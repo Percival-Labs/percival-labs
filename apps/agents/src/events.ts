@@ -17,7 +17,10 @@ export type AgentEventType =
   | 'auto_tick_started'
   | 'auto_tick_stopped'
   | 'budget_warning'
-  | 'budget_exhausted';
+  | 'budget_exhausted'
+  | 'proposal_created'
+  | 'proposal_approved'
+  | 'proposal_rejected';
 
 export interface AgentEvent {
   id: string;

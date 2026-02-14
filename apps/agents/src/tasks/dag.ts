@@ -12,7 +12,7 @@ export interface TaskNode {
   title: string;
   description: string;
   priority: 'critical' | 'high' | 'medium' | 'low';
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'awaiting_approval';
   assignedTo: string | null;
   dependsOn: string[];
   output: string | null;

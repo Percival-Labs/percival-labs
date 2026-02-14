@@ -11,10 +11,8 @@ COPY packages/db/ packages/db/
 COPY packages/agent-memory/ packages/agent-memory/
 COPY apps/agents/ apps/agents/
 COPY tsconfig.json ./
-RUN mkdir -p data && \
-    addgroup --system percival && \
-    adduser --system --ingroup percival percival && \
-    chown -R percival:percival /app
-USER percival
+# Create data dir and use built-in non-root user
+RUN mkdir -p data && chown -R bun:bun /app
+USER bun
 EXPOSE 3200
 CMD ["bun", "run", "apps/agents/src/index.ts"]

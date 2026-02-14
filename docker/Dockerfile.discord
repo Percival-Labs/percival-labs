@@ -1,0 +1,21 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lock* ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/agent-memory/package.json packages/agent-memory/
+COPY apps/discord/package.json apps/discord/
+RUN bun install --frozen-lockfile || bun install
+
+# Copy source
+COPY packages/shared/ packages/shared/
+COPY packages/agent-memory/ packages/agent-memory/
+COPY apps/discord/ apps/discord/
+COPY tsconfig.json ./
+
+# Create data dir and use built-in non-root user
+RUN mkdir -p data && chown -R bun:bun /app
+USER bun
+
+CMD ["bun", "run", "apps/discord/src/index.ts"]

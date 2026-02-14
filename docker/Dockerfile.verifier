@@ -12,11 +12,8 @@ COPY packages/shared/ packages/shared/
 COPY packages/db/ packages/db/
 COPY apps/verifier/ apps/verifier/
 COPY tsconfig.json ./
-# Create data dir and non-root user
-RUN mkdir -p data && \
-    addgroup --system percival && \
-    adduser --system --ingroup percival percival && \
-    chown -R percival:percival /app
-USER percival
+# Create data dir and use built-in non-root user
+RUN mkdir -p data && chown -R bun:bun /app
+USER bun
 EXPOSE 3300
 CMD ["bun", "run", "apps/verifier/src/index.ts"]

@@ -1,0 +1,15 @@
+{
+  "name": "Percival Labs",
+  "type": "monorepo",
+  "status": "active",
+  "phase": "building",
+  "focus": "Round Table platform + Website + Terrarium polish",
+  "description": "AI agent platform — 6 agents, Docker services, terrarium visualization, Round Table forum, marketing website",
+  "ports": {
+    "agents": 3200,
+    "website": 3400,
+    "terrarium": 3500,
+    "roundtable": 3600,
+    "roundtable-api": 3601
+  }
+}

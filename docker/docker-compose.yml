@@ -75,12 +75,29 @@ services:
       registry:
         condition: service_healthy
 
-  # web: (deprecated — replaced by website service)
-  #   build:
-  #     context: ..
-  #     dockerfile: docker/Dockerfile.web
-  #   ports:
-  #     - "127.0.0.1:3400:3400"
+  discord:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.discord
+    volumes:
+      - agents-data:/app/data
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
+      - ANTHROPIC_API_KEY=${PERCIVAL_API_KEY}
+      - DB_PATH=/app/data/agent-memory.db
+      - AGENTS_URL=http://agents:3200
+      - AGENTS_API_KEY=${AGENTS_API_KEY}
+    networks:
+      - internal
+      - public
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    depends_on:
+      agents:
+        condition: service_healthy
 
   website:
     build:
@@ -90,7 +107,10 @@ services:
       - "127.0.0.1:3400:3400"
     environment:
       - PORT=3400
+      - HOSTNAME=0.0.0.0
       - AGENTS_API_KEY=${AGENTS_API_KEY}
+      - REGISTRY_URL=http://registry:3100
+      - AGENTS_URL=http://agents:3200
     networks:
       - internal
       - public
@@ -103,6 +123,27 @@ services:
         condition: service_healthy
       agents:
         condition: service_started
+
+  terrarium:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.terrarium
+    ports:
+      - "127.0.0.1:3500:3500"
+    environment:
+      - PORT=3500
+      - AGENTS_URL=http://agents:3200
+      - AGENTS_API_KEY=${AGENTS_API_KEY}
+    networks:
+      - internal
+      - public
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    depends_on:
+      agents:
+        condition: service_healthy
 
   roundtable-db:
     image: postgres:16-alpine
@@ -130,7 +171,9 @@ services:
       - "127.0.0.1:3600:3600"
     environment:
       - PORT=3600
+      - HOSTNAME=0.0.0.0
       - DATABASE_URL=postgresql://percival:percival-local-dev@roundtable-db:5432/roundtable
+      - ROUNDTABLE_API_URL=http://roundtable-api:3601
     networks:
       - internal
       - public

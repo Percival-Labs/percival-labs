@@ -1,0 +1,16 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lock* ./
+COPY apps/terrarium/package.json apps/terrarium/
+RUN bun install --frozen-lockfile || bun install
+
+# Copy source
+COPY apps/terrarium/ apps/terrarium/
+COPY tsconfig.json ./
+
+# Use built-in non-root user
+USER bun
+EXPOSE 3500
+CMD ["bun", "run", "apps/terrarium/src/index.ts"]

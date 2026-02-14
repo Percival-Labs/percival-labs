@@ -102,6 +102,7 @@ app.post('/v1/agents/tasks', async (c) => {
       title?: string;
       description?: string;
       priority?: string;
+      requireApproval?: boolean;
     }>();
 
     if (!body.title || !body.description) {
@@ -115,7 +116,7 @@ app.post('/v1/agents/tasks', async (c) => {
       title: body.title,
       description: body.description,
       priority: body.priority,
-    });
+    }, { requireApproval: body.requireApproval ?? false });
 
     const task = team.getTaskStatus(taskId);
 
@@ -187,6 +188,7 @@ app.get('/v1/agents/status', (c) => {
     in_progress: dagTasks.filter(t => t.status === 'in_progress').length,
     completed: dagTasks.filter(t => t.status === 'completed').length,
     blocked: dagTasks.filter(t => t.status === 'blocked').length,
+    awaiting_approval: dagTasks.filter(t => t.status === 'awaiting_approval').length,
   };
 
   return c.json({
@@ -274,6 +276,48 @@ app.get('/v1/agents/tasks', (c) => {
 // ── GET /v1/agents/budget — Current budget status ──
 app.get('/v1/agents/budget', (c) => {
   return c.json(team.getBudgetStatus());
+});
+
+// ── GET /v1/agents/proposals — Pending proposals awaiting approval ──
+app.get('/v1/agents/proposals', (c) => {
+  const proposals = team.getPendingProposals();
+  return c.json({
+    proposals: proposals.map(p => ({
+      parentId: p.parent.id,
+      title: p.parent.title,
+      description: p.parent.description,
+      priority: p.parent.priority,
+      subtasks: p.subtasks.map(s => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        assignedTo: s.assignedTo,
+      })),
+    })),
+    total: proposals.length,
+  });
+});
+
+// ── POST /v1/agents/proposals/:id/approve — Approve a proposal ──
+app.post('/v1/agents/proposals/:id/approve', (c) => {
+  const id = c.req.param('id');
+  const task = team.getTaskStatus(id);
+  if (!task) {
+    return c.json({ error: `Task "${id}" not found` }, 404);
+  }
+  team.approveProposal(id);
+  return c.json({ message: 'Proposal approved', parentId: id });
+});
+
+// ── POST /v1/agents/proposals/:id/reject — Reject a proposal ──
+app.post('/v1/agents/proposals/:id/reject', (c) => {
+  const id = c.req.param('id');
+  const task = team.getTaskStatus(id);
+  if (!task) {
+    return c.json({ error: `Task "${id}" not found` }, 404);
+  }
+  team.rejectProposal(id);
+  return c.json({ message: 'Proposal rejected', parentId: id });
 });
 
 // ── GET /v1/agents/rpg-stats — RPG character stats for all agents ──

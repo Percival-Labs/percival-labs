@@ -1,10 +1,14 @@
 import { resolve } from "path";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { terrariumPage } from "./terrarium.ts";
 import { EventProxy } from "./event-proxy.ts";
 
 const app = new Hono();
+
+// Allow iframe embedding from website (port 3400) and other local services
+app.use("*", cors());
 const PORT = Number(process.env.PORT ?? 3500);
 const APP_ROOT = resolve(import.meta.dirname, "..");
 const AGENTS_URL = process.env.AGENTS_URL ?? "http://localhost:3200";

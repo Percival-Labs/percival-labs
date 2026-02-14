@@ -258,7 +258,7 @@ export class AgentTeam {
     title: string;
     description: string;
     priority?: string;
-  }): Promise<string> {
+  }, options?: { requireApproval?: boolean }): Promise<string> {
     const priority = (['critical', 'high', 'medium', 'low'].includes(input.priority || '')
       ? input.priority
       : 'medium') as TaskNode['priority'];
@@ -308,9 +308,12 @@ export class AgentTeam {
         const subtaskDefs = parseDecomposition(decompositionResult.output, parentId)
           .slice(0, MAX_SUBTASKS_PER_DECOMPOSITION); // Cap subtask count
 
+        const requireApproval = options?.requireApproval ?? false;
+        const subtaskStatus = requireApproval ? 'awaiting_approval' : 'pending';
+
         const subtaskIds: string[] = [];
         for (const def of subtaskDefs) {
-          const subId = this.dag.addTask({ ...def, depth: 1, parentId });
+          const subId = this.dag.addTask({ ...def, status: subtaskStatus, depth: 1, parentId });
           subtaskIds.push(subId);
         }
 
@@ -325,6 +328,19 @@ export class AgentTeam {
           subtaskIds,
           subtaskCount: subtaskIds.length,
         });
+
+        if (requireApproval) {
+          const subtaskDetails = subtaskIds.map(id => {
+            const t = this.dag.getTask(id);
+            return { id, title: t?.title, description: t?.description, assignedTo: t?.assignedTo };
+          });
+          eventBus.publish('proposal_created', {
+            parentId,
+            title: input.title,
+            description: input.description,
+            subtasks: subtaskDetails,
+          });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[team] Coordinator decomposition failed:', msg);
@@ -542,6 +558,67 @@ export class AgentTeam {
     }
 
     return result;
+  }
+
+  /**
+   * Approve a proposal — flip all awaiting_approval subtasks under parentId to pending.
+   */
+  approveProposal(parentId: string): void {
+    const allTasks = this.dag.getAllTasks();
+    let flipped = 0;
+    for (const task of allTasks) {
+      if (task.parentId === parentId && task.status === 'awaiting_approval') {
+        this.dag.updateTask(task.id, { status: 'pending' });
+        flipped++;
+      }
+    }
+    eventBus.publish('proposal_approved', { parentId, subtasksApproved: flipped });
+  }
+
+  /**
+   * Reject a proposal — block all subtasks and mark parent output as rejected.
+   */
+  rejectProposal(parentId: string): void {
+    const allTasks = this.dag.getAllTasks();
+    let flipped = 0;
+    for (const task of allTasks) {
+      if (task.parentId === parentId && task.status === 'awaiting_approval') {
+        this.dag.updateTask(task.id, { status: 'blocked', output: 'Rejected by human' });
+        flipped++;
+      }
+    }
+    const parent = this.dag.getTask(parentId);
+    if (parent) {
+      this.dag.updateTask(parentId, { output: `Rejected by human (${flipped} subtasks blocked)` });
+    }
+    eventBus.publish('proposal_rejected', { parentId, subtasksRejected: flipped });
+  }
+
+  /**
+   * Get all parent tasks that have children in awaiting_approval status.
+   */
+  getPendingProposals(): Array<{ parent: TaskNode; subtasks: TaskNode[] }> {
+    const allTasks = this.dag.getAllTasks();
+    const awaitingByParent = new Map<string, TaskNode[]>();
+
+    for (const task of allTasks) {
+      if (task.status === 'awaiting_approval' && task.parentId) {
+        if (!awaitingByParent.has(task.parentId)) {
+          awaitingByParent.set(task.parentId, []);
+        }
+        awaitingByParent.get(task.parentId)!.push(task);
+      }
+    }
+
+    const proposals: Array<{ parent: TaskNode; subtasks: TaskNode[] }> = [];
+    for (const [parentId, subtasks] of awaitingByParent) {
+      const parent = this.dag.getTask(parentId);
+      if (parent) {
+        proposals.push({ parent, subtasks });
+      }
+    }
+
+    return proposals;
   }
 
   /**

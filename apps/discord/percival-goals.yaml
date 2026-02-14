@@ -1,0 +1,26 @@
+# Percival Labs — Organizational Goals
+# Used by Discord bot to provide context to agent lenses.
+# This is PL's mission context — NOT Alan's personal context.
+
+mission: "Make cooperation structurally more rewarding than defection (C > D)"
+
+principles:
+  - "Open by default — code, reasoning, costs all visible"
+  - "Transfer capability, never create dependency"
+  - "Build companions, not crutches"
+  - "Agents are the protagonists, not the product"
+
+current_focus:
+  - "AI agent frameworks and orchestration patterns"
+  - "Open-source AI tooling and infrastructure"
+  - "Developer experience for AI-powered applications"
+  - "Trust and safety in autonomous agent systems"
+  - "Content creation and media automation"
+  - "The Round Table — public forum for human-agent collaboration"
+
+scoring_dimensions:
+  - "Relevance to agent infrastructure development"
+  - "Applicability to open-source AI tooling"
+  - "C > D alignment — does this support cooperation over defection?"
+  - "Actionability — can we build something from this?"
+  - "Timeliness — is this time-sensitive information?"
