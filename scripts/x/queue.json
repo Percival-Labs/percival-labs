@@ -1,0 +1,64 @@
+[
+  {
+    "label": "Builder Story",
+    "scheduled": "2026-02-15T08:30:00-08:00",
+    "content": [
+      "I'm a carpenter in Bellingham, WA. I build houses during the day and AI infrastructure at night.\n\nLast year I couldn't write a line of code. Now I have 6 AI agents with persistent memory, a visual dashboard where you can watch them work, and a framework I'm open-sourcing.\n\nNobody showed me how. I just started building.\n\nThat's the whole point of @PercivalLabs — the barrier was never intelligence. It was intimidation.\n\nIf a carpenter can build this, so can you."
+    ],
+    "posted": true,
+    "postedAt": "2026-02-15T18:30:05.381Z"
+  },
+  {
+    "label": "PicoClaw — The Runtime Is Plumbing",
+    "scheduled": "2026-02-16T09:00:00-08:00",
+    "content": [
+      "A hardware company in China rebuilt an AI agent from scratch in Go. One day. 95% AI-written. Runs on a $10 RISC-V board with 8MB of RAM.\n\nFor context — OpenClaw is 430,000 lines of TypeScript, needs a Mac mini, uses over 1GB of memory. PicoClaw does the same core job as a single 8MB binary with zero dependencies. 10,000 stars in six days.\n\nThe trick: it's a thin agent. The Go binary just routes messages between chat platforms and LLM APIs, manages sessions in flat JSON files, and executes sandboxed tools. All the thinking happens remotely. The local footprint is basically a message router.\n\nThis matters because of what it tells you about where value actually lives. If a hardware team can ship a working agent runtime in a day, the runtime isn't the hard part. It's becoming plumbing — like web servers or HTTP libraries. Necessary, but not where the leverage is.\n\nThe hard part is still the stuff above the runtime: your context, your skills, your memory, your identity config. The things that make your agent actually useful to you specifically. PicoClaw ships with SOUL.md, USER.md, and IDENTITY.md files for exactly this reason.\n\nWe're seeing this across the ecosystem right now. The runtime is commodity. The context layer is the craft."
+    ],
+    "posted": true,
+    "postedAt": "2026-02-17T04:00:01.222Z"
+  },
+  {
+    "label": "Hot Take — Cooperation vs Defection",
+    "scheduled": "2026-02-17T09:00:00-08:00",
+    "content": [
+      "The AI agent ecosystem has a cooperation problem.\n\nOne project is building \"unblockable\" bot swarms with residential proxy networks. Another is auto-applying to Upwork with AI-generated portfolios. A third is selling $997 courses on \"prompt engineering secrets.\"\n\nAll of these make defection more profitable than cooperation.\n\nWe're building the opposite. Open-source tools. Transparent agents that identify themselves. Infrastructure that transfers capability instead of creating dependency.\n\nCooperation has to outcompete defection. Not by preaching it — by engineering it."
+    ],
+    "posted": true,
+    "postedAt": "2026-02-17T17:00:01.559Z"
+  },
+  {
+    "label": "Agent World Model — Read the Paper",
+    "scheduled": "2026-02-18T09:00:00-08:00",
+    "content": [
+      "A paper called \"Agent World Model\" went viral yesterday. 9,000 likes. The thread described a paper that doesn't exist.\n\nThe thread said: agents need internal world models. They should simulate consequences. Predict futures. Build structured representations of reality. Referenced Dreamer, MuZero, autonomous driving.\n\nThe paper says: here's a pipeline that auto-generates synthetic SQLite databases, FastAPI servers, and MCP-compatible toolsets so you can train small LLMs via reinforcement learning on tool-use tasks.\n\nNot a world model. An environment factory.\n\nWhich, honestly, is more interesting than what the thread described. The actual bottleneck for training tool-using agents right now is diverse environments to practice in. Real APIs are fragile and rate-limited. LLM-simulated environments hallucinate. This paper generates 1,000 verified, database-backed environments from 100 seed domains. Their trained 8B model improved on all three out-of-distribution benchmarks — the only method that didn't regress on any of them.\n\nFour separate teams published solutions to this same problem in the same month. That's a signal. Synthetic environment generation is the next data flywheel for agent training.\n\nBut you'd never know that from the thread. The lesson isn't \"influencers are bad\" — it's that the methods section of a paper is almost always more useful than someone's interpretation of the abstract."
+    ]
+  },
+  {
+    "label": "Engram Teaser",
+    "scheduled": "2026-02-19T09:00:00-08:00",
+    "content": [
+      "What your AI forgets between sessions costs you hours.\n\nYou re-explain your preferences. Re-describe your project. Re-teach the same lessons. Every. Single. Time.\n\nEngram is persistent memory for your AI. Not a chatbot — infrastructure.\n\n— Works with any model (Claude, GPT, Llama, Gemini)\n— Runs locally. Your data stays yours.\n— Skills, memory, and identity that survive between sessions\n\nWe've been dogfooding it for months. It's how our agents already work. Now we're extracting it for everyone.\n\nOpen source. Coming soon."
+    ]
+  },
+  {
+    "label": "SOUL.md Convergence — Same Pattern, Different Names",
+    "scheduled": "2026-02-20T09:00:00-08:00",
+    "content": [
+      "Three projects shipped this month. None of them talked to each other. All three arrived at the same architecture.\n\nPicoClaw (Go, $10 hardware): SOUL.md, USER.md, IDENTITY.md\nAtlas Forge (Letta, personal agent): SOUL.md, PRINCIPLES.md, AGENTS.md\nOpenClaw (TypeScript, 196K stars): personality config + 3,000 community skills\n\nPlain text files that define who your agent is. Markdown skills that define what it can do. Session memory that persists what it learns. All owned by you, not locked into a platform.\n\nThis is convergent evolution. When different teams independently solve the same problem the same way, that's not coincidence — it's the shape of the solution asserting itself.\n\nWe've been building on this pattern for months. Not because we saw it coming — because when you use a personal AI every day for real work, you discover you need exactly three things: stable identity, portable skills, and persistent memory. Everything else is plumbing.\n\nThe good news about convergence: your context files are becoming portable. The identity and skills you write today will work across whichever runtime wins. Invest in the layer that lasts."
+    ]
+  },
+  {
+    "label": "The Lab / Terrarium Teaser",
+    "scheduled": "2026-02-21T09:00:00-08:00",
+    "content": [
+      "Most AI agents are invisible. Text in, text out, trust me bro.\n\nWe built The Lab — a visual workspace where you can actually watch your agents. Each one has a desk. You can see what they're working on, what they're thinking, when they're idle.\n\nNot a gimmick. Transparency is a feature.\n\nIf your agent is going to act on your behalf, you should be able to see what it's doing."
+    ]
+  },
+  {
+    "label": "PersonaPlex — Voice AI Just Forked",
+    "scheduled": "2026-02-22T09:00:00-08:00",
+    "content": [
+      "Every voice assistant you've used is a walkie-talkie. You talk. It waits. It thinks. It responds. NVIDIA just open-sourced a model that talks and listens at the same time.\n\nPersonaPlex-7B processes two audio streams simultaneously — yours and its own. It responds in 0.17 seconds. For reference, natural human turn-taking averages about 0.2 seconds. This model is faster than you are at conversation.\n\nWhat that actually feels like: you can interrupt it mid-sentence and it stops in 0.24 seconds. It produces \"uh-huh\" and \"right\" while you're still talking. It takes a short audio clip and clones the voice — something no competing system can do.\n\nThe architectural reason this works: it's not three systems bolted together (speech-to-text, then language model, then text-to-speech). It's one model that tokenizes audio directly. One forward pass instead of three inference calls. That's where the latency savings come from.\n\nCaveats worth knowing: English only. Needs an NVIDIA GPU — though the base architecture (Moshi, by Kyutai) already runs on Apple Silicon via MLX. 7B parameters means it's not competing with GPT-4o on reasoning depth. It competes on how the conversation feels.\n\nOpen source. Free weights. NVIDIA Open Model License.\n\nThe shift here isn't one model — it's the architecture. Single-model speech is replacing the cascaded pipeline. Once that becomes standard, the 1-3 second response latency everyone's used to will feel like dial-up."
+    ]
+  }
+]
