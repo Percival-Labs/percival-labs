@@ -35,7 +35,7 @@ function Hero() {
           className="center-text text-center text-4xl font-extrabold tracking-tight text-pl-text sm:text-5xl lg:text-6xl leading-tight"
           style={{ textAlign: "center" }}
         >
-          Build your Harness. Own your future.
+          Build your Engram. Own your future.
         </h1>
         <p
           className="center-text text-center mt-6 text-lg text-pl-text-secondary leading-relaxed max-w-2xl"
@@ -50,7 +50,7 @@ function Hero() {
             href="/early-access"
             className="inline-flex items-center gap-2 rounded-lg bg-pl-amber px-6 py-3 text-sm font-semibold text-pl-bg hover:brightness-110 transition-all"
           >
-            Build Your Harness
+            Build Your Engram
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
@@ -105,11 +105,11 @@ function PositioningSection() {
           </p>
           <p>
             That&apos;s{" "}
-            <span className="text-pl-amber font-semibold">The Harness</span>.
+            <span className="text-pl-amber font-semibold">Engram</span>.
             Your personal AI infrastructure. Open source, model-agnostic, built
             in plain files you own. Skills, context, memory, identity &mdash;
             organized and portable. Start with the basics and add more as you
-            grow. New skills, sharper context, deeper memory &mdash; your Harness
+            grow. New skills, sharper context, deeper memory &mdash; your Engram
             evolves alongside you. And when the next model drops and everyone
             else scrambles to adapt, yours just works.
           </p>
@@ -185,7 +185,7 @@ function ProblemSection() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Section: The Harness                                               */
+/*  Section: Engram                                                    */
 /* ------------------------------------------------------------------ */
 function HarnessSection() {
   return (
@@ -195,23 +195,23 @@ function HarnessSection() {
           className="center-text text-center text-3xl font-bold text-pl-text sm:text-4xl"
           style={{ textAlign: "center" }}
         >
-          The Harness: Infrastructure That Survives Model Changes
+          Engram: Infrastructure That Survives Model Changes
         </h2>
         <p
           className="center-text text-center mt-6 text-base text-pl-text-secondary leading-relaxed max-w-2xl"
           style={{ textAlign: "center" }}
         >
-          The Harness is your personal AI infrastructure layer &mdash;
+          Engram is your personal AI infrastructure layer &mdash;
           model-agnostic files and conventions that define who you are to any AI.
           Your identity, context, skills, memory, and automation hooks live in
           portable markdown and YAML. When the model underneath changes, your
-          Harness stays the same.
+          Engram stays the same.
         </p>
 
         <div className="mt-12 w-full rounded-xl border border-pl-border bg-pl-surface p-6 sm:p-8 overflow-x-auto flex justify-center">
           <pre className="font-mono text-xs sm:text-sm text-pl-text-secondary leading-relaxed whitespace-pre text-left">
 {`  +--------------------------------------------------+
-  |                 YOUR  HARNESS                    |
+  |                 YOUR  ENGRAM                     |
   |                                                   |
   |   +------------+  +-----------+  +------------+   |
   |   |  Identity  |  |  Context  |  |   Skills   |   |
@@ -245,7 +245,7 @@ function HarnessSection() {
 const products = [
   {
     icon: Wrench,
-    name: "The Harness",
+    name: "Engram",
     tagline: "Direct the power of AI",
     description:
       "Open-source AI infrastructure framework. Five portable layers of plain files that survive model changes.",
@@ -340,7 +340,7 @@ function LiveProofSection() {
           className="center-text text-center text-3xl font-bold text-pl-text sm:text-4xl"
           style={{ textAlign: "center" }}
         >
-          Watch Our Agents Build The Harness &mdash; Live
+          Watch Our Agents Build Engram &mdash; Live
         </h2>
         <p
           className="center-text text-center mt-4 text-base text-pl-text-muted"
@@ -380,7 +380,7 @@ const features = [
   {
     icon: Shuffle,
     title: "Model Agnostic",
-    body: "Claude, GPT, Gemini, local models \u2014 one Harness, any brain. Switch freely.",
+    body: "Claude, GPT, Gemini, local models \u2014 one Engram, any brain. Switch freely.",
   },
   {
     icon: ShieldCheck,
@@ -471,10 +471,10 @@ function OriginTeaser() {
 /*  Section: Pricing Preview                                           */
 /* ------------------------------------------------------------------ */
 const pricingBullets = [
-  "Cloud-hosted personal AI infrastructure",
-  "Cross-model routing (BYO API key)",
-  "Auto-updating \u2014 we handle API changes",
-  "Security-vetted skill marketplace",
+  "Open-source CLI \u2014 free forever, no limits",
+  "Works with any model (Claude, GPT, Gemini, Ollama)",
+  "Skills, hooks, memory, MCP server included",
+  "Cloud billing available \u2014 pay only for what you use",
 ];
 
 function PricingPreview() {
@@ -483,25 +483,22 @@ function PricingPreview() {
       <div className="mx-auto max-w-xl px-6">
         <div className="rounded-xl border border-pl-border bg-pl-surface p-8 flex flex-col items-center">
           <p
-            className="center-text text-center text-sm font-medium text-pl-amber uppercase tracking-wide"
+            className="center-text text-center text-sm font-medium text-pl-cyan uppercase tracking-wide"
             style={{ textAlign: "center" }}
           >
-            One plan. Everything included.
+            Free. Full power. No catch.
           </p>
           <p
             className="center-text text-center mt-4 text-4xl font-extrabold text-pl-text"
             style={{ textAlign: "center" }}
           >
-            $25
-            <span className="text-lg font-normal text-pl-text-muted">
-              /mo
-            </span>
+            $0
           </p>
           <p
             className="center-text text-center mt-1 text-base font-semibold text-pl-text-secondary"
             style={{ textAlign: "center" }}
           >
-            The Harness
+            Engram
           </p>
 
           <div className="mt-6 flex justify-center">
@@ -517,17 +514,10 @@ function PricingPreview() {
 
           <div className="mt-8 space-y-2 w-full">
             <p
-              className="center-text text-center text-sm text-pl-text-muted"
+              className="center-text text-center text-sm text-pl-text-dim italic"
               style={{ textAlign: "center" }}
             >
-              Skills from{" "}
-              <span className="font-semibold text-pl-text">$0.001/use</span>
-            </p>
-            <p
-              className="center-text text-center text-sm text-pl-text-dim"
-              style={{ textAlign: "center" }}
-            >
-              Free tier: Build it yourself with our open-source spec
+              &ldquo;We get paid based on how valuable this is to you. Not before.&rdquo;
             </p>
           </div>
 

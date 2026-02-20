@@ -98,24 +98,23 @@ async function handleStatus(message: Message, bridge: AgentBridge): Promise<void
 }
 
 async function handleBudget(message: Message, bridge: AgentBridge): Promise<void> {
-  const budget = await bridge.getBudget() as {
-    currentSpend: number;
-    dailyLimit: number;
-    percentage: number;
-    exhausted: boolean;
-    callCount: number;
+  const raw = await bridge.getBudget() as {
+    daily: { spent: number; limit: number; remaining: number; percentage: number };
+    totalRecords: number;
   };
 
-  const pct = Math.round(budget.percentage * 100);
+  const d = raw.daily;
+  const pct = Math.round(d.percentage * 100);
   const bar = '\u2588'.repeat(Math.round(pct / 10)) + '\u2591'.repeat(10 - Math.round(pct / 10));
+  const exhausted = d.remaining <= 0;
 
   const embed = new EmbedBuilder()
-    .setColor(budget.exhausted ? 0xef4444 : PL_CYAN)
+    .setColor(exhausted ? 0xef4444 : PL_CYAN)
     .setTitle('\u{1F4B0} Budget')
     .setDescription(
       `\`[${bar}]\` ${pct}%\n` +
-      `$${budget.currentSpend.toFixed(4)} / $${budget.dailyLimit.toFixed(2)}\n` +
-      `${budget.callCount} API calls today`
+      `$${d.spent.toFixed(4)} / $${d.limit.toFixed(2)}\n` +
+      `${raw.totalRecords} API calls today`
     )
     .setTimestamp();
 

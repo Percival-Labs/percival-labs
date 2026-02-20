@@ -19,6 +19,7 @@ const SKIP_EVENTS = new Set([
   'tick_completed',
   'auto_tick_started',
   'auto_tick_stopped',
+  'task_output',
 ]);
 
 function formatEvent(type: string, data: Record<string, unknown>): string | null {

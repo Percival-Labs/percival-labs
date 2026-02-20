@@ -15,6 +15,7 @@ const AGENT_NAME_MAP: Record<string, string> = {
   auditor: "Relay",
   researcher: "Scout",
   artist: "Pixel",
+  chaos: "Clawdbot",
 };
 
 interface ProxiedEvent {
@@ -31,12 +32,14 @@ export class EventProxy {
   private maxBuffer = 50;
   private listeners = new Set<EventListener>();
   private agentsUrl: string;
+  private apiKey: string | undefined;
   private connected = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private abortController: AbortController | null = null;
 
-  constructor(agentsBaseUrl: string = "http://localhost:3200") {
+  constructor(agentsBaseUrl: string = "http://localhost:3200", apiKey?: string) {
     this.agentsUrl = `${agentsBaseUrl}/v1/agents/events`;
+    this.apiKey = apiKey;
     this.connect();
   }
 
@@ -70,9 +73,12 @@ export class EventProxy {
     this.abortController = new AbortController();
 
     try {
+      const headers: Record<string, string> = { Accept: "text/event-stream" };
+      if (this.apiKey) headers["X-API-Key"] = this.apiKey;
+
       const response = await fetch(this.agentsUrl, {
         signal: this.abortController.signal,
-        headers: { Accept: "text/event-stream" },
+        headers,
       });
 
       if (!response.ok || !response.body) {

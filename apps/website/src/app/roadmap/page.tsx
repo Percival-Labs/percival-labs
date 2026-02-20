@@ -137,14 +137,14 @@ const phases: Phase[] = [
     timeline: "Q3-Q4 2026",
     icon: Globe,
     description:
-      "Cloud-hosted Harness management. Web dashboard, automatic backups, team features, and enterprise controls.",
+      "Cloud-hosted Engram management. Web dashboard, automatic backups, team features, and enterprise controls.",
     items: [
-      { text: "Web dashboard for Harness management", done: false },
+      { text: "Web dashboard for Engram management", done: false },
       { text: "Cloud backup and sync", done: false },
-      { text: "Team Harnesses with shared skills", done: false },
+      { text: "Team Engrams with shared skills", done: false },
       { text: "Usage analytics and insights", done: false },
       { text: "Enterprise SSO and compliance", done: false },
-      { text: "API for programmatic Harness management", done: false },
+      { text: "API for programmatic Engram management", done: false },
     ],
   },
 ];

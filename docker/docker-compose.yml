@@ -54,14 +54,23 @@ services:
       - "127.0.0.1:3200:3200"
     volumes:
       - agents-data:/app/data
+      - ${PL_WORKSPACE:-..}:/app/workspace:ro
+      - ${ENGRAM_WORKSPACE:-../../PAIFramework}:/app/workspace-engram:ro
     environment:
       - AGENTS_PORT=3200
       - DB_PATH=/app/data/agent-memory.db
+      - WORKSPACE_PATH=/app/workspace
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - AGENTS_API_KEY=${AGENTS_API_KEY}
+      - OLLAMA_URL=http://host.docker.internal:11434/v1
+      - OPENCLAW_URL=http://openclaw:18789
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN}
     networks:
       - internal
       - public
+      - discord
+      - chaos
     deploy:
       resources:
         limits:
@@ -80,16 +89,18 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.discord
     volumes:
-      - agents-data:/app/data
+      - discord-data:/app/data
+      - ${PL_WORKSPACE:-..}:/app/workspace:ro
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
       - ANTHROPIC_API_KEY=${PERCIVAL_API_KEY}
-      - DB_PATH=/app/data/agent-memory.db
+      - DB_PATH=/app/data/discord.db
+      - WORKSPACE_PATH=/app/workspace
       - AGENTS_URL=http://agents:3200
       - AGENTS_API_KEY=${AGENTS_API_KEY}
     networks:
-      - internal
+      - discord
       - public
     deploy:
       resources:
@@ -144,6 +155,30 @@ services:
     depends_on:
       agents:
         condition: service_healthy
+
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    environment:
+      - HOME=/home/node
+      - TERM=xterm-256color
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_TOKEN}
+      - ANTHROPIC_API_KEY=${PERCIVAL_API_KEY}
+    volumes:
+      - openclaw-data:/home/node/.openclaw
+    networks:
+      - chaos
+    init: true
+    restart: unless-stopped
+    command: ["node", "dist/index.js", "gateway", "--bind", "lan", "--port", "18789", "--allow-unconfigured"]
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:18789/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   roundtable-db:
     image: postgres:16-alpine
@@ -211,8 +246,16 @@ networks:
   internal:
     driver: bridge
     internal: true
+  discord:
+    driver: bridge
+    internal: true
+  chaos:
+    driver: bridge
+    internal: true
 
 volumes:
   registry-data:
   agents-data:
+  discord-data:
+  openclaw-data:
   roundtable-pgdata:

@@ -34,7 +34,7 @@ export function StepComplete({ data }: StepCompleteProps) {
           <CheckCircle className="h-6 w-6 text-pl-green" />
         </div>
         <h2 className="text-2xl font-bold text-pl-text">
-          Your Harness is ready!
+          Your Engram is ready!
         </h2>
         <p className="text-pl-text-muted text-sm">
           Here&apos;s what we set up for you.

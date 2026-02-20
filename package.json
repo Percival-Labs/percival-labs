@@ -18,6 +18,12 @@
     "test:registry": "bun test apps/registry/tests/",
     "test:verifier": "bun test apps/verifier/tests/",
     "seed": "bun run packages/db/src/seed.ts",
-    "seed:pai": "bun run packages/db/src/seed-pai.ts"
+    "seed:pai": "bun run packages/db/src/seed-pai.ts",
+    "x:post": "bun scripts/x/post.ts",
+    "x:queue": "bun scripts/x/post.ts --queue",
+    "x:preview": "bun scripts/x/post.ts --queue --dry-run"
+  },
+  "devDependencies": {
+    "twitter-api-v2": "^1.29.0"
   }
 }

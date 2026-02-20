@@ -29,6 +29,8 @@ export function setupHandlers(client: Client, channels: ChannelMap, db: Database
   client.on(Events.MessageCreate, async (message: Message) => {
     if (message.author.bot) return;
     if (message.channelId !== channels.drop) return;
+    // Skip @mentions — handled by mention.ts
+    if (client.user && message.mentions.has(client.user)) return;
 
     const urls = message.content.match(URL_REGEX);
     if (!urls || urls.length === 0) return;

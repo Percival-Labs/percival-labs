@@ -77,9 +77,11 @@ export async function ensureChannels(client: Client, guildId: string): Promise<C
 const OPS_CATEGORY_NAME = 'Operations';
 
 const OPS_CHANNEL_DEFS = [
-  { key: 'tasks',     name: 'tasks',     topic: 'Submit tasks for the agent team' },
-  { key: 'proposals', name: 'proposals', topic: 'Agent work plans awaiting approval' },
-  { key: 'activity',  name: 'activity',  topic: 'Live agent activity feed' },
+  { key: 'tasks',     name: 'tasks',      topic: 'Submit tasks for the agent team' },
+  { key: 'proposals', name: 'proposals',   topic: 'Agent work plans awaiting approval' },
+  { key: 'results',   name: 'results',     topic: 'Agent task outputs and deliverables' },
+  { key: 'activity',  name: 'activity',    topic: 'Live agent activity feed' },
+  { key: 'xContent',  name: 'x-content',   topic: 'Draft tweets for @PercivalLabs — react ✅ to post, ❌ to reject' },
 ] as const;
 
 /**

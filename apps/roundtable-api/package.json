@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@percival/roundtable-db": "workspace:*",
+    "drizzle-orm": "^0.38.0",
     "hono": "^4.11.8"
   },
   "devDependencies": {

@@ -171,7 +171,7 @@ export function SetupWizard() {
                 </>
               ) : currentStep === 4 ? (
                 <>
-                  Build my Harness
+                  Build my Engram
                   <ArrowRight className="h-4 w-4" />
                 </>
               ) : (

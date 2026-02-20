@@ -1,4 +1,5 @@
 import { resolve } from "path";
+import { readdirSync } from "fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
@@ -12,9 +13,10 @@ app.use("*", cors());
 const PORT = Number(process.env.PORT ?? 3500);
 const APP_ROOT = resolve(import.meta.dirname, "..");
 const AGENTS_URL = process.env.AGENTS_URL ?? "http://localhost:3200";
+const AGENTS_API_KEY = process.env.AGENTS_API_KEY;
 
 // Initialize SSE proxy to agents service
-const eventProxy = new EventProxy(AGENTS_URL);
+const eventProxy = new EventProxy(AGENTS_URL, AGENTS_API_KEY);
 
 // Serve static assets (scene images, sprites, etc.)
 app.use("/public/*", serveStatic({ root: APP_ROOT }));
@@ -88,6 +90,23 @@ app.get("/status", (c) =>
     bufferedEvents: eventProxy.getRecentEvents().length,
   })
 );
+
+// Audio playlist — returns shuffled list of tracks in public/audio
+app.get("/playlist", (c) => {
+  try {
+    const audioDir = resolve(APP_ROOT, "public", "audio");
+    const files = readdirSync(audioDir)
+      .filter((f) => f.endsWith(".mp3"))
+      .sort(() => Math.random() - 0.5)
+      .map((f) => ({
+        name: f.replace(/^\d+-/, "").replace(/-/g, " ").replace(/\.mp3$/, ""),
+        url: `/public/audio/${f}`,
+      }));
+    return c.json(files);
+  } catch {
+    return c.json([]);
+  }
+});
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", service: "terrarium" }));

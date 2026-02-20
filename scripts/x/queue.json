@@ -31,14 +31,18 @@
     "scheduled": "2026-02-18T09:00:00-08:00",
     "content": [
       "A paper called \"Agent World Model\" went viral yesterday. 9,000 likes. The thread described a paper that doesn't exist.\n\nThe thread said: agents need internal world models. They should simulate consequences. Predict futures. Build structured representations of reality. Referenced Dreamer, MuZero, autonomous driving.\n\nThe paper says: here's a pipeline that auto-generates synthetic SQLite databases, FastAPI servers, and MCP-compatible toolsets so you can train small LLMs via reinforcement learning on tool-use tasks.\n\nNot a world model. An environment factory.\n\nWhich, honestly, is more interesting than what the thread described. The actual bottleneck for training tool-using agents right now is diverse environments to practice in. Real APIs are fragile and rate-limited. LLM-simulated environments hallucinate. This paper generates 1,000 verified, database-backed environments from 100 seed domains. Their trained 8B model improved on all three out-of-distribution benchmarks — the only method that didn't regress on any of them.\n\nFour separate teams published solutions to this same problem in the same month. That's a signal. Synthetic environment generation is the next data flywheel for agent training.\n\nBut you'd never know that from the thread. The lesson isn't \"influencers are bad\" — it's that the methods section of a paper is almost always more useful than someone's interpretation of the abstract."
-    ]
+    ],
+    "posted": true,
+    "postedAt": "2026-02-18T17:00:01.827Z"
   },
   {
     "label": "Engram Teaser",
     "scheduled": "2026-02-19T09:00:00-08:00",
     "content": [
       "What your AI forgets between sessions costs you hours.\n\nYou re-explain your preferences. Re-describe your project. Re-teach the same lessons. Every. Single. Time.\n\nEngram is persistent memory for your AI. Not a chatbot — infrastructure.\n\n— Works with any model (Claude, GPT, Llama, Gemini)\n— Runs locally. Your data stays yours.\n— Skills, memory, and identity that survive between sessions\n\nWe've been dogfooding it for months. It's how our agents already work. Now we're extracting it for everyone.\n\nOpen source. Coming soon."
-    ]
+    ],
+    "posted": true,
+    "postedAt": "2026-02-19T17:00:04.022Z"
   },
   {
     "label": "SOUL.md Convergence — Same Pattern, Different Names",

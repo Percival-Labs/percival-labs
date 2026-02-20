@@ -8,9 +8,12 @@ import { ensureChannels, ensureOpsChannels } from './channels';
 import { setupHandlers } from './bot';
 import { AgentBridge } from './agent-bridge';
 import { setupActivityFeed } from './activity';
+import { setupOutputHandler } from './output';
 import { setupTaskHandler } from './tasks';
 import { setupProposalHandler } from './proposals';
 import { setupCommands } from './commands';
+import { setupXPosting } from './x-posting';
+import { setupMentionHandler } from './mention';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -74,11 +77,14 @@ client.once('ready', async () => {
   console.log(`[discord] Agent bridge connecting to ${AGENTS_URL}`);
 
   setupActivityFeed(client, bridge, opsChannels);
+  setupOutputHandler(client, bridge, opsChannels);
   setupTaskHandler(client, bridge, opsChannels);
   setupProposalHandler(client, bridge, opsChannels);
   setupCommands(client, bridge, opsChannels);
+  setupXPosting(client, opsChannels);
+  setupMentionHandler(client, bridge, opsChannels);
 
-  console.log('[discord] Bot is operational -- listening for links in #drop and tasks in #tasks');
+  console.log('[discord] Bot is operational -- listening for links in #drop, tasks in #tasks, @mentions, and drafts in #x-content');
 });
 
 client.login(BOT_TOKEN);

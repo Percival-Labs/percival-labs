@@ -122,7 +122,7 @@ export default function OriginPage() {
             href="/early-access"
             className="rounded-lg bg-pl-amber px-6 py-3 text-sm font-semibold text-pl-bg hover:brightness-110 transition-all"
           >
-            Build Your Harness
+            Build Your Engram
           </Link>
           <Link
             href="/pricing"

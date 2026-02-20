@@ -41,7 +41,7 @@ export function Header() {
             href="/early-access"
             className="rounded-lg bg-pl-amber px-4 py-2 text-sm font-semibold text-pl-bg hover:brightness-110 transition-all"
           >
-            Build Your Harness
+            Build Your Engram
           </Link>
         </nav>
 
@@ -80,7 +80,7 @@ export function Header() {
             onClick={() => setMenuOpen(false)}
             className="block rounded-lg bg-pl-amber px-4 py-2 text-sm font-semibold text-pl-bg text-center hover:brightness-110 transition-all mt-2"
           >
-            Build Your Harness
+            Build Your Engram
           </Link>
         </nav>
       )}

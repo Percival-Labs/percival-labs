@@ -61,7 +61,9 @@ export interface ChannelMap {
 export interface OpsChannelMap {
   tasks: string;       // Channel IDs
   proposals: string;
+  results: string;
   activity: string;
+  xContent: string;
 }
 
 // Score emoji mapping (1-10)

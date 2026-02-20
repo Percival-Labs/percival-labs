@@ -15,7 +15,7 @@ export function StepWelcome({ data, onUpdate }: StepWelcomeProps) {
           <User className="h-6 w-6 text-pl-cyan" />
         </div>
         <h2 className="text-2xl font-bold text-pl-text">
-          Let&apos;s build your Harness
+          Let&apos;s build your Engram
         </h2>
         <p className="text-pl-text-muted text-sm">
           Your personal AI infrastructure starts here. Just a few quick

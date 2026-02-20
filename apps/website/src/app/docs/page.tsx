@@ -16,7 +16,7 @@ import {
 export const metadata = {
   title: "Documentation",
   description:
-    "Get started with The Harness in under 5 minutes. Installation, first skill, and everything you need to build your personal AI infrastructure.",
+    "Get started with Engram in under 5 minutes. Installation, first skill, and everything you need to build your personal AI infrastructure.",
 };
 
 /* ------------------------------------------------------------------ */
@@ -34,7 +34,7 @@ function Hero() {
           Get started in 5 minutes
         </h1>
         <p className="mt-6 text-lg text-pl-text-secondary leading-relaxed max-w-2xl mx-auto">
-          From zero to a working Harness with skills, hooks, and persistent
+          From zero to a working Engram with skills, hooks, and persistent
           memory. No prior AI experience required.
         </p>
       </div>
@@ -89,7 +89,7 @@ function QuickStart() {
             </div>
             <div className="flex-1">
               <h3 className="text-base font-semibold text-pl-text">
-                Initialize your Harness
+                Initialize your Engram
               </h3>
               <p className="mt-1 text-sm text-pl-text-muted">
                 The interactive setup asks a few questions and generates your
@@ -111,7 +111,7 @@ function QuickStart() {
   ✓ Installed 3 starter skills
   ✓ Installed 5 starter hooks
 
-  Your Harness is ready. Start a conversation with your AI.`}</pre>
+  Your Engram is ready. Start a conversation with your AI.`}</pre>
               </div>
             </div>
           </div>
@@ -248,7 +248,7 @@ function StarterSkillsSection() {
           <h2 className="text-2xl font-bold text-pl-text">Starter Skills</h2>
         </div>
         <p className="text-sm text-pl-text-muted mb-8">
-          Every Harness comes with four skills out of the box. They activate
+          Every Engram comes with four skills out of the box. They activate
           automatically when you say the right thing.
         </p>
 
@@ -374,7 +374,7 @@ function StarterHooksSection() {
 const commands = [
   {
     command: "pai init",
-    description: "Initialize a new Harness with interactive setup",
+    description: "Initialize a new Engram with interactive setup",
   },
   {
     command: "pai skill create <name>",
@@ -390,7 +390,7 @@ const commands = [
   },
   {
     command: "pai status",
-    description: "Show current Harness status: skills, hooks, memory",
+    description: "Show current Engram status: skills, hooks, memory",
   },
 ];
 
@@ -403,7 +403,7 @@ function CLISection() {
           <h2 className="text-2xl font-bold text-pl-text">CLI Reference</h2>
         </div>
         <p className="text-sm text-pl-text-muted mb-8">
-          The <code className="text-pl-cyan">pai</code> CLI manages your Harness
+          The <code className="text-pl-cyan">pai</code> CLI manages your Engram
           from the terminal.
         </p>
 
@@ -549,7 +549,7 @@ function NextSteps() {
               Pricing
             </h3>
             <p className="mt-1 text-sm text-pl-text-muted">
-              Free tier, The Harness, and hosted options
+              Free tier, Engram, and hosted options
             </p>
           </Link>
 

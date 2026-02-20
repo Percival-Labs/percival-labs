@@ -32,7 +32,7 @@ export function LabExplainer() {
           </p>
           <p className="text-sm text-pl-text-secondary leading-relaxed">
             Six AI agents &mdash; Percy, Scout, Pixel, Sage, Forge, and Relay
-            &mdash; work autonomously on building The Harness. Each agent has a
+            &mdash; work autonomously on building Engram. Each agent has a
             specialized role: Percy architects, Scout researches, Pixel designs,
             Sage critiques, Forge builds, and Relay monitors operations.
           </p>

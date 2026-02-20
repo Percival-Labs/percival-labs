@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Check, X, Sparkles, Store } from "lucide-react";
+import { Check, Sparkles, Store, Terminal, Cloud, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FAQAccordion } from "@/components/faq-accordion";
 
@@ -12,101 +12,125 @@ interface Tier {
   priceNote?: string;
   badge?: string;
   featured?: boolean;
+  icon: React.ReactNode;
   features: string[];
   cta: string;
   ctaHref: string;
-  ctaStyle: "outline" | "solid";
+  ctaStyle: "outline" | "solid" | "muted";
   note: string;
 }
 
 const tiers: Tier[] = [
   {
-    name: "Free",
-    tagline: "Build It Yourself",
+    name: "Engram",
+    tagline: "Free, forever",
     price: "$0",
-    priceNote: "forever",
+    priceNote: "no limits",
+    badge: "Open Source",
+    featured: true,
+    icon: <Terminal className="h-5 w-5" />,
     features: [
-      "Full PAI specification (open source)",
-      "Starter skills & templates",
-      "Getting started guide",
-      "Community Discord",
-      "Link to Daniel Miessler's PAI repo",
+      "Open-source CLI tool",
+      "Skills, hooks, memory, MCP server",
+      "Bring your own API keys",
+      "Works with any model \u2014 Claude, GPT, Gemini, Ollama, and more",
+      "Full power, zero limitations",
+      "Community support",
     ],
-    cta: "Start Building",
-    ctaHref: "https://github.com/danielmiessler/PAI",
-    ctaStyle: "outline",
-    note: "Everything you need to build your own. We'll even show you how.",
+    cta: "Get Started",
+    ctaHref: "https://github.com/percival-labs/engram",
+    ctaStyle: "solid",
+    note: "The full tool. Not a trial. Not a teaser. The real thing.",
   },
   {
-    name: "The Harness",
-    tagline: "$25/mo",
-    price: "$25",
-    priceNote: "/mo",
-    badge: "Most Popular",
-    featured: true,
+    name: "Engram Cloud",
+    tagline: "Pay as you go",
+    price: "Usage",
+    priceNote: "based",
+    icon: <Cloud className="h-5 w-5" />,
     features: [
       "Everything in Free, plus:",
-      "Cloud-hosted Harness (identity, context, skills, memory)",
-      "Cross-model routing \u2014 Claude, GPT, Gemini",
-      "Auto-updating infrastructure",
-      "Security-vetted skill marketplace",
-      "Cloud memory (persistent, backed up, searchable)",
-      "AI-assisted troubleshooting",
-      "BYO API key (you bring your model provider key)",
+      "Built-in billing \u2014 one bill for 200+ models via OpenRouter",
+      "Cloud memory sync across devices",
+      "Transparent pricing: compute cost + ~5% margin",
+      "No subscription \u2014 pay only for what you use",
+      "Usage dashboard & cost tracking",
+    ],
+    cta: "Start Building",
+    ctaHref: "/early-access",
+    ctaStyle: "outline",
+    note: "Same tool, managed billing. We add ~5% to cover infrastructure. That's it.",
+  },
+  {
+    name: "The Lab",
+    tagline: "Coming Soon",
+    price: "TBD",
+    icon: <Users className="h-5 w-5" />,
+    features: [
+      "Everything in Cloud, plus:",
+      "Managed AI agent team",
+      "Pre-built skill library",
+      "Collaboration & team features",
+      "Priority support",
     ],
     cta: "Join Waitlist",
     ctaHref: "/early-access",
-    ctaStyle: "solid",
-    note: "The same infrastructure we run internally, hosted and maintained for you.",
-  },
-  {
-    name: "Managed AI",
-    tagline: "Coming Soon",
-    price: "TBD",
-    features: [
-      "Everything in The Harness, plus:",
-      "We provide AI model access (no API key needed)",
-      "Transparent per-token pricing",
-      "Usage dashboard",
-      "Priority support",
-    ],
-    cta: "Notify Me",
-    ctaHref: "/early-access",
-    ctaStyle: "outline",
-    note: "For those who want zero setup. Pay-per-use, transparent markup.",
+    ctaStyle: "muted",
+    note: "For teams that want agents working alongside them. Not just a tool \u2014 a team.",
   },
 ];
 
 interface ComparisonRow {
   feature: string;
-  free: boolean;
-  harness: boolean;
+  free: boolean | string;
+  cloud: boolean | string;
+  lab: boolean | string;
 }
 
 const comparisonRows: ComparisonRow[] = [
-  { feature: "PAI Specification", free: true, harness: true },
-  { feature: "Starter Skills", free: true, harness: true },
-  { feature: "Community Discord", free: true, harness: true },
-  { feature: "Cloud Hosting", free: false, harness: true },
-  { feature: "Cross-Model Routing", free: false, harness: true },
-  { feature: "Auto-Updates", free: false, harness: true },
-  { feature: "Skill Marketplace", free: false, harness: true },
-  { feature: "Cloud Memory", free: false, harness: true },
+  { feature: "CLI Tool", free: true, cloud: true, lab: true },
+  { feature: "Skills, Hooks, Memory", free: true, cloud: true, lab: true },
+  { feature: "MCP Server", free: true, cloud: true, lab: true },
+  { feature: "Any Model (Claude, GPT, Gemini, Ollama)", free: true, cloud: true, lab: true },
+  { feature: "Community Support", free: true, cloud: true, lab: true },
+  { feature: "Unified Billing (200+ models)", free: false, cloud: true, lab: true },
+  { feature: "Cloud Memory Sync", free: false, cloud: true, lab: true },
+  { feature: "Usage Dashboard", free: false, cloud: true, lab: true },
+  { feature: "Managed Agent Team", free: false, cloud: false, lab: true },
+  { feature: "Pre-built Skill Library", free: false, cloud: false, lab: true },
+  { feature: "Team Collaboration", free: false, cloud: false, lab: true },
+  { feature: "Priority Support", free: false, cloud: false, lab: true },
 ];
+
+function ComparisonCell({ value }: { value: boolean | string }) {
+  if (typeof value === "string") {
+    return <span className="text-sm text-pl-text-muted">{value}</span>;
+  }
+  return value ? (
+    <Check className="inline-block h-4 w-4 text-pl-green" />
+  ) : (
+    <span className="inline-block h-4 w-4 text-pl-text-dim">&mdash;</span>
+  );
+}
 
 export default function PricingPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-16 md:py-24">
       {/* Page header */}
-      <div className="mb-16 text-center">
+      <div className="mb-6 text-center">
         <h1 className="text-4xl font-bold tracking-tight text-pl-text md:text-5xl">
           Pricing
         </h1>
         <p className="mt-4 text-lg text-pl-text-muted max-w-2xl mx-auto">
-          The specification is free. Always will be. Pay only when you want us
-          to host it for you.
+          The tool is free. The full tool. Pay only when you want managed
+          billing or a team of agents.
         </p>
       </div>
+
+      {/* Philosophy line */}
+      <p className="text-center text-sm text-pl-text-dim italic mb-16 max-w-xl mx-auto">
+        &ldquo;We get paid based on how valuable this is to you. Not before.&rdquo;
+      </p>
 
       {/* Pricing tiers */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:items-start">
@@ -116,14 +140,14 @@ export default function PricingPage() {
             className={cn(
               "relative flex flex-col rounded-2xl border p-8 text-center",
               tier.featured
-                ? "border-pl-amber/50 bg-pl-surface shadow-lg shadow-pl-amber/5"
+                ? "border-pl-cyan/50 bg-pl-surface shadow-lg shadow-pl-cyan/5 ring-1 ring-pl-cyan/20"
                 : "border-pl-border bg-pl-surface"
             )}
           >
             {/* Badge */}
             {tier.badge && (
               <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-pl-amber px-3 py-1 text-xs font-semibold text-pl-bg">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-pl-cyan px-3 py-1 text-xs font-semibold text-pl-bg">
                   <Sparkles className="h-3 w-3 text-pl-bg" />
                   {tier.badge}
                 </span>
@@ -132,9 +156,16 @@ export default function PricingPage() {
 
             {/* Header */}
             <div className="mb-6 text-center">
-              <h2 className="text-lg font-semibold text-pl-text">
-                {tier.name}
-              </h2>
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <span className={cn(
+                  tier.featured ? "text-pl-cyan" : "text-pl-text-muted"
+                )}>
+                  {tier.icon}
+                </span>
+                <h2 className="text-lg font-semibold text-pl-text">
+                  {tier.name}
+                </h2>
+              </div>
               <p className="text-sm text-pl-text-muted mt-1">{tier.tagline}</p>
               <div className="mt-4 flex items-baseline justify-center gap-1">
                 <span className="text-4xl font-bold text-pl-text">
@@ -170,8 +201,10 @@ export default function PricingPage() {
                 className={cn(
                   "block w-full rounded-lg py-3 text-center text-sm font-semibold transition-colors",
                   tier.ctaStyle === "solid"
-                    ? "bg-pl-amber text-pl-bg hover:brightness-110"
-                    : "border border-pl-border text-pl-text hover:border-pl-cyan/40 hover:text-pl-cyan"
+                    ? "bg-pl-cyan text-pl-bg hover:brightness-110"
+                    : tier.ctaStyle === "muted"
+                      ? "border border-pl-border text-pl-text-muted hover:border-pl-amber/40 hover:text-pl-amber"
+                      : "border border-pl-border text-pl-text hover:border-pl-cyan/40 hover:text-pl-cyan"
                 )}
               >
                 {tier.cta}
@@ -182,8 +215,10 @@ export default function PricingPage() {
                 className={cn(
                   "block w-full rounded-lg py-3 text-center text-sm font-semibold transition-colors",
                   tier.ctaStyle === "solid"
-                    ? "bg-pl-amber text-pl-bg hover:brightness-110"
-                    : "border border-pl-border text-pl-text hover:border-pl-cyan/40 hover:text-pl-cyan"
+                    ? "bg-pl-cyan text-pl-bg hover:brightness-110"
+                    : tier.ctaStyle === "muted"
+                      ? "border border-pl-border text-pl-text-muted hover:border-pl-amber/40 hover:text-pl-amber"
+                      : "border border-pl-border text-pl-text hover:border-pl-cyan/40 hover:text-pl-cyan"
                 )}
               >
                 {tier.cta}
@@ -198,18 +233,29 @@ export default function PricingPage() {
         ))}
       </div>
 
+      {/* No-limitations callout */}
+      <div className="mt-12 text-center">
+        <p className="text-sm text-pl-text-muted max-w-xl mx-auto leading-relaxed">
+          The free tier isn&rsquo;t limited. It&rsquo;s the same tool with the same features.
+          Cloud just adds managed billing and sync. You bring your own API keys either way &mdash;
+          Cloud simply gives you one bill instead of managing multiple providers yourself.
+        </p>
+      </div>
+
       {/* Marketplace banner */}
-      <section className="mt-20 rounded-2xl border border-pl-border bg-pl-surface p-8 md:p-10 text-center">
+      <section className="mt-20 rounded-2xl border border-dashed border-pl-cyan/30 bg-pl-surface p-8 md:p-10 text-center">
         <div className="flex items-center justify-center gap-3 mb-4">
           <Store className="h-6 w-6 text-pl-cyan" />
           <h2 className="text-2xl font-bold text-pl-text">
             Skill Marketplace
           </h2>
+          <span className="rounded-full bg-pl-amber/10 border border-pl-amber/30 px-2.5 py-0.5 text-xs font-medium text-pl-amber">
+            Coming Soon
+          </span>
         </div>
         <p className="text-pl-text-muted max-w-2xl mx-auto leading-relaxed">
-          Browse and install AI skills created by the community. Prices set by
-          creators, from $0.001 per use. Platform takes 20&ndash;30% to fund
-          infrastructure.
+          Create, share, and sell skills. A marketplace for AI capabilities built
+          by the community, for the community. Available across all tiers.
         </p>
       </section>
 
@@ -229,17 +275,20 @@ export default function PricingPage() {
           Compare Plans
         </h2>
         <div className="overflow-x-auto">
-          <table className="w-full max-w-3xl mx-auto border-collapse">
+          <table className="w-full max-w-4xl mx-auto border-collapse">
             <thead>
               <tr className="border-b border-pl-border">
                 <th className="py-3 px-4 text-left text-sm font-semibold text-pl-text">
                   Feature
                 </th>
-                <th className="py-3 px-4 text-center text-sm font-semibold text-pl-text">
-                  Free (DIY)
-                </th>
                 <th className="py-3 px-4 text-center text-sm font-semibold text-pl-cyan">
-                  The Harness ($25/mo)
+                  Engram (Free)
+                </th>
+                <th className="py-3 px-4 text-center text-sm font-semibold text-pl-text">
+                  Engram Cloud
+                </th>
+                <th className="py-3 px-4 text-center text-sm font-semibold text-pl-text-muted">
+                  The Lab
                 </th>
               </tr>
             </thead>
@@ -256,18 +305,13 @@ export default function PricingPage() {
                     {row.feature}
                   </td>
                   <td className="py-3 px-4 text-center">
-                    {row.free ? (
-                      <Check className="inline-block h-4 w-4 text-pl-green" />
-                    ) : (
-                      <X className="inline-block h-4 w-4 text-pl-text-dim" />
-                    )}
+                    <ComparisonCell value={row.free} />
                   </td>
                   <td className="py-3 px-4 text-center">
-                    {row.harness ? (
-                      <Check className="inline-block h-4 w-4 text-pl-green" />
-                    ) : (
-                      <X className="inline-block h-4 w-4 text-pl-text-dim" />
-                    )}
+                    <ComparisonCell value={row.cloud} />
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <ComparisonCell value={row.lab} />
                   </td>
                 </tr>
               ))}
@@ -282,20 +326,20 @@ export default function PricingPage() {
           Ready to own your AI infrastructure?
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <a
+            href="https://github.com/percival-labs/engram"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg bg-pl-cyan px-6 py-3 text-sm font-semibold text-pl-bg hover:brightness-110 transition-all"
+          >
+            Get Engram (Free)
+          </a>
           <Link
             href="/early-access"
-            className="rounded-lg bg-pl-amber px-6 py-3 text-sm font-semibold text-pl-bg hover:brightness-110 transition-all"
+            className="rounded-lg border border-pl-border px-6 py-3 text-sm font-semibold text-pl-text hover:border-pl-cyan/40 hover:text-pl-cyan transition-colors"
           >
             Join the Waitlist
           </Link>
-          <a
-            href="https://github.com/danielmiessler/PAI"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-lg border border-pl-border px-6 py-3 text-sm font-semibold text-pl-text hover:border-pl-cyan/40 hover:text-pl-cyan transition-colors"
-          >
-            Start Free (GitHub)
-          </a>
         </div>
       </section>
     </div>

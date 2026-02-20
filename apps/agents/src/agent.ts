@@ -1,7 +1,7 @@
 // Individual Agent Executor
-// Wraps the Anthropic SDK to execute a single task with a specific agent identity.
+// Routes tasks to the correct model via OpenRouter (multi-provider) or Anthropic SDK (fallback).
 
-import Anthropic from '@anthropic-ai/sdk';
+import { complete, resolveModel } from './providers';
 import type { AgentIdentity } from './identity/loader';
 import type { TaskNode } from './tasks/dag';
 
@@ -17,27 +17,11 @@ export interface AgentExecutionResult {
 }
 
 /**
- * Map agent model preference to an Anthropic model ID.
- */
-function resolveModel(preference: string): string {
-  switch (preference) {
-    case 'opus':
-      return 'claude-opus-4-6';
-    case 'sonnet':
-      return 'claude-sonnet-4-5-20250929';
-    case 'haiku':
-      return 'claude-haiku-3-5-20241022';
-    default:
-      return 'claude-sonnet-4-5-20250929';
-  }
-}
-
-/**
  * Build a system prompt from an agent's identity and optional memory context.
  */
 function buildSystemPrompt(identity: AgentIdentity, memoryContext: string): string {
   const parts: string[] = [
-    `You are ${identity.name}, a ${identity.role}.`,
+    `You are ${identity.name}, a ${identity.role} at Percival Labs.`,
     '',
     `## Expertise`,
     identity.expertise.join(', '),
@@ -54,6 +38,24 @@ function buildSystemPrompt(identity: AgentIdentity, memoryContext: string): stri
     `- If you identify issues, include severity and remediation.`,
     `- Structure your response clearly with sections.`,
   ];
+
+  // Inject workspace context if available
+  const workspacePath = process.env.WORKSPACE_PATH;
+  if (workspacePath) {
+    parts.push(
+      '',
+      `## Workspace Access`,
+      `You have read-only access to the Percival Labs monorepo at ${workspacePath}.`,
+      `When a task references files, code, or content — read them directly from the workspace.`,
+      `Key locations:`,
+      `- ${workspacePath}/apps/ — Application source code (agents, discord, terrarium, website, roundtable, etc.)`,
+      `- ${workspacePath}/packages/ — Shared packages (roundtable-db, shared, agent-memory, db)`,
+      `- ${workspacePath}/scripts/x/ — X/Twitter content queue and posting scripts`,
+      `- ${workspacePath}/research/ — Planning docs, architecture specs, brand identity`,
+      `- ${workspacePath}/docker/ — Docker configuration`,
+      `Reference file contents in your responses when relevant to the task.`,
+    );
+  }
 
   if (memoryContext.trim()) {
     parts.push('', '## Context from Memory', memoryContext);
@@ -82,55 +84,43 @@ function buildUserMessage(task: TaskNode): string {
 }
 
 /**
- * Execute a single task using the Anthropic API with the given agent identity.
- *
- * Returns a structured result with the agent's output, success status, and timing.
+ * Execute a single task using the multi-provider system.
+ * Routes to the correct model based on the agent's modelPreference.
  */
 export async function executeAgentTask(
-  client: Anthropic,
+  _client: unknown, // kept for backward compatibility, actual routing done by providers.ts
   identity: AgentIdentity,
   task: TaskNode,
   memoryContext: string,
 ): Promise<AgentExecutionResult> {
   const startTime = Date.now();
-  const model = resolveModel(identity.modelPreference);
+  const resolved = resolveModel(identity.modelPreference);
 
   try {
-    const response = await client.messages.create({
-      model,
-      max_tokens: 4096,
+    const result = await complete({
+      model: identity.modelPreference,
       system: buildSystemPrompt(identity, memoryContext),
-      messages: [
-        {
-          role: 'user',
-          content: buildUserMessage(task),
-        },
-      ],
+      userMessage: buildUserMessage(task),
+      maxTokens: 4096,
     });
-
-    // Extract text from response content blocks
-    const output = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map(block => block.text)
-      .join('\n\n');
 
     const duration = Date.now() - startTime;
 
     return {
       agentName: identity.name,
       taskId: task.id,
-      output,
+      output: result.output,
       success: true,
       duration,
-      inputTokens: response.usage?.input_tokens ?? 0,
-      outputTokens: response.usage?.output_tokens ?? 0,
-      model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      model: result.model,
     };
   } catch (err) {
     const duration = Date.now() - startTime;
     const errorMessage = err instanceof Error ? err.message : String(err);
 
-    console.error(`[agent] ${identity.name} failed on task ${task.id}:`, errorMessage);
+    console.error(`[agent] ${identity.name} (${resolved.provider}/${resolved.modelId}) failed on task ${task.id}:`, errorMessage);
 
     return {
       agentName: identity.name,
@@ -140,7 +130,7 @@ export async function executeAgentTask(
       duration,
       inputTokens: 0,
       outputTokens: 0,
-      model,
+      model: resolved.modelId,
     };
   }
 }

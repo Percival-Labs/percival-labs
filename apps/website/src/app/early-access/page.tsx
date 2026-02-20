@@ -4,7 +4,7 @@ import { EarlyAccessForm } from "@/components/early-access-form";
 export const metadata = { title: "Early Access" };
 
 const benefits = [
-  "Priority access when The Harness launches",
+  "Priority access when Engram launches",
   "Founding member pricing \u2014 locked in for life",
   "Direct input on features and roadmap",
   "Early marketplace access for skill creators",
@@ -24,7 +24,7 @@ export default function EarlyAccessPage() {
             </span>
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-pl-text sm:text-4xl">
-            Get Early Access to The Harness
+            Get Early Access to Engram
           </h1>
           <p className="mt-4 text-base text-pl-text-secondary leading-relaxed">
             Join the waitlist for Percival Labs&apos; hosted personal AI

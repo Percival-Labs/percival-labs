@@ -9,10 +9,11 @@
     "start": "bun run src/index.ts"
   },
   "dependencies": {
-    "@percival/shared": "workspace:*",
-    "@percival/db": "workspace:*",
-    "@percival/agent-memory": "workspace:*",
     "@anthropic-ai/sdk": "^0.39.0",
-    "hono": "^4.11.8"
+    "@percival/agent-memory": "workspace:*",
+    "@percival/db": "workspace:*",
+    "@percival/shared": "workspace:*",
+    "hono": "^4.11.8",
+    "openai": "^6.22.0"
   }
 }

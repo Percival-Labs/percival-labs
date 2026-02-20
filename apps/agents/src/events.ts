@@ -9,6 +9,7 @@ export type AgentEventType =
   | 'task_decomposed'
   | 'task_assigned'
   | 'task_budget_blocked'
+  | 'task_output'
   | 'agent_started'
   | 'agent_completed'
   | 'agent_failed'

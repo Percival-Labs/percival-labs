@@ -11,29 +11,44 @@ interface FAQItem {
 
 const faqItems: FAQItem[] = [
   {
-    question: "Why pay when it's open source?",
+    question: "Is the free tier actually free? What's the catch?",
     answer:
-      "The spec is free forever. You're paying for hosting, maintenance, auto-updates, and the marketplace. We handle API changes so you don't have to. Think of it like WordPress.com vs WordPress.org.",
+      "There's no catch. Engram is a fully open-source CLI tool. You get skills, hooks, memory, MCP server \u2014 everything. You bring your own API keys from whatever model providers you prefer. We don't limit features, usage, or capabilities.",
   },
   {
-    question: "What API keys do I need?",
+    question: "What's the difference between Free and Cloud?",
     answer:
-      "For The Harness tier, you bring your own model provider API key \u2014 Anthropic (Claude), OpenAI (GPT), Google (Gemini), or any supported provider. We route your requests through our infrastructure but never store your keys server-side.",
+      "They're the same tool. Cloud adds two things: unified billing (one bill for 200+ models through OpenRouter instead of managing separate API keys) and cloud memory sync across your devices. That's it. No features are withheld from the free tier.",
+  },
+  {
+    question: "How does Cloud pricing work?",
+    answer:
+      "You pay the actual compute cost of the models you use, plus roughly 5% to cover our infrastructure. No subscriptions, no minimums, no surprises. If you don't use it, you don't pay. Your usage dashboard shows exactly what you're spending and where.",
+  },
+  {
+    question: "What models can I use?",
+    answer:
+      "Any model you want. Claude, GPT, Gemini, Ollama, Llama, Mistral \u2014 Engram is model-agnostic. On the free tier, you use your own API keys. On Cloud, OpenRouter gives you access to 200+ models through a single account.",
   },
   {
     question: "Can I switch models anytime?",
     answer:
-      "Yes. Your Harness (identity, skills, memory) is model-agnostic. Switch from Claude to GPT to Gemini without losing anything. That's the whole point.",
+      "Yes. Your skills, memory, and configuration are model-agnostic. Switch from Claude to GPT to Gemini to a local Ollama model without losing anything. That's the whole point.",
   },
   {
-    question: "What if I outgrow The Harness?",
+    question: "What is The Lab tier?",
     answer:
-      "We're building enterprise tiers for teams. But honestly, if you outgrow our hosted version, take the open-source spec and self-host. We'll even help you migrate. No lock-in.",
+      "The Lab is coming soon. It adds a managed AI agent team, a pre-built skill library, collaboration features for teams, and priority support. Join the waitlist if you're interested.",
   },
   {
     question: "How is this different from ChatGPT Plus or Claude Pro?",
     answer:
-      "Those are model subscriptions. The Harness is infrastructure. Your ChatGPT Plus subscription doesn't give you portable skills, persistent memory, or the ability to switch to Claude tomorrow without losing everything.",
+      "Those are model subscriptions tied to one provider. Engram is infrastructure you own. Your ChatGPT Plus subscription doesn't give you portable skills, persistent local memory, or the ability to switch to Claude tomorrow without losing everything. Engram does.",
+  },
+  {
+    question: "What if I want to self-host everything?",
+    answer:
+      "That's what the free tier is. Engram is open source. Run it locally, use your own keys, own your data. If you ever outgrow Cloud, you can always go back to self-hosting. No lock-in, ever.",
   },
 ];
 

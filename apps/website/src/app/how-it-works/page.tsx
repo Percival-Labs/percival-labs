@@ -18,7 +18,7 @@ import { WaitlistForm } from "@/components/waitlist-form";
 export const metadata = {
   title: "How It Works",
   description:
-    "The Harness is your personal AI infrastructure layer — five portable layers that survive model changes. Learn how Context, Hooks, Skills, Memory, and Identity work together.",
+    "Engram is your personal AI infrastructure layer — five portable layers that survive model changes. Learn how Context, Hooks, Skills, Memory, and Identity work together.",
 };
 
 /* ------------------------------------------------------------------ */
@@ -40,11 +40,11 @@ function Hero() {
           5-Layer Architecture
         </div>
         <h1 className="text-4xl font-extrabold tracking-tight text-pl-text sm:text-5xl leading-tight">
-          How The Harness Works
+          How Engram Works
         </h1>
         <p className="mt-6 text-lg text-pl-text-secondary leading-relaxed max-w-2xl mx-auto">
           Your personal AI infrastructure is five portable layers of plain
-          files. When the model underneath changes, your Harness stays the same.
+          files. When the model underneath changes, your Engram stays the same.
         </p>
       </div>
     </section>
@@ -64,7 +64,7 @@ function AnalogySection() {
         <p className="mt-4 text-base text-pl-text-muted max-w-2xl mx-auto leading-relaxed">
           A harness doesn&apos;t generate power. It directs it, safely and
           reliably. You can swap what&apos;s on the other end without
-          rebuilding your setup. The Harness does the same for AI &mdash;
+          rebuilding your setup. Engram does the same for AI &mdash;
           stable infrastructure that makes everything else work.
         </p>
 
@@ -75,7 +75,7 @@ function AnalogySection() {
               detail: "GPT-5, Opus 4.6, Gemini 3 — new releases every month",
             },
             {
-              label: "Your Harness stays",
+              label: "Your Engram stays",
               detail:
                 "Skills, memory, identity — portable markdown and YAML files",
             },
@@ -328,7 +328,7 @@ function WhatItsNot() {
     <section className="py-16 sm:py-20 border-t border-pl-border">
       <div className="mx-auto max-w-4xl px-6">
         <h2 className="text-2xl font-bold text-pl-text text-center sm:text-3xl">
-          What The Harness is <span className="text-pl-red">not</span>
+          What Engram is <span className="text-pl-red">not</span>
         </h2>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
@@ -438,7 +438,7 @@ function ComparisonSection() {
           How it compares
         </h2>
         <p className="mt-4 text-sm text-pl-text-muted text-center max-w-xl mx-auto">
-          The Harness sits in the gap between raw config files and heavyweight
+          Engram sits in the gap between raw config files and heavyweight
           developer frameworks.
         </p>
 
@@ -450,7 +450,7 @@ function ComparisonSection() {
                   Feature
                 </th>
                 <th className="px-4 py-3 text-pl-cyan font-semibold">
-                  The Harness
+                  Engram
                 </th>
                 <th className="px-4 py-3 text-pl-text-muted font-medium">
                   Raw Config
@@ -515,7 +515,7 @@ function CtaSection() {
     <section className="py-16 sm:py-20 border-t border-pl-border">
       <div className="mx-auto max-w-2xl px-6 text-center">
         <h2 className="text-3xl font-bold text-pl-text sm:text-4xl">
-          Ready to build your Harness?
+          Ready to build your Engram?
         </h2>
         <p className="mt-4 text-base text-pl-text-muted">
           Join the waitlist for early access, or start building with the
