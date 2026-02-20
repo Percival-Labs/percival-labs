@@ -180,13 +180,20 @@ export class AgentTeam {
       a => a.name.toLowerCase() === 'coordinator',
     ) || null;
 
-    // Initialize Anthropic client (graceful if no key)
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (apiKey) {
-      this.client = new Anthropic({ apiKey });
+    // Initialize Anthropic client (used as a sentinel for "can we run agents?")
+    // Actual model routing is handled by providers.ts (OpenRouter preferred, Anthropic fallback)
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
+    if (anthropicKey) {
+      this.client = new Anthropic({ apiKey: anthropicKey });
+    } else if (openrouterKey) {
+      // No Anthropic key but OpenRouter is available — create a dummy client as sentinel
+      this.client = {} as Anthropic;
+      console.log('[team] Using OpenRouter for multi-model routing (no ANTHROPIC_API_KEY)');
     } else {
-      console.warn('[team] ANTHROPIC_API_KEY not set. Agent execution will be skipped.');
-      this.client = null;
+      const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434/v1';
+      this.client = {} as Anthropic;
+      console.log(`[team] No cloud API keys. Using Ollama at ${ollamaUrl} for all agents.`);
     }
 
     // Initialize memory database (resolve relative to monorepo root via import.meta)
@@ -294,12 +301,18 @@ export class AgentTeam {
             'Available agents and their expertise:',
             ...this.identities.map(a => `- ${a.name} (${a.role}): ${a.expertise.join(', ')}`),
             '',
+            'IMPORTANT: The worker agents DO NOT have workspace access or tool use.',
+            'Before decomposing, use your workspace tools (read_file, list_directory, search_files)',
+            'to read any relevant files from the project. Then include the relevant file contents,',
+            'code snippets, or context directly in each subtask\'s description so the worker agent',
+            'has everything it needs to complete the work without any file access.',
+            '',
             'Respond with a JSON array of subtasks. Each subtask should have:',
             '- "title": short task title',
-            '- "description": detailed description of what to do',
+            '- "description": detailed description including all necessary context, code snippets, and file contents',
             '- "priority": "critical" | "high" | "medium" | "low"',
             '',
-            'Example: [{"title": "Review security", "description": "Analyze for vulnerabilities", "priority": "high"}]',
+            'Example: [{"title": "Review security", "description": "Analyze the following code for vulnerabilities:\\n```typescript\\n// ... actual code ...\\n```", "priority": "high"}]',
             '',
             'Decompose the task into 2-5 actionable subtasks.',
           ].join('\n'),
@@ -378,6 +391,15 @@ export class AgentTeam {
       console.warn('[team] No API client available. Skipping tick.');
       eventBus.publish('tick_completed', { tickNumber: tickNum, executed: 0, skipped: true });
       return [];
+    }
+
+    // Reset blocked tasks that failed due to transient API errors (500, 429, overloaded)
+    for (const task of this.dag.getAllTasks()) {
+      if (task.status === 'blocked' && task.output &&
+          /\b(500|502|503|529|rate_limit|Internal server error|overloaded)\b/.test(task.output)) {
+        console.log(`[team] Retrying blocked task "${task.id}" (transient API error)`);
+        this.dag.updateTask(task.id, { status: 'pending', output: null, assignedTo: null });
+      }
     }
 
     const readyTasks = this.dag.getReadyTasks();
@@ -539,6 +561,17 @@ export class AgentTeam {
     }
 
     // Emit completion/failure event
+    // Emit task output for Discord #results channel
+    eventBus.publish('task_output', {
+      taskId: task.id,
+      taskTitle: task.title,
+      agentName: agent.name,
+      output: result.output.slice(0, 3000),
+      model: result.model,
+      duration: result.duration,
+      success: result.success,
+    });
+
     if (result.success) {
       eventBus.publish('agent_completed', {
         agentName: agent.name,

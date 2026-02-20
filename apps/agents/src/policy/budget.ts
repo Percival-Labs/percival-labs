@@ -4,11 +4,39 @@
 
 import { EventEmitter } from 'node:events';
 
-// Anthropic pricing (per million tokens, as of early 2026)
+// Pricing (per million tokens, as of early 2026)
+// Ollama/local models are free. OpenRouter/Anthropic models have per-token costs.
 const PRICING: Record<string, { input: number; output: number }> = {
+  // Anthropic (full model IDs)
   'claude-opus-4-6':              { input: 15.00,  output: 75.00 },
   'claude-sonnet-4-5-20250929':   { input: 3.00,   output: 15.00 },
+  'claude-haiku-4-5-20251001':    { input: 0.80,   output: 4.00  },
   'claude-haiku-3-5-20241022':    { input: 0.80,   output: 4.00  },
+  // Anthropic (OpenRouter-prefixed)
+  'anthropic/claude-opus-4-6':              { input: 15.00,  output: 75.00 },
+  'anthropic/claude-sonnet-4-5-20250929':   { input: 3.00,   output: 15.00 },
+  'anthropic/claude-haiku-4-5-20251001':    { input: 0.80,   output: 4.00  },
+  // Short aliases
+  'claude-sonnet-4-5':            { input: 3.00,   output: 15.00 },
+  'claude-haiku-4-5':             { input: 0.80,   output: 4.00  },
+  // Ollama/local models (free)
+  'ollama/qwen2.5-coder:32b':    { input: 0,      output: 0     },
+  'ollama/qwen3:30b-a3b':        { input: 0,      output: 0     },
+  'ollama/qwen3:14b':            { input: 0,      output: 0     },
+  // Cloud models (OpenRouter pricing)
+  'minimax/minimax-m2.5':                { input: 0.50,   output: 1.50  },
+  'deepseek/deepseek-chat-v3-0324':      { input: 0.27,   output: 1.10  },
+  'thudm/glm-4.7-chat':                 { input: 0.10,   output: 0.10  },
+  'qwen/qwen3-coder':                   { input: 0.20,   output: 0.60  },
+  'qwen/qwen3-235b-a22b':               { input: 0.14,   output: 0.70  },
+  // Ollama/local models (free) — new
+  'ollama/glm-4.7-flash':        { input: 0,      output: 0     },
+  'ollama/minimax-m2.5':         { input: 0,      output: 0     },
+  'ollama/deepseek-v3':          { input: 0,      output: 0     },
+  'ollama/qwen3-coder':          { input: 0,      output: 0     },
+  'ollama/qwen3:235b-a22b':      { input: 0,      output: 0     },
+  // OpenClaw (tracked separately, treated as free here)
+  'openclaw':                     { input: 0,      output: 0     },
 };
 
 export interface BudgetConfig {
