@@ -49,7 +49,9 @@
     "scheduled": "2026-02-20T09:00:00-08:00",
     "content": [
       "Three projects shipped this month. None of them talked to each other. All three arrived at the same architecture.\n\nPicoClaw (Go, $10 hardware): SOUL.md, USER.md, IDENTITY.md\nAtlas Forge (Letta, personal agent): SOUL.md, PRINCIPLES.md, AGENTS.md\nOpenClaw (TypeScript, 196K stars): personality config + 3,000 community skills\n\nPlain text files that define who your agent is. Markdown skills that define what it can do. Session memory that persists what it learns. All owned by you, not locked into a platform.\n\nThis is convergent evolution. When different teams independently solve the same problem the same way, that's not coincidence — it's the shape of the solution asserting itself.\n\nWe've been building on this pattern for months. Not because we saw it coming — because when you use a personal AI every day for real work, you discover you need exactly three things: stable identity, portable skills, and persistent memory. Everything else is plumbing.\n\nThe good news about convergence: your context files are becoming portable. The identity and skills you write today will work across whichever runtime wins. Invest in the layer that lasts."
-    ]
+    ],
+    "posted": true,
+    "postedAt": "2026-02-20T18:30:04.974Z"
   },
   {
     "label": "The Lab / Terrarium Teaser",

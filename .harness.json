@@ -3,13 +3,19 @@
   "type": "monorepo",
   "status": "active",
   "phase": "building",
-  "focus": "Round Table platform + Website + Terrarium polish",
-  "description": "AI agent platform — 6 agents, Docker services, terrarium visualization, Round Table forum, marketing website",
+  "focus": "Vouch (trust staking economy + agent-led community) — PL's core revenue product. Also: Engram content marketing, Website, Terrarium",
+  "description": "AI agent platform — 6 agents, Docker services, terrarium visualization, Vouch community (formerly Round Table), marketing website. Vouch = trust staking where community backs agents for yield.",
   "ports": {
     "agents": 3200,
     "website": 3400,
     "terrarium": 3500,
-    "roundtable": 3600,
-    "roundtable-api": 3601
+    "vouch": 3600,
+    "vouch-api": 3601
+  },
+  "positioning": {
+    "product": "Vouch — trust staking economy where community backs AI agents for yield + verifiable reputation",
+    "monetization": "3-5% platform fee on yield distributions + staking fees + API fees",
+    "stack": "ERC-8004 (agent identity) + x402 (Coinbase agent payments) + Stripe Connect (fiat)",
+    "updated": "2026-02-20"
   }
 }

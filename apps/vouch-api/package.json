@@ -1,0 +1,20 @@
+{
+  "name": "@percival/vouch-api",
+  "version": "0.1.0",
+  "private": true,
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@percival/vouch-db": "workspace:*",
+    "drizzle-orm": "^0.38.0",
+    "hono": "^4.11.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="hclip">
+      <!-- Helmet shape for circuit clipping - side profile -->
+      <path d="M370 340
+               Q370 230 470 195
+               Q530 175 600 210
+               Q670 250 680 340
+               L700 400
+               L700 470
+               L660 520
+               L600 545
+               L530 550
+               Q460 550 430 515
+               L400 475
+               L370 415 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="#0a0e17"/>
+
+  <!--
+    V3: Knight helmet silhouette with circuit/neural pattern inside
+    Side profile, angular, with grid of circuit traces and neural nodes
+  -->
+
+  <!-- Helmet silhouette outer - more angular, clearly a knight helmet profile -->
+  <path d="M360 340
+           Q360 220 465 185
+           Q530 165 605 205
+           Q680 245 690 340
+           L712 405
+           L712 480
+           L668 530
+           L600 558
+           L525 562
+           Q450 562 418 525
+           L388 482
+           L360 420 Z"
+        fill="#22d3ee"/>
+
+  <!-- Inner fill (dark, creating outline) -->
+  <path d="M378 345
+           Q378 238 472 207
+           Q530 190 598 225
+           Q665 260 674 345
+           L694 402
+           L694 470
+           L654 516
+           L594 542
+           L528 546
+           Q460 546 432 513
+           L404 474
+           L378 418 Z"
+        fill="#0f1929"/>
+
+  <!-- Circuit grid inside helmet -->
+  <g clip-path="url(#hclip)">
+    <!-- Horizontal traces -->
+    <rect x="360" y="240" width="350" height="3" fill="#22d3ee" opacity="0.45"/>
+    <rect x="365" y="290" width="340" height="3" fill="#22d3ee" opacity="0.45"/>
+    <rect x="360" y="340" width="350" height="3" fill="#22d3ee" opacity="0.5"/>
+    <rect x="360" y="390" width="350" height="3" fill="#22d3ee" opacity="0.55"/>
+    <rect x="365" y="440" width="340" height="4" fill="#22d3ee" opacity="0.6"/>
+    <rect x="370" y="490" width="330" height="3" fill="#22d3ee" opacity="0.45"/>
+    <rect x="380" y="540" width="310" height="3" fill="#22d3ee" opacity="0.4"/>
+
+    <!-- Vertical traces -->
+    <rect x="420" y="190" width="3" height="380" fill="#22d3ee" opacity="0.45"/>
+    <rect x="480" y="180" width="3" height="390" fill="#22d3ee" opacity="0.45"/>
+    <rect x="540" y="180" width="3" height="385" fill="#22d3ee" opacity="0.45"/>
+    <rect x="600" y="200" width="3" height="360" fill="#22d3ee" opacity="0.45"/>
+    <rect x="660" y="240" width="3" height="300" fill="#22d3ee" opacity="0.4"/>
+
+    <!-- Diagonal connections (neural links) -->
+    <line x1="420" y1="290" x2="480" y2="340" stroke="#22d3ee" stroke-width="2" opacity="0.35"/>
+    <line x1="540" y1="290" x2="600" y2="340" stroke="#22d3ee" stroke-width="2" opacity="0.35"/>
+    <line x1="480" y1="390" x2="540" y2="440" stroke="#22d3ee" stroke-width="2" opacity="0.35"/>
+    <line x1="600" y1="340" x2="540" y2="390" stroke="#22d3ee" stroke-width="2" opacity="0.35"/>
+    <line x1="420" y1="440" x2="480" y2="490" stroke="#22d3ee" stroke-width="2" opacity="0.35"/>
+    <line x1="540" y1="440" x2="600" y2="490" stroke="#22d3ee" stroke-width="2" opacity="0.3"/>
+    <line x1="660" y1="340" x2="600" y2="390" stroke="#22d3ee" stroke-width="2" opacity="0.3"/>
+
+    <!-- Neural nodes at grid intersections -->
+    <!-- Row 1 -->
+    <circle cx="420" cy="290" r="7" fill="#22d3ee" opacity="0.75"/>
+    <circle cx="480" cy="290" r="5" fill="#22d3ee" opacity="0.65"/>
+    <circle cx="540" cy="290" r="7" fill="#22d3ee" opacity="0.75"/>
+    <circle cx="600" cy="290" r="5" fill="#22d3ee" opacity="0.65"/>
+    <!-- Row 2 -->
+    <circle cx="420" cy="340" r="5" fill="#22d3ee" opacity="0.65"/>
+    <circle cx="480" cy="340" r="8" fill="#22d3ee" opacity="0.85"/>
+    <circle cx="540" cy="340" r="6" fill="#22d3ee" opacity="0.7"/>
+    <circle cx="600" cy="340" r="8" fill="#22d3ee" opacity="0.85"/>
+    <circle cx="660" cy="340" r="5" fill="#22d3ee" opacity="0.6"/>
+    <!-- Row 3 -->
+    <circle cx="420" cy="390" r="7" fill="#22d3ee" opacity="0.75"/>
+    <circle cx="480" cy="390" r="6" fill="#22d3ee" opacity="0.7"/>
+    <circle cx="540" cy="390" r="9" fill="#22d3ee" opacity="0.9"/>
+    <circle cx="600" cy="390" r="6" fill="#22d3ee" opacity="0.7"/>
+    <circle cx="660" cy="390" r="5" fill="#22d3ee" opacity="0.6"/>
+    <!-- Row 4 - visor line (brightest) -->
+    <circle cx="420" cy="440" r="9" fill="#22d3ee" opacity="0.9"/>
+    <circle cx="480" cy="440" r="11" fill="#22d3ee"/>
+    <circle cx="540" cy="440" r="12" fill="#22d3ee"/>
+    <circle cx="600" cy="440" r="11" fill="#22d3ee"/>
+    <circle cx="660" cy="440" r="8" fill="#22d3ee" opacity="0.85"/>
+    <!-- Row 5 -->
+    <circle cx="420" cy="490" r="5" fill="#22d3ee" opacity="0.6"/>
+    <circle cx="480" cy="490" r="7" fill="#22d3ee" opacity="0.7"/>
+    <circle cx="540" cy="490" r="5" fill="#22d3ee" opacity="0.6"/>
+    <circle cx="600" cy="490" r="6" fill="#22d3ee" opacity="0.65"/>
+    <!-- Row 6 -->
+    <circle cx="480" cy="540" r="5" fill="#22d3ee" opacity="0.5"/>
+    <circle cx="540" cy="540" r="6" fill="#22d3ee" opacity="0.55"/>
+  </g>
+
+  <!-- Visor slit cut through the circuit - dark gap then cyan line -->
+  <rect x="365" y="428" width="345" height="24" fill="#0a0e17"/>
+  <rect x="370" y="435" width="335" height="10" fill="#22d3ee"/>
+
+  <!-- Jaw / chin area below helmet -->
+  <path d="M430 562 L450 590 Q490 620 540 610 L580 590 L600 558
+           L594 542 L528 546 Q460 546 432 513 Z"
+        fill="#22d3ee"/>
+  <path d="M444 562 L458 584 Q492 608 534 600 L566 584 L580 562
+           L560 546 Q500 548 460 540 Z"
+        fill="#0f1929"/>
+
+  <!-- Neck guard -->
+  <path d="M360 420 L340 490 Q330 540 348 580 L378 614
+           L392 606 L366 576 Q352 544 360 498 L378 432 Z"
+        fill="#22d3ee"/>
+
+  <!-- Plume / Crest - amber -->
+  <path d="M485 195
+           Q468 135 500 95
+           Q530 55 568 78
+           Q605 100 594 155
+           L582 195
+           L565 200
+           Q575 155 568 120
+           Q555 90 540 95
+           Q518 100 522 145
+           Q524 175 515 195 Z"
+        fill="#f59e0b"/>
+  <path d="M515 192
+           Q508 148 528 115
+           Q542 98 552 110
+           Q560 125 555 160
+           Q552 182 546 195 Z"
+        fill="#fbbf24" opacity="0.45"/>
+</svg>

@@ -55,8 +55,24 @@
         "@types/bun": "latest",
       },
     },
-    "apps/roundtable": {
-      "name": "@percival/roundtable",
+    "apps/terrarium": {
+      "name": "@percival/terrarium",
+      "version": "0.1.0",
+      "dependencies": {
+        "hono": "^4.0.0",
+      },
+    },
+    "apps/verifier": {
+      "name": "@percival/verifier",
+      "version": "0.1.0",
+      "dependencies": {
+        "@percival/db": "workspace:*",
+        "@percival/shared": "workspace:*",
+        "hono": "^4.0.0",
+      },
+    },
+    "apps/vouch": {
+      "name": "@percival/vouch",
       "version": "0.1.0",
       "dependencies": {
         "lucide-react": "^0.511.0",
@@ -74,33 +90,17 @@
         "typescript": "^5.8.3",
       },
     },
-    "apps/roundtable-api": {
-      "name": "@percival/roundtable-api",
+    "apps/vouch-api": {
+      "name": "@percival/vouch-api",
       "version": "0.1.0",
       "dependencies": {
-        "@percival/roundtable-db": "workspace:*",
+        "@percival/vouch-db": "workspace:*",
         "drizzle-orm": "^0.38.0",
         "hono": "^4.11.8",
       },
       "devDependencies": {
         "@types/node": "^22.15.0",
         "typescript": "^5.8.3",
-      },
-    },
-    "apps/terrarium": {
-      "name": "@percival/terrarium",
-      "version": "0.1.0",
-      "dependencies": {
-        "hono": "^4.0.0",
-      },
-    },
-    "apps/verifier": {
-      "name": "@percival/verifier",
-      "version": "0.1.0",
-      "dependencies": {
-        "@percival/db": "workspace:*",
-        "@percival/shared": "workspace:*",
-        "hono": "^4.0.0",
       },
     },
     "apps/web": {
@@ -147,8 +147,12 @@
         "@percival/shared": "workspace:*",
       },
     },
-    "packages/roundtable-db": {
-      "name": "@percival/roundtable-db",
+    "packages/shared": {
+      "name": "@percival/shared",
+      "version": "0.1.0",
+    },
+    "packages/vouch-db": {
+      "name": "@percival/vouch-db",
       "version": "0.1.0",
       "dependencies": {
         "drizzle-orm": "^0.38.0",
@@ -161,9 +165,13 @@
         "typescript": "^5.8.3",
       },
     },
-    "packages/shared": {
-      "name": "@percival/shared",
+    "packages/vouch-sdk": {
+      "name": "@percival/vouch-sdk",
       "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "^22.15.0",
+        "typescript": "^5.8.3",
+      },
     },
   },
   "packages": {
@@ -333,17 +341,19 @@
 
     "@percival/registry": ["@percival/registry@workspace:apps/registry"],
 
-    "@percival/roundtable": ["@percival/roundtable@workspace:apps/roundtable"],
-
-    "@percival/roundtable-api": ["@percival/roundtable-api@workspace:apps/roundtable-api"],
-
-    "@percival/roundtable-db": ["@percival/roundtable-db@workspace:packages/roundtable-db"],
-
     "@percival/shared": ["@percival/shared@workspace:packages/shared"],
 
     "@percival/terrarium": ["@percival/terrarium@workspace:apps/terrarium"],
 
     "@percival/verifier": ["@percival/verifier@workspace:apps/verifier"],
+
+    "@percival/vouch": ["@percival/vouch@workspace:apps/vouch"],
+
+    "@percival/vouch-api": ["@percival/vouch-api@workspace:apps/vouch-api"],
+
+    "@percival/vouch-db": ["@percival/vouch-db@workspace:packages/vouch-db"],
+
+    "@percival/vouch-sdk": ["@percival/vouch-sdk@workspace:packages/vouch-sdk"],
 
     "@percival/web": ["@percival/web@workspace:apps/web"],
 

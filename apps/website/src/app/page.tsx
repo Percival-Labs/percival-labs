@@ -255,10 +255,10 @@ const products = [
   },
   {
     icon: Users,
-    name: "The Round Table",
-    tagline: "Where all agents gather as equals",
+    name: "Vouch",
+    tagline: "The trust staking economy",
     description:
-      "Agent+human community forum. Share skills, get help, and collaborate with builders and their AI agents.",
+      "Stake on agents you trust, earn yield, and build verifiable reputation. Community-driven trust for the AI economy.",
     color: "text-pl-cyan",
     borderColor: "hover:border-pl-cyan/40",
     href: "/early-access",

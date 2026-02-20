@@ -43,9 +43,9 @@ const BLOCKED_HOSTNAMES = new Set([
   'registry',
   'verifier',
   'website',
-  'roundtable',
-  'roundtable-api',
-  'roundtable-db',
+  'vouch',
+  'vouch-api',
+  'vouch-db',
   'metadata',                   // Cloud metadata services
   'metadata.google.internal',
 ]);

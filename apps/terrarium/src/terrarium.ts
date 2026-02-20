@@ -26,7 +26,7 @@ interface AgentConfig {
   messages: string[];
 }
 
-// --- Agent Layout (perimeter desks facing center, Round Table in middle) ---
+// --- Agent Layout (perimeter desks facing center, Vouch table in middle) ---
 
 const AGENTS: AgentConfig[] = [
   // --- PERCY: Solo station, back wall ---
@@ -141,7 +141,7 @@ const AGENTS: AgentConfig[] = [
       "Scaling worker pool to 4 instances",
     ],
   },
-  // --- CLAWDBOT: Chaos agent, near Round Table ---
+  // --- CLAWDBOT: Chaos agent, near center table ---
   {
     id: "clawdbot",
     name: "Clawdbot",
@@ -231,7 +231,7 @@ function generateCSS(): string {
       width: 1920px;
       height: 1080px;
       overflow: hidden;
-      background: #0a0a0f;
+      background: #12100c;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     }
 
@@ -255,9 +255,9 @@ function generateCSS(): string {
       z-index: 2;
       pointer-events: none;
       background: radial-gradient(
-        ellipse 75% 70% at 50% 45%,
-        transparent 45%,
-        rgba(0, 0, 0, 0.55) 100%
+        ellipse 80% 75% at 50% 45%,
+        transparent 55%,
+        rgba(18, 14, 10, 0.4) 100%
       );
     }
 
@@ -360,22 +360,22 @@ function generateCSS(): string {
       position: absolute;
       max-width: 260px;
       min-width: 140px;
-      background: rgba(8, 10, 18, 0.92);
-      backdrop-filter: blur(12px);
-      border-radius: 4px 12px 12px 4px;
+      background: rgba(255, 248, 235, 0.92);
+      backdrop-filter: blur(6px);
+      border-radius: 14px 14px 14px 4px;
       border-left: 3px solid var(--agent-color, #3b82f6);
-      padding: 8px 12px;
-      color: #e8ecf4;
-      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      padding: 10px 14px;
+      color: #3A2E24;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       font-size: 12px;
-      line-height: 1.4;
+      line-height: 1.5;
       opacity: 0;
       transform: translateY(8px) scale(0.97);
-      transition: opacity 0.4s ease, transform 0.4s ease;
-      border-top: 1px solid rgba(100, 140, 255, 0.08);
-      border-right: 1px solid rgba(100, 140, 255, 0.08);
-      border-bottom: 1px solid rgba(100, 140, 255, 0.08);
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 15px color-mix(in srgb, var(--agent-color, #3b82f6) 20%, transparent);
+      transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+      border-top: 1px solid rgba(200, 180, 140, 0.35);
+      border-right: 1px solid rgba(200, 180, 140, 0.35);
+      border-bottom: 1px solid rgba(200, 180, 140, 0.35);
+      box-shadow: 0 3px 16px rgba(40, 30, 15, 0.35), 0 0 8px color-mix(in srgb, var(--agent-color, #3b82f6) 12%, transparent);
     }
 
     .bubble::before {
@@ -385,12 +385,10 @@ function generateCSS(): string {
       left: 0;
       right: 0;
       bottom: 0;
-      background: repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(255, 255, 255, 0.015) 2px,
-        rgba(255, 255, 255, 0.015) 4px
+      background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.08) 0%,
+        transparent 60%
       );
       pointer-events: none;
       border-radius: inherit;
@@ -402,30 +400,29 @@ function generateCSS(): string {
     .bubble-header {
       display: flex;
       align-items: center;
-      gap: 5px;
-      margin-bottom: 4px;
+      gap: 6px;
+      margin-bottom: 5px;
     }
 
     .bubble-avatar {
-      width: 8px;
-      height: 8px;
-      border-radius: 2px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
       flex-shrink: 0;
-      box-shadow: 0 0 6px var(--agent-color, #3b82f6);
+      box-shadow: 0 0 4px color-mix(in srgb, var(--agent-color, #3b82f6) 50%, transparent);
     }
     .bubble-name {
       font-weight: 600;
       font-size: 11px;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
-    .bubble-role { font-size: 9px; opacity: 0.4; margin-left: auto; text-transform: uppercase; letter-spacing: 0.5px; }
-    .bubble-message { color: rgba(255, 255, 255, 0.85); }
+    .bubble-role { font-size: 9px; opacity: 0.45; margin-left: auto; letter-spacing: 0.3px; color: #8A7A6A; }
+    .bubble-message { color: #4A3E32; }
 
-    .bubble-typing { display: flex; gap: 4px; padding: 4px 0; }
+    .bubble-typing { display: flex; gap: 5px; padding: 5px 0; }
     .bubble-typing span {
       width: 5px; height: 5px; border-radius: 50%;
-      background: rgba(255, 255, 255, 0.4);
+      background: rgba(120, 100, 70, 0.4);
       animation: typing-bounce 1.4s ease-in-out infinite;
     }
     .bubble-typing span:nth-child(2) { animation-delay: 0.2s; }
@@ -439,12 +436,12 @@ function generateCSS(): string {
     .bubble::after {
       content: '';
       position: absolute;
-      bottom: -6px;
-      left: 20px;
-      width: 12px;
-      height: 12px;
-      background: rgba(8, 10, 18, 0.92);
-      border: 1px solid rgba(100, 140, 255, 0.08);
+      bottom: -5px;
+      left: 18px;
+      width: 10px;
+      height: 10px;
+      background: rgba(255, 248, 235, 0.92);
+      border: 1px solid rgba(200, 180, 140, 0.35);
       border-top: none;
       border-left: none;
       transform: rotate(45deg);
@@ -475,11 +472,11 @@ renderer.setPixelRatio(1);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.9;
+renderer.toneMappingExposure = 1.25;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#0D0E14');
-scene.fog = new THREE.FogExp2(0x0D0E14, 0.012);
+scene.background = new THREE.Color('#14120E');
+scene.fog = new THREE.FogExp2(0x14120E, 0.006);
 
 const camera = new THREE.PerspectiveCamera(35, 1920 / 1080, 0.1, 100);
 camera.position.set(3, 10, 17);
@@ -493,16 +490,16 @@ camera.lookAt(0, 1, -2);
 // LIGHTING — Cozy Cyberpunk (dark evening + neon accents)
 // ============================================================
 
-// Hemisphere: cool ceiling + warm floor
-const hemi = new THREE.HemisphereLight(0x1A1A3A, 0x4A2810, 0.6);
+// Hemisphere: warm amber ceiling + soft earth floor (Ghibli interior warmth)
+const hemi = new THREE.HemisphereLight(0x3A2A1A, 0x5A3A18, 0.9);
 scene.add(hemi);
 
-// Low warm ambient — enough to read shapes in the dark
-const ambient = new THREE.AmbientLight(0x1A1408, 0.45);
+// Warm ambient — Ghibli interiors have visible fill, not pitch black
+const ambient = new THREE.AmbientLight(0x2A1E14, 0.7);
 scene.add(ambient);
 
-// Cool moonlight through window
-const sunLight = new THREE.DirectionalLight(0x6B7CB0, 0.8);
+// Warm golden directional (late afternoon sun through window — Ghibli signature)
+const sunLight = new THREE.DirectionalLight(0xC8A882, 0.9);
 sunLight.position.set(-5, 14, -6);
 sunLight.castShadow = true;
 sunLight.shadow.mapSize.set(2048, 2048);
@@ -515,45 +512,45 @@ sunLight.shadow.camera.bottom = -15;
 sunLight.shadow.bias = -0.002;
 scene.add(sunLight);
 
-// Purple-blue shaft through window
-const windowBeam = new THREE.SpotLight(0x4A3A8A, 2.0, 25, Math.PI / 4, 0.5, 1);
+// Golden light shaft through window (Ghibli god-ray feel)
+const windowBeam = new THREE.SpotLight(0xD4A864, 2.5, 25, Math.PI / 4, 0.6, 1);
 windowBeam.position.set(0, 10, -10);
 windowBeam.target.position.set(2, 0, -2);
 windowBeam.castShadow = true;
 scene.add(windowBeam);
 scene.add(windowBeam.target);
 
-// Subtle cool rim fill from the right
-const fillSun = new THREE.DirectionalLight(0x3A4A6A, 0.4);
+// Warm fill from the right (complementary to window light)
+const fillSun = new THREE.DirectionalLight(0x8A7A6A, 0.5);
 fillSun.position.set(8, 10, 4);
 scene.add(fillSun);
 
-// Dim tungsten overhead fills
-const overhead1 = new THREE.PointLight(0x2A2018, 0.3, 25);
+// Warm tungsten overhead fills — Ghibli interior lighting is generous
+const overhead1 = new THREE.PointLight(0x4A3820, 0.6, 25);
 overhead1.position.set(-5, 10, -3);
 scene.add(overhead1);
-const overhead2 = new THREE.PointLight(0x2A2018, 0.3, 25);
+const overhead2 = new THREE.PointLight(0x4A3820, 0.6, 25);
 overhead2.position.set(5, 10, 2);
 scene.add(overhead2);
-const overhead3 = new THREE.PointLight(0x2A2018, 0.2, 20);
+const overhead3 = new THREE.PointLight(0x4A3820, 0.5, 20);
 overhead3.position.set(0, 10, -7);
 scene.add(overhead3);
 
-// Stronger cool rim for silhouette separation
-const rimLight = new THREE.PointLight(0x4488CC, 0.6, 25);
+// Warm rim for silhouette separation (soft amber instead of cool blue)
+const rimLight = new THREE.PointLight(0xCC9966, 0.8, 25);
 rimLight.position.set(0, 5, -9);
 scene.add(rimLight);
 
-// --- Accent lights (cyber glow) ---
-const accentCyan = new THREE.PointLight(0x00E5FF, 1.5, 30);
-accentCyan.position.set(-8, 10, -1);
-scene.add(accentCyan);
+// --- Accent lights (Ghibli-cyber: soft teal + dusty rose instead of harsh neon) ---
+const accentTeal = new THREE.PointLight(0x5ABFB0, 1.2, 28);
+accentTeal.position.set(-8, 10, -1);
+scene.add(accentTeal);
 
-const accentMagenta = new THREE.PointLight(0xFF00AA, 1.0, 25);
-accentMagenta.position.set(10, 8, -4);
-scene.add(accentMagenta);
+const accentRose = new THREE.PointLight(0xD88AA0, 0.8, 22);
+accentRose.position.set(10, 8, -4);
+scene.add(accentRose);
 
-const accentFloor = new THREE.PointLight(0xFF8C00, 0.4, 20);
+const accentFloor = new THREE.PointLight(0xDEA050, 0.5, 20);
 accentFloor.position.set(0, 0.3, -1);
 scene.add(accentFloor);
 
@@ -571,7 +568,7 @@ const stringLightPositions = [
   [1, 9.3, -10.5], [4, 9.5, -10.5], [7, 9.1, -10.5], [10, 9.4, -10.5],
 ];
 for (const [sx, sy, sz] of stringLightPositions) {
-  const sl = new THREE.PointLight(0xFFD080, 0.5, 5);
+  const sl = new THREE.PointLight(0xFFD080, 0.8, 7);
   sl.position.set(sx, sy, sz);
   scene.add(sl);
 }
@@ -584,13 +581,13 @@ const deskLampPositions = [
   [-6, 2.8, 1.5],    // Forge's area
 ];
 for (const [lx, ly, lz] of deskLampPositions) {
-  const lamp = new THREE.PointLight(0xFFD4A0, 1.2, 4);
+  const lamp = new THREE.PointLight(0xFFD4A0, 2.0, 6);
   lamp.position.set(lx, ly, lz);
   scene.add(lamp);
 }
 
 // Sage's standing floor lamp (right side of room) — warm reading light
-const floorLamp = new THREE.SpotLight(0xFFD8A0, 2.5, 10, Math.PI / 4, 0.8, 1);
+const floorLamp = new THREE.SpotLight(0xFFD8A0, 3.5, 12, Math.PI / 4, 0.8, 1);
 floorLamp.position.set(9, 4.3, -1.5);
 floorLamp.target.position.set(9, 0, -1.5);
 scene.add(floorLamp);
@@ -601,13 +598,13 @@ floorLampGlow.position.set(9, 4.0, -1.5);
 scene.add(floorLampGlow);
 
 // Overhead pendant warm spots (practical ceiling fixtures)
-const pendant1 = new THREE.SpotLight(0xFFD890, 1.5, 12, Math.PI / 5, 0.6, 1);
+const pendant1 = new THREE.SpotLight(0xFFD890, 2.5, 14, Math.PI / 5, 0.6, 1);
 pendant1.position.set(-4, 9.5, -4);
 pendant1.target.position.set(-4, 0, -4);
 scene.add(pendant1);
 scene.add(pendant1.target);
 
-const pendant2 = new THREE.SpotLight(0xFFD890, 1.2, 12, Math.PI / 5, 0.6, 1);
+const pendant2 = new THREE.SpotLight(0xFFD890, 2.0, 14, Math.PI / 5, 0.6, 1);
 pendant2.position.set(4, 9.5, -1);
 pendant2.target.position.set(4, 0, -1);
 scene.add(pendant2);
@@ -624,27 +621,25 @@ const deskLights = [];
 for (const agent of AGENT_DATA) {
   const [ax, , az] = agent.position;
   const f = agent.facing || 0;
-  const deskLight = new THREE.PointLight(new THREE.Color(agent.color), 4.0, 8);
+  const deskLight = new THREE.PointLight(new THREE.Color(agent.color), 5.5, 10);
   // Light above desk, slightly toward the robot
   deskLight.position.set(ax + Math.sin(f) * 0.3, 2.3, az + Math.cos(f) * 0.3);
   scene.add(deskLight);
   deskLights.push(deskLight);
 }
 
-// --- Toon gradient map (5-step: nuanced cartoon shadows with smoother transitions) ---
+// --- Toon gradient map (4-step: Ghibli-inspired warm shadows, painterly transitions) ---
 function createGradientMap() {
-  const size = 5;
+  const size = 4;
   const data = new Uint8Array(size * 4);
-  // Step 0: deep shadow — cool dark
-  data[0] = 20; data[1] = 22; data[2] = 35; data[3] = 255;
-  // Step 1: shadow — cool gray
-  data[4] = 55; data[5] = 58; data[6] = 75; data[7] = 255;
-  // Step 2: midtone — neutral cool
-  data[8] = 120; data[9] = 118; data[10] = 130; data[11] = 255;
-  // Step 3: light — desaturated
-  data[12] = 195; data[13] = 190; data[14] = 185; data[15] = 255;
-  // Step 4: highlight — warm white
-  data[16] = 240; data[17] = 235; data[18] = 228; data[19] = 255;
+  // Step 0: deep shadow — warm purple-brown (Ghibli shadow tone)
+  data[0] = 45; data[1] = 32; data[2] = 52; data[3] = 255;
+  // Step 1: shadow — dusty mauve
+  data[4] = 95; data[5] = 75; data[6] = 90; data[7] = 255;
+  // Step 2: midtone — warm golden tan
+  data[8] = 185; data[9] = 168; data[10] = 148; data[11] = 255;
+  // Step 3: highlight — soft cream
+  data[12] = 248; data[13] = 240; data[14] = 225; data[15] = 255;
 
   const tex = new THREE.DataTexture(data, size, 1, THREE.RGBAFormat);
   tex.minFilter = THREE.NearestFilter;
@@ -759,12 +754,12 @@ loader.load('/public/models/office.glb', (gltf) => {
     }
   });
 
-  // Log Round Table mesh (don't replace material — that makes it transparent)
+  // Log Vouch table mesh (don't replace material — that makes it transparent)
   office.traverse((child2) => {
     if (!child2.isMesh) return;
     const name = child2.name.toLowerCase();
-    if (name.includes('roundtable') || name.includes('round_table')) {
-      console.log('[Terrarium] Found Round Table mesh:', child2.name);
+    if (name.includes('vouch') || name.includes('roundtable') || name.includes('round_table')) {
+      console.log('[Terrarium] Found Vouch mesh:', child2.name);
     }
   });
 
@@ -834,6 +829,110 @@ loader.load('/public/models/office.glb', (gltf) => {
   // Back-right corner — tall shelf
   addBookshelf(9.5, 0, -10.5, 1.8, 5.0, 5, false, shelfDark);
 
+  // ============================================================
+  // CYBERPUNK OFFICE PROPS (tech layer on cozy Ghibli base)
+  // ============================================================
+
+  const pipeMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x3A3530), gradientMap: gradientMap });
+  const neonTealMat = new THREE.MeshStandardMaterial({
+    color: 0x5ABFB0, emissive: new THREE.Color(0x5ABFB0), emissiveIntensity: 0.6,
+    transparent: true, opacity: 0.9,
+  });
+  const neonRoseMat = new THREE.MeshStandardMaterial({
+    color: 0xD88AA0, emissive: new THREE.Color(0xD88AA0), emissiveIntensity: 0.5,
+    transparent: true, opacity: 0.9,
+  });
+
+  // --- Exposed ceiling conduit pipes ---
+  // Main run along back wall
+  const pipe1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 20, 8), pipeMat);
+  pipe1.rotation.z = Math.PI / 2;
+  pipe1.position.set(0, 9.6, -10.2);
+  scene.add(pipe1);
+  // Cross pipe from back to front (left side)
+  const pipe2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 16, 8), pipeMat);
+  pipe2.rotation.x = Math.PI / 2;
+  pipe2.position.set(-8, 9.4, -2);
+  scene.add(pipe2);
+  // Smaller branch pipe (right side)
+  const pipe3 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 10, 6), pipeMat);
+  pipe3.rotation.x = Math.PI / 2;
+  pipe3.position.set(8, 9.3, -5);
+  scene.add(pipe3);
+  // Vertical drop pipe (left wall)
+  const pipe4 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 6, 8), pipeMat);
+  pipe4.position.set(-11.4, 7, -5);
+  scene.add(pipe4);
+
+  // --- Neon LED strips (accent lighting along architecture) ---
+  // Teal strip along left wall base
+  const ledStrip1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 18), neonTealMat);
+  ledStrip1.position.set(-11.6, 0.15, -2);
+  scene.add(ledStrip1);
+  // Rose strip along back wall ceiling edge
+  const ledStrip2 = new THREE.Mesh(new THREE.BoxGeometry(18, 0.03, 0.03), neonRoseMat);
+  ledStrip2.position.set(0, 9.8, -10.6);
+  scene.add(ledStrip2);
+  // Teal strip under round table platform
+  const ledStrip3 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.03, 0.03), neonTealMat);
+  ledStrip3.position.set(0, 0.08, 1.5);
+  scene.add(ledStrip3);
+  const ledStrip4 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.03, 0.03), neonTealMat);
+  ledStrip4.position.set(0, 0.08, -5.5);
+  scene.add(ledStrip4);
+
+  // --- Server rack cluster (back-left corner) ---
+  const rackMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x1A1A22), gradientMap: gradientMap });
+  const rackLedMat = new THREE.MeshStandardMaterial({
+    color: 0x40E0A0, emissive: new THREE.Color(0x40E0A0), emissiveIntensity: 0.7,
+  });
+  for (let r = 0; r < 3; r++) {
+    const rack = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.6), rackMat);
+    rack.position.set(-10.8, 1.75, -8.5 + r * 1.0);
+    scene.add(rack);
+    // Status LEDs on each rack
+    for (let led = 0; led < 4; led++) {
+      const ledMesh = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), rackLedMat);
+      ledMesh.position.set(-10.38, 1.0 + led * 0.6, -8.5 + r * 1.0);
+      scene.add(ledMesh);
+    }
+  }
+
+  // --- Holographic display (floating translucent plane near round table) ---
+  const holoMat = new THREE.MeshStandardMaterial({
+    color: 0x5ABFB0, emissive: new THREE.Color(0x5ABFB0), emissiveIntensity: 0.4,
+    transparent: true, opacity: 0.15, side: THREE.DoubleSide,
+  });
+  const holo = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 1.5), holoMat);
+  holo.position.set(0, 3.5, -3);
+  holo.rotation.y = Math.PI * 0.15;
+  scene.add(holo);
+  // Holo frame edges (thin bright lines)
+  const holoEdgeMat = new THREE.MeshStandardMaterial({
+    color: 0x5ABFB0, emissive: new THREE.Color(0x5ABFB0), emissiveIntensity: 0.8,
+  });
+  const holoTop = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.015, 0.015), holoEdgeMat);
+  holoTop.position.set(0, 4.25, -3);
+  holoTop.rotation.y = Math.PI * 0.15;
+  scene.add(holoTop);
+  const holoBot = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.015, 0.015), holoEdgeMat);
+  holoBot.position.set(0, 2.75, -3);
+  holoBot.rotation.y = Math.PI * 0.15;
+  scene.add(holoBot);
+
+  // --- Floor cable bundles (running between desks) ---
+  const cableMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x2A2520), gradientMap: gradientMap });
+  // Cable from server rack toward center
+  const cable1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 8, 6), cableMat);
+  cable1.rotation.x = Math.PI / 2;
+  cable1.position.set(-9, 0.04, -5);
+  scene.add(cable1);
+  // Cable across front area
+  const cable2 = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 12, 6), cableMat);
+  cable2.rotation.z = Math.PI / 2;
+  cable2.position.set(0, 0.03, 3);
+  scene.add(cable2);
+
 }, undefined, (error) => {
   console.error('[Terrarium] GLB load failed:', error);
 });
@@ -852,7 +951,7 @@ for (const agent of AGENT_DATA) {
   agentLoader.load('/public/models/agents/' + agent.id + '.glb', (gltf) => {
     const model = gltf.scene;
 
-    // Convert materials to toon style, preserve emissive for bloom
+    // Convert materials to warm Ghibli toon style, preserve emissive for bloom
     model.traverse((child) => {
       if (child.isMesh) {
         child.castShadow = true;
@@ -867,22 +966,32 @@ for (const agent of AGENT_DATA) {
         }
 
         // Keep emissive materials (eyes, antenna, LEDs) as PBR for bloom
+        // Warm up eye glow slightly for Ghibli softness
         const hasEmissive = oldMat.emissiveIntensity > 0.3;
         if (hasEmissive) {
-          // Store eye meshes for animation
           if (child.name.toLowerCase().includes('iris')) {
             if (!model.userData.eyes) model.userData.eyes = [];
             model.userData.eyes.push(child);
+            // Soften eye glow — warm the emissive slightly
+            const ec = oldMat.emissive.clone();
+            ec.lerp(new THREE.Color(0xFFE8D0), 0.15);
+            oldMat.emissive = ec;
+            oldMat.emissiveIntensity = Math.min(oldMat.emissiveIntensity, 0.5);
           }
           return;
         }
 
-        // Convert to toon
+        // Convert to Ghibli-warm toon — slightly warm-shift all robot colors
+        const baseColor = oldMat.color ? oldMat.color.clone() : new THREE.Color(0xcccccc);
+        baseColor.lerp(new THREE.Color(0xF0E0D0), 0.08); // subtle warm tint
         const toonMat = new THREE.MeshToonMaterial({
-          color: oldMat.color ? oldMat.color.clone() : new THREE.Color(0xcccccc),
+          color: baseColor,
           gradientMap: gradientMap,
         });
-        if (oldMat.emissive) {
+        // Add subtle warm emissive to all robot parts (soft Ghibli fill glow)
+        toonMat.emissive = new THREE.Color(0x1A1008);
+        toonMat.emissiveIntensity = 0.15;
+        if (oldMat.emissive && oldMat.emissiveIntensity > 0) {
           toonMat.emissive = oldMat.emissive.clone();
           toonMat.emissiveIntensity = oldMat.emissiveIntensity;
         }
@@ -904,6 +1013,34 @@ for (const agent of AGENT_DATA) {
         }
       });
     }
+
+    // --- Cyberpunk accessories (antenna + neon accent strip) ---
+    const agentColor = new THREE.Color(agent.color);
+
+    // Small antenna on head
+    const antennaGeo = new THREE.CylinderGeometry(0.015, 0.02, 0.35, 6);
+    const antennaMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x4A4040), gradientMap: gradientMap });
+    const antenna = new THREE.Mesh(antennaGeo, antennaMat);
+    antenna.position.set(0.12, 2.15, 0);
+    model.add(antenna);
+    // Antenna tip LED (agent-colored glow)
+    const tipGeo = new THREE.SphereGeometry(0.035, 8, 6);
+    const tipMat = new THREE.MeshStandardMaterial({
+      color: agentColor, emissive: agentColor, emissiveIntensity: 0.8,
+    });
+    const tip = new THREE.Mesh(tipGeo, tipMat);
+    tip.position.set(0.12, 2.35, 0);
+    model.add(tip);
+
+    // Neon accent strip on torso (thin glowing line)
+    const stripGeo = new THREE.BoxGeometry(0.28, 0.02, 0.04);
+    const stripMat = new THREE.MeshStandardMaterial({
+      color: agentColor, emissive: agentColor, emissiveIntensity: 0.5,
+      transparent: true, opacity: 0.8,
+    });
+    const strip = new THREE.Mesh(stripGeo, stripMat);
+    strip.position.set(0, 1.15, 0.25);
+    model.add(strip);
 
     // Position robot at desk (offset from desk by facing direction)
     // Robot faces TOWARD desk (opposite of facing direction)
@@ -989,9 +1126,9 @@ window.__projectToScreen = function(agentId) {
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
-// Bloom — neon glow on emissive surfaces (eyes, monitors, desk lights)
+// Bloom — warm glow, tighter radius to reduce haze
 composer.addPass(new UnrealBloomPass(
-  new THREE.Vector2(1920, 1080), 0.45, 0.5, 0.65
+  new THREE.Vector2(1920, 1080), 0.45, 0.55, 0.55
 ));
 
 // Edge detection outline pass — gives illustrated line-art look
@@ -999,8 +1136,8 @@ const outlineShader = {
   uniforms: {
     tDiffuse: { value: null },
     resolution: { value: new THREE.Vector2(1920, 1080) },
-    edgeStrength: { value: 1.0 },
-    edgeColor: { value: new THREE.Vector3(0.08, 0.06, 0.12) },
+    edgeStrength: { value: 0.7 },
+    edgeColor: { value: new THREE.Vector3(0.15, 0.10, 0.12) },
   },
   vertexShader: [
     'varying vec2 vUv;',
@@ -1031,7 +1168,7 @@ const outlineShader = {
     '  float gy = -tl - 2.0*t - tr + bl + 2.0*b + br;',
     '  float edge = sqrt(gx*gx + gy*gy);',
     '  edge = smoothstep(0.05, 0.15, edge * edgeStrength);',
-    '  gl_FragColor = vec4(mix(center.rgb, edgeColor, edge * 0.6), center.a);',
+    '  gl_FragColor = vec4(mix(center.rgb, edgeColor, edge * 0.45), center.a);',
     '}',
   ].join('\\n'),
 };
@@ -1041,7 +1178,7 @@ composer.addPass(new ShaderPass(outlineShader));
 const chromAbShader = {
   uniforms: {
     tDiffuse: { value: null },
-    amount: { value: 0.0008 },
+    amount: { value: 0.0003 },
     resolution: { value: new THREE.Vector2(1920, 1080) },
   },
   vertexShader: [
@@ -1072,11 +1209,46 @@ const chromAbShader = {
 };
 composer.addPass(new ShaderPass(chromAbShader));
 
+// Warm color grading — Ghibli golden warmth + slight desaturation of darks
+const warmGradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    warmth: { value: 0.07 },
+    shadowTint: { value: new THREE.Vector3(0.06, 0.03, 0.08) },
+  },
+  vertexShader: [
+    'varying vec2 vUv;',
+    'void main() {',
+    '  vUv = uv;',
+    '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+    '}',
+  ].join('\\n'),
+  fragmentShader: [
+    'uniform sampler2D tDiffuse;',
+    'uniform float warmth;',
+    'uniform vec3 shadowTint;',
+    'varying vec2 vUv;',
+    'void main() {',
+    '  vec4 color = texture2D(tDiffuse, vUv);',
+    '  float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));',
+    '  // Warm highlights: push reds up, blues down in bright areas',
+    '  color.r += warmth * lum * 0.5;',
+    '  color.g += warmth * lum * 0.25;',
+    '  color.b -= warmth * lum * 0.15;',
+    '  // Tint shadows with warm purple (Ghibli shadow signature)',
+    '  float shadowMask = 1.0 - smoothstep(0.0, 0.35, lum);',
+    '  color.rgb += shadowTint * shadowMask;',
+    '  gl_FragColor = vec4(color.rgb, color.a);',
+    '}',
+  ].join('\\n'),
+};
+composer.addPass(new ShaderPass(warmGradeShader));
+
 // OutputPass applies tone mapping + sRGB encoding to the final output.
 composer.addPass(new OutputPass());
 
 // ============================================================
-// BRANDING — Wall Banner & Round Table Logo
+// BRANDING — Wall Banner & Vouch Logo
 // ============================================================
 
 // --- City Skyline Windows (left wall, panoramic row) ---
@@ -1100,178 +1272,314 @@ function paintCity() {
   const w = CITY_W, h = CITY_H;
   _seed = 42; // reset seed for consistent layout
 
-  // Deep night sky with atmospheric gradient
+  // Ghibli twilight sky — warm gradients from deep blue to peach/amber horizon
   const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
-  skyGrad.addColorStop(0,    '#020208');
-  skyGrad.addColorStop(0.08, '#050510');
-  skyGrad.addColorStop(0.25, '#0A0A1E');
-  skyGrad.addColorStop(0.5,  '#10102A');
-  skyGrad.addColorStop(0.75, '#161638');
-  skyGrad.addColorStop(1,    '#1A1540');
+  skyGrad.addColorStop(0,    '#0A0E24');
+  skyGrad.addColorStop(0.12, '#141838');
+  skyGrad.addColorStop(0.3,  '#1E2248');
+  skyGrad.addColorStop(0.5,  '#2A2850');
+  skyGrad.addColorStop(0.65, '#3A2A48');
+  skyGrad.addColorStop(0.78, '#5A3840');
+  skyGrad.addColorStop(0.88, '#8A5038');
+  skyGrad.addColorStop(0.95, '#C07840');
+  skyGrad.addColorStop(1,    '#D8944A');
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, w, h);
 
-  // Subtle color bands in sky (atmospheric layers)
-  ctx.fillStyle = 'rgba(20,15,50,0.08)';
-  for (let band = 0; band < 5; band++) {
-    const by = h * (0.05 + band * 0.08);
-    ctx.fillRect(0, by, w, h * 0.03);
-  }
-
-  // Horizon glow — warm light pollution from city
-  const horizGrad = ctx.createLinearGradient(0, h * 0.45, 0, h);
-  horizGrad.addColorStop(0,   'rgba(50,30,70,0)');
-  horizGrad.addColorStop(0.3, 'rgba(70,40,60,0.1)');
-  horizGrad.addColorStop(0.6, 'rgba(90,50,50,0.2)');
-  horizGrad.addColorStop(1,   'rgba(100,60,45,0.3)');
-  ctx.fillStyle = horizGrad;
-  ctx.fillRect(0, h * 0.45, w, h * 0.55);
-
-  // Side-to-side glow variation (brighter toward center of panorama)
-  const centerGlow = ctx.createRadialGradient(w * 0.5, h * 0.85, 0, w * 0.5, h * 0.85, w * 0.45);
-  centerGlow.addColorStop(0, 'rgba(120,70,50,0.12)');
-  centerGlow.addColorStop(1, 'rgba(120,70,50,0)');
-  ctx.fillStyle = centerGlow;
+  // Warm horizon glow (Ghibli sunset remnant)
+  const horizGlow = ctx.createRadialGradient(w * 0.4, h * 0.92, 0, w * 0.4, h * 0.92, w * 0.5);
+  horizGlow.addColorStop(0, 'rgba(220,140,60,0.2)');
+  horizGlow.addColorStop(0.5, 'rgba(180,100,50,0.1)');
+  horizGlow.addColorStop(1, 'rgba(180,100,50,0)');
+  ctx.fillStyle = horizGlow;
   ctx.fillRect(0, h * 0.5, w, h * 0.5);
 
-  // Stars (upper sky only)
-  for (let i = 0; i < 200; i++) {
+  // Soft clouds (Ghibli signature — layered, wispy)
+  function drawCloud(cx, cy, rx, ry, alpha) {
+    const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    cg.addColorStop(0, 'rgba(200,180,160,' + (alpha * 0.6) + ')');
+    cg.addColorStop(0.4, 'rgba(180,150,130,' + (alpha * 0.3) + ')');
+    cg.addColorStop(1, 'rgba(160,120,100,0)');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // Scattered wispy clouds
+  drawCloud(w * 0.15, h * 0.08, 120, 30, 0.15);
+  drawCloud(w * 0.18, h * 0.10, 80, 20, 0.12);
+  drawCloud(w * 0.35, h * 0.14, 140, 28, 0.10);
+  drawCloud(w * 0.55, h * 0.06, 100, 22, 0.13);
+  drawCloud(w * 0.72, h * 0.18, 110, 25, 0.11);
+  drawCloud(w * 0.88, h * 0.10, 90, 18, 0.14);
+  // Larger horizon clouds catching last light
+  drawCloud(w * 0.25, h * 0.55, 200, 35, 0.08);
+  drawCloud(w * 0.60, h * 0.50, 180, 30, 0.07);
+  drawCloud(w * 0.85, h * 0.58, 150, 28, 0.06);
+
+  // Stars (sparser, warmer — Ghibli stars are gentle)
+  for (let i = 0; i < 120; i++) {
     const sx = srand() * w;
-    const sy = srand() * h * 0.4;
-    const brightness = 0.12 + srand() * 0.5;
-    const size = srand() < 0.05 ? 1.8 : (srand() < 0.15 ? 1.1 : 0.6);
-    ctx.fillStyle = 'rgba(190,200,235,' + brightness + ')';
+    const sy = srand() * h * 0.35;
+    const brightness = 0.15 + srand() * 0.4;
+    const size = srand() < 0.04 ? 1.6 : (srand() < 0.12 ? 1.0 : 0.5);
+    ctx.fillStyle = 'rgba(235,220,200,' + brightness + ')';
     ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI * 2); ctx.fill();
-    // Twinkle cross on bright stars
-    if (size > 1.5) {
-      ctx.strokeStyle = 'rgba(200,210,245,' + (brightness * 0.3) + ')';
-      ctx.lineWidth = 0.4;
-      ctx.beginPath(); ctx.moveTo(sx - 3, sy); ctx.lineTo(sx + 3, sy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(sx, sy - 3); ctx.lineTo(sx, sy + 3); ctx.stroke();
+    // Soft cross on bright stars
+    if (size > 1.4) {
+      ctx.strokeStyle = 'rgba(240,225,200,' + (brightness * 0.25) + ')';
+      ctx.lineWidth = 0.3;
+      ctx.beginPath(); ctx.moveTo(sx - 2.5, sy); ctx.lineTo(sx + 2.5, sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx, sy - 2.5); ctx.lineTo(sx, sy + 2.5); ctx.stroke();
     }
   }
 
-  // Moon with layered glow
-  const moonX = w * 0.78, moonY = h * 0.1;
-  for (let r = 60; r > 0; r -= 10) {
-    const a = 0.02 + (60 - r) * 0.003;
+  // Moon — larger, warmer Ghibli moon with golden halo
+  const moonX = w * 0.78, moonY = h * 0.12;
+  for (let r = 80; r > 0; r -= 12) {
+    const a = 0.015 + (80 - r) * 0.003;
     const mg = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, r);
-    mg.addColorStop(0, 'rgba(180,190,220,' + a + ')');
-    mg.addColorStop(1, 'rgba(180,190,220,0)');
+    mg.addColorStop(0, 'rgba(255,230,180,' + a + ')');
+    mg.addColorStop(1, 'rgba(255,200,140,0)');
     ctx.fillStyle = mg;
     ctx.beginPath(); ctx.arc(moonX, moonY, r, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = 'rgba(200,210,235,0.25)';
-  ctx.beginPath(); ctx.arc(moonX, moonY, 16, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(225,230,245,0.4)';
-  ctx.beginPath(); ctx.arc(moonX, moonY, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,210,0.3)';
+  ctx.beginPath(); ctx.arc(moonX, moonY, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,245,225,0.5)';
+  ctx.beginPath(); ctx.arc(moonX, moonY, 13, 0, Math.PI * 2); ctx.fill();
 
-  // === BUILDINGS (3 depth layers) ===
+  // === BUILDINGS (3 depth layers — Ghibli × Cyberpunk: organic + tech) ===
 
-  // --- Far layer: small, dense, horizon-hugging ---
-  for (let i = 0; i < 40; i++) {
-    const bx = (i / 40) * w - 10 + srand() * 8;
-    const bw = 18 + srand() * 28;
+  // Helper: draw a peaked/gabled roof
+  function drawRoof(x, topY, bw, peakH, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x - 2, topY);
+    ctx.lineTo(x + bw / 2, topY - peakH);
+    ctx.lineTo(x + bw + 2, topY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Helper: draw chimney with smoke
+  function drawChimney(x, topY, side) {
+    const cx = x + (side === 'left' ? 8 : -12);
+    ctx.fillStyle = 'rgba(50,35,30,0.9)';
+    ctx.fillRect(cx, topY - 18, 6, 20);
+    ctx.fillStyle = 'rgba(180,160,140,0.08)';
+    ctx.beginPath(); ctx.arc(cx + 3, topY - 22, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 1, topY - 28, 4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Helper: cyberpunk rooftop features
+  function drawCyberRoof(bx, topY, bw) {
+    const feat = srand();
+    if (feat < 0.25) {
+      // Satellite dish (arc + stem)
+      const dx = bx + bw * (0.3 + srand() * 0.4);
+      ctx.strokeStyle = 'rgba(100,90,80,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(dx, topY - 3); ctx.lineTo(dx, topY - 14); ctx.stroke();
+      ctx.beginPath(); ctx.arc(dx, topY - 14, 7, Math.PI * 0.8, Math.PI * 0.2, true); ctx.stroke();
+      // Dish glow
+      ctx.fillStyle = 'rgba(90,200,180,0.12)';
+      ctx.beginPath(); ctx.arc(dx, topY - 14, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (feat < 0.5) {
+      // Antenna array (multiple thin vertical lines + crossbar)
+      const ax = bx + bw * (0.2 + srand() * 0.6);
+      ctx.strokeStyle = 'rgba(90,80,70,0.6)';
+      ctx.lineWidth = 1;
+      for (let a = 0; a < 3; a++) {
+        const ah = 8 + srand() * 16;
+        ctx.beginPath(); ctx.moveTo(ax + a * 4, topY); ctx.lineTo(ax + a * 4, topY - ah); ctx.stroke();
+      }
+      // Crossbar
+      ctx.beginPath(); ctx.moveTo(ax - 1, topY - 10); ctx.lineTo(ax + 9, topY - 10); ctx.stroke();
+      // Blinking light on tallest
+      if (srand() > 0.4) {
+        ctx.fillStyle = 'rgba(255,80,60,0.6)';
+        ctx.beginPath(); ctx.arc(ax + 4, topY - 20, 1.5, 0, Math.PI * 2); ctx.fill();
+        const ag = ctx.createRadialGradient(ax + 4, topY - 20, 0, ax + 4, topY - 20, 6);
+        ag.addColorStop(0, 'rgba(255,80,60,0.15)'); ag.addColorStop(1, 'rgba(255,80,60,0)');
+        ctx.fillStyle = ag;
+        ctx.beginPath(); ctx.arc(ax + 4, topY - 20, 6, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (feat < 0.7) {
+      // Water tank / hodgepodge stack (favela vibe)
+      const tx = bx + bw * (0.2 + srand() * 0.5);
+      const tw = 10 + srand() * 12;
+      const th = 8 + srand() * 14;
+      ctx.fillStyle = 'rgba(40,30,28,0.85)';
+      ctx.fillRect(tx, topY - th, tw, th);
+      // Stacked addition on top
+      if (srand() > 0.5) {
+        const sw = tw * (0.5 + srand() * 0.3);
+        const sh = 5 + srand() * 8;
+        ctx.fillStyle = 'rgba(50,38,35,0.8)';
+        ctx.fillRect(tx + 2, topY - th - sh, sw, sh);
+      }
+      // Pipes/cables hanging off
+      ctx.strokeStyle = 'rgba(80,70,60,0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(tx + tw, topY - th * 0.6); ctx.lineTo(tx + tw + 8, topY - th * 0.3); ctx.stroke();
+    } else {
+      // Neon sign / light strip on facade
+      const nx = bx + bw * (0.1 + srand() * 0.5);
+      const nw = 12 + srand() * 20;
+      const ny = topY + 4 + srand() * 10;
+      const neonColors = ['rgba(90,200,180,', 'rgba(200,130,180,', 'rgba(140,180,220,', 'rgba(220,160,80,'];
+      const nc = neonColors[Math.floor(srand() * neonColors.length)];
+      ctx.fillStyle = nc + '0.5)';
+      ctx.fillRect(nx, ny, nw, 2);
+      // Glow
+      const ng = ctx.createRadialGradient(nx + nw / 2, ny, 0, nx + nw / 2, ny, nw * 0.4);
+      ng.addColorStop(0, nc + '0.1)'); ng.addColorStop(1, nc + '0)');
+      ctx.fillStyle = ng;
+      ctx.fillRect(nx - 5, ny - 8, nw + 10, 18);
+    }
+  }
+
+  // --- Far layer: sparse townscape silhouettes ---
+  for (let i = 0; i < 25; i++) {
+    const bx = (i / 25) * w - 8 + srand() * 10;
+    const bw = 18 + srand() * 30;
     const topY = h * (0.38 + srand() * 0.14);
-    ctx.fillStyle = '#08081A';
+    const warmShift = Math.floor(srand() * 30);
+    ctx.fillStyle = 'rgb(' + (25 + warmShift) + ',' + (20 + warmShift * 0.6) + ',' + (30 + warmShift * 0.3) + ')';
     ctx.fillRect(bx, topY, bw, h - topY);
-    // Roof line
-    ctx.fillStyle = 'rgba(30,35,65,0.35)';
-    ctx.fillRect(bx, topY, bw, 1.5);
-    // Windows
-    for (let wy = topY + 4; wy < h - 3; wy += 5 + srand() * 2) {
-      for (let wx = bx + 2; wx < bx + bw - 2; wx += 4 + srand() * 2) {
-        cityWindows.push({ x: wx, y: wy, w: 1.5, h: 2, lit: srand() > 0.82, phase: srand() * 100, layer: 'far' });
+    if (srand() > 0.4) drawRoof(bx, topY, bw, 3 + srand() * 5, 'rgba(45,32,28,0.9)');
+    if (srand() > 0.7) drawCyberRoof(bx, topY, bw);
+    for (let wy = topY + 4; wy < h - 3; wy += 6 + srand() * 3) {
+      for (let wx = bx + 2; wx < bx + bw - 2; wx += 5 + srand() * 2) {
+        cityWindows.push({ x: wx, y: wy, w: 1.5, h: 2, lit: srand() > 0.78, phase: srand() * 100, layer: 'far' });
       }
     }
   }
 
-  // --- Mid layer: varied heights, architectural silhouettes ---
-  const midCount = 18;
+  // --- Mid layer: mixed architecture with cyber retrofits ---
+  const midCount = 12;
   for (let i = 0; i < midCount; i++) {
-    const bx = (i / midCount) * w + srand() * 40 - 20;
-    const bw = 40 + srand() * 50;
-    const topPct = 0.18 + srand() * 0.22;
+    const bx = (i / midCount) * w + srand() * 50 - 20;
+    const bw = 40 + srand() * 60;
+    const topPct = 0.16 + srand() * 0.24;
     const topY = h * topPct;
-    // Building body gradient (side-lit by moon)
     const bGrad = ctx.createLinearGradient(bx, topY, bx + bw, topY);
-    bGrad.addColorStop(0, '#0C0C22');
-    bGrad.addColorStop(0.2, '#141438');
-    bGrad.addColorStop(0.8, '#101030');
-    bGrad.addColorStop(1, '#0A0A1C');
+    bGrad.addColorStop(0, '#1A1525');
+    bGrad.addColorStop(0.2, '#22182E');
+    bGrad.addColorStop(0.8, '#1E1528');
+    bGrad.addColorStop(1, '#141020');
     ctx.fillStyle = bGrad;
     ctx.fillRect(bx, topY, bw, h - topY);
-    // Roof highlight
-    ctx.fillStyle = 'rgba(55,65,110,0.45)';
-    ctx.fillRect(bx, topY, bw, 2.5);
-    // Left edge moonlight
-    ctx.fillStyle = 'rgba(65,75,130,0.15)';
-    ctx.fillRect(bx, topY, 2.5, h - topY);
-    // Random rooftop features (antenna, water tank, etc.)
-    if (srand() > 0.5) {
-      ctx.fillStyle = '#0E0E28';
-      const featureW = 4 + srand() * 6;
-      const featureH = 6 + srand() * 12;
-      ctx.fillRect(bx + bw * 0.3 + srand() * bw * 0.4, topY - featureH, featureW, featureH);
+    // Roof — peaked or flat with cyber features
+    if (srand() > 0.45) {
+      const peakH = 8 + srand() * 14;
+      drawRoof(bx, topY, bw, peakH, 'rgba(55,38,35,0.85)');
+      if (srand() > 0.5) drawChimney(bx + bw, topY - peakH * 0.4, 'left');
+    } else {
+      ctx.fillStyle = 'rgba(70,55,50,0.4)';
+      ctx.fillRect(bx, topY, bw, 2.5);
     }
-    // Occasional red aviation light on tall buildings
-    if (topPct < 0.25 && srand() > 0.5) {
-      ctx.fillStyle = 'rgba(255,40,40,0.7)';
-      ctx.beginPath(); ctx.arc(bx + bw * 0.5, topY - 2, 1.5, 0, Math.PI * 2); ctx.fill();
-      const glow = ctx.createRadialGradient(bx + bw * 0.5, topY - 2, 0, bx + bw * 0.5, topY - 2, 8);
-      glow.addColorStop(0, 'rgba(255,40,40,0.15)');
-      glow.addColorStop(1, 'rgba(255,40,40,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath(); ctx.arc(bx + bw * 0.5, topY - 2, 8, 0, Math.PI * 2); ctx.fill();
+    // Cyberpunk rooftop additions
+    if (srand() > 0.35) drawCyberRoof(bx, topY, bw);
+    // Hodgepodge stacked additions on some buildings (favela style)
+    if (srand() > 0.7) {
+      const stackW = bw * (0.3 + srand() * 0.3);
+      const stackH = 10 + srand() * 20;
+      const stackX = bx + (srand() > 0.5 ? 0 : bw - stackW);
+      ctx.fillStyle = 'rgba(35,28,32,0.85)';
+      ctx.fillRect(stackX, topY - stackH, stackW, stackH);
+      // Mini windows in stack
+      for (let sy = topY - stackH + 3; sy < topY - 2; sy += 6) {
+        for (let sx = stackX + 3; sx < stackX + stackW - 3; sx += 6) {
+          cityWindows.push({ x: sx, y: sy, w: 2, h: 3, lit: srand() > 0.6, phase: srand() * 100, layer: 'mid' });
+        }
+      }
     }
-    // Windows
-    for (let wy = topY + 7; wy < h - 5; wy += 9 + srand() * 3) {
-      for (let wx = bx + 4; wx < bx + bw - 4; wx += 7 + srand() * 3) {
-        cityWindows.push({ x: wx, y: wy, w: 3, h: 4.5, lit: srand() > 0.78, phase: srand() * 100, layer: 'mid' });
+    ctx.fillStyle = 'rgba(160,130,90,0.08)';
+    ctx.fillRect(bx, topY, 2, h - topY);
+    for (let wy = topY + 7; wy < h - 5; wy += 10 + srand() * 4) {
+      for (let wx = bx + 4; wx < bx + bw - 4; wx += 8 + srand() * 4) {
+        cityWindows.push({ x: wx, y: wy, w: 3, h: 4.5, lit: srand() > 0.72, phase: srand() * 100, layer: 'mid' });
       }
     }
   }
 
-  // --- Close layer: large foreground silhouettes with detail ---
+  // --- Close layer: fewer, larger buildings with heavy cyber detail ---
   const closeBuildings = [
-    [0, 0.22, 120], [160, 0.28, 100], [340, 0.18, 90], [500, 0.25, 110],
-    [680, 0.20, 95], [850, 0.30, 130], [1050, 0.15, 100], [1220, 0.26, 115],
-    [1420, 0.22, 90], [1580, 0.19, 120], [1750, 0.27, 100], [-50, 0.32, 80],
+    [20, 0.22, 120], [220, 0.30, 100], [440, 0.18, 95],
+    [660, 0.25, 110], [900, 0.16, 105], [1120, 0.28, 115],
+    [1380, 0.20, 100], [1620, 0.26, 110],
   ];
   for (const [bx, topPct, bw] of closeBuildings) {
     const topY = h * topPct;
     const bGrad = ctx.createLinearGradient(bx, topY, bx + bw, topY);
-    bGrad.addColorStop(0, '#121230');
-    bGrad.addColorStop(0.3, '#1A1A48');
-    bGrad.addColorStop(0.7, '#161640');
-    bGrad.addColorStop(1, '#0E0E28');
+    bGrad.addColorStop(0, '#1E1830');
+    bGrad.addColorStop(0.3, '#261E3A');
+    bGrad.addColorStop(0.7, '#221A35');
+    bGrad.addColorStop(1, '#161228');
     ctx.fillStyle = bGrad;
     ctx.fillRect(bx, topY, bw, h - topY);
-    // Roof
-    ctx.fillStyle = 'rgba(75,85,150,0.35)';
-    ctx.fillRect(bx, topY, bw, 3);
-    // Left edge
-    ctx.fillStyle = 'rgba(70,80,140,0.12)';
+    // Peaked roof + cyber features
+    const peakH = 10 + srand() * 16;
+    if (srand() > 0.3) {
+      drawRoof(bx, topY, bw, peakH, 'rgba(60,42,38,0.9)');
+      ctx.strokeStyle = 'rgba(180,140,90,0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bx - 2, topY);
+      ctx.lineTo(bx + bw / 2, topY - peakH);
+      ctx.lineTo(bx + bw + 2, topY);
+      ctx.stroke();
+      if (srand() > 0.5) drawChimney(bx + bw, topY - peakH * 0.3, 'left');
+    } else {
+      ctx.fillStyle = 'rgba(80,60,50,0.35)';
+      ctx.fillRect(bx, topY, bw, 3);
+    }
+    // Always add cyber rooftop detail on close buildings
+    drawCyberRoof(bx, topY, bw);
+    // Exposed pipes / scaffolding on building side
+    if (srand() > 0.5) {
+      const pipeSide = srand() > 0.5 ? bx + bw - 3 : bx + 1;
+      ctx.strokeStyle = 'rgba(90,75,65,0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(pipeSide, topY + 5); ctx.lineTo(pipeSide, topY + h * 0.3); ctx.stroke();
+      // Horizontal connector
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(pipeSide, topY + 15);
+      ctx.lineTo(pipeSide + (pipeSide === bx + 1 ? -6 : 6), topY + 15);
+      ctx.stroke();
+    }
+    // Neon accent strip on facade
+    if (srand() > 0.4) {
+      const neonColors = ['rgba(90,200,180,', 'rgba(200,130,180,', 'rgba(140,180,220,'];
+      const nc = neonColors[Math.floor(srand() * neonColors.length)];
+      const ny = topY + 8 + srand() * 20;
+      ctx.fillStyle = nc + '0.45)';
+      ctx.fillRect(bx + 4, ny, bw - 8, 1.5);
+      const ng = ctx.createRadialGradient(bx + bw / 2, ny, 0, bx + bw / 2, ny, bw * 0.3);
+      ng.addColorStop(0, nc + '0.08)'); ng.addColorStop(1, nc + '0)');
+      ctx.fillStyle = ng;
+      ctx.fillRect(bx, ny - 6, bw, 14);
+    }
+    ctx.fillStyle = 'rgba(180,150,100,0.06)';
     ctx.fillRect(bx, topY, 3, h - topY);
-    // Floor separator lines
     for (let fy = topY + 20; fy < h; fy += 18 + srand() * 8) {
-      ctx.fillStyle = 'rgba(30,35,70,0.2)';
+      ctx.fillStyle = 'rgba(60,45,40,0.15)';
       ctx.fillRect(bx + 3, fy, bw - 6, 1);
     }
-    // Windows (larger, more detailed)
-    for (let wy = topY + 10; wy < h - 8; wy += 13 + srand() * 4) {
-      for (let wx = bx + 6; wx < bx + bw - 6; wx += 11 + srand() * 4) {
-        cityWindows.push({ x: wx, y: wy, w: 5, h: 7, lit: srand() > 0.75, phase: srand() * 100, layer: 'close' });
+    for (let wy = topY + 10; wy < h - 8; wy += 14 + srand() * 5) {
+      for (let wx = bx + 6; wx < bx + bw - 6; wx += 12 + srand() * 5) {
+        cityWindows.push({ x: wx, y: wy, w: 5, h: 7, lit: srand() > 0.65, phase: srand() * 100, layer: 'close' });
       }
     }
   }
 
-  // Street level glow at bottom
-  const streetGrad = ctx.createLinearGradient(0, h - 30, 0, h);
-  streetGrad.addColorStop(0, 'rgba(100,70,40,0)');
-  streetGrad.addColorStop(1, 'rgba(100,70,40,0.15)');
+  // Warm street level glow at bottom
+  const streetGrad = ctx.createLinearGradient(0, h - 35, 0, h);
+  streetGrad.addColorStop(0, 'rgba(180,120,60,0)');
+  streetGrad.addColorStop(1, 'rgba(180,120,60,0.2)');
   ctx.fillStyle = streetGrad;
-  ctx.fillRect(0, h - 30, w, 30);
+  ctx.fillRect(0, h - 35, w, 35);
 
   drawCityWindows(0);
 }
@@ -1280,17 +1588,18 @@ function drawCityWindows(t) {
   const ctx = cityCtx;
   for (const win of cityWindows) {
     if (win.lit) {
-      const flicker = 0.3 + Math.sin(t * 1.2 + win.phase) * 0.1;
+      const flicker = 0.35 + Math.sin(t * 0.8 + win.phase) * 0.08;
+      // Warmer Ghibli window palette — mostly golden/amber with occasional cool accent
       const palettes = [
-        '255,200,100', '120,180,255', '255,240,190', '180,150,255',
-        '255,170,80', '100,200,180', '240,220,170', '200,160,220',
+        '255,210,120', '255,190,90', '255,230,170', '240,200,130',
+        '255,220,140', '255,195,100', '245,225,165', '200,180,140',
       ];
       const c = palettes[Math.floor(win.phase) % palettes.length];
       ctx.fillStyle = 'rgba(' + c + ',' + flicker + ')';
-      ctx.shadowColor = 'rgba(' + c + ',0.25)';
-      ctx.shadowBlur = win.layer === 'far' ? 1 : win.layer === 'mid' ? 2.5 : 4;
+      ctx.shadowColor = 'rgba(' + c + ',0.3)';
+      ctx.shadowBlur = win.layer === 'far' ? 1.5 : win.layer === 'mid' ? 3 : 5;
     } else {
-      ctx.fillStyle = 'rgba(5,5,16,0.85)';
+      ctx.fillStyle = 'rgba(12,10,20,0.8)';
       ctx.shadowBlur = 0;
     }
     ctx.fillRect(win.x, win.y, win.w, win.h);

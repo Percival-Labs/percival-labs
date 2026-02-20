@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="#0a0e17"/>
+
+  <!--
+    V1: Knight helmet in shield - matching existing profile pic style
+    Side profile facing RIGHT, inside shield frame
+    Cyan outline style (filled shapes with dark cutouts)
+  -->
+
+  <!-- Shield outline -->
+  <path d="M512 90 L850 255 L850 590 Q850 810 512 950 Q174 810 174 590 L174 255 Z"
+        fill="#22d3ee"/>
+  <path d="M512 118 L830 272 L830 584 Q830 794 512 924 Q194 794 194 584 L194 272 Z"
+        fill="#0d1322"/>
+
+  <!-- Knight Helmet - side profile facing RIGHT -->
+  <!-- This matches the original: rounded dome top, angular visor/beak protruding to the right -->
+
+  <!-- Helmet dome (top of head) -->
+  <path d="M430 340
+           Q430 260 500 235
+           Q540 220 580 235
+           Q630 255 640 310
+           L640 390
+           L430 390 Z"
+        fill="#22d3ee"/>
+  <path d="M448 378
+           L448 345
+           Q448 282 505 262
+           Q538 250 570 262
+           Q610 278 620 320
+           L620 378 Z"
+        fill="#0d1322"/>
+
+  <!-- Face plate / visor area - extends right to form the beak/visor -->
+  <path d="M410 390
+           L660 390
+           L680 440
+           L680 470
+           L640 510
+           L580 530
+           L520 530
+           Q460 530 440 500
+           L410 460
+           Z"
+        fill="#22d3ee"/>
+  <path d="M430 402
+           L646 402
+           L662 440
+           L662 462
+           L628 498
+           L574 516
+           L524 516
+           Q470 516 452 490
+           L428 454
+           Z"
+        fill="#0d1322"/>
+
+  <!-- Visor slit - bold horizontal -->
+  <rect x="420" y="432" width="248" height="16" fill="#22d3ee"/>
+
+  <!-- Lower face / jaw area -->
+  <path d="M440 530
+           L440 570
+           Q440 610 480 630
+           L540 650
+           Q580 655 610 640
+           L640 610
+           L640 530
+           L580 530
+           L520 530
+           Q460 530 440 530 Z"
+        fill="#22d3ee"/>
+  <path d="M456 536
+           L456 564
+           Q456 598 490 614
+           L538 632
+           Q572 636 598 624
+           L624 600
+           L624 536 Z"
+        fill="#0d1322"/>
+
+  <!-- Neck guard (hangs down on left/back side) -->
+  <path d="M410 460 L390 520 Q380 570 395 610 L420 650
+           L434 642 L412 606 Q400 572 408 528 L426 470 Z"
+        fill="#22d3ee"/>
+
+  <!-- Chin point detail -->
+  <path d="M540 650 L530 680 Q535 695 555 690 L570 675 L610 640
+           L598 624 L570 650 Q565 655 555 655 L540 650 Z"
+        fill="#22d3ee"/>
+
+  <!-- Plume / Crest - amber flames -->
+  <path d="M490 240
+           Q475 185 505 145
+           Q530 105 565 125
+           Q600 145 590 190
+           L580 230
+           L565 235
+           Q575 185 568 155
+           Q558 130 540 135
+           Q520 140 522 175
+           Q524 205 515 235 Z"
+        fill="#f59e0b"/>
+  <!-- Plume glow -->
+  <path d="M515 230
+           Q510 190 525 160
+           Q540 140 550 150
+           Q558 162 555 190
+           Q552 215 545 232 Z"
+        fill="#fbbf24" opacity="0.5"/>
+</svg>

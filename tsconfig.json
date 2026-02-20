@@ -25,8 +25,8 @@
       "@percival/db/*": ["./packages/db/src/*"],
       "@percival/agent-memory": ["./packages/agent-memory/src/index.ts"],
       "@percival/agent-memory/*": ["./packages/agent-memory/src/*"],
-      "@percival/roundtable-db": ["./packages/roundtable-db/src/index.ts"],
-      "@percival/roundtable-db/*": ["./packages/roundtable-db/src/*"]
+      "@percival/vouch-db": ["./packages/vouch-db/src/index.ts"],
+      "@percival/vouch-db/*": ["./packages/vouch-db/src/*"]
     }
   }
 }

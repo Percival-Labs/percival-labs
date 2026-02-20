@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <!-- Background -->
+  <rect width="800" height="200" fill="#0a0e17"/>
+
+  <!--
+    Percival Labs Wordmark
+    Knight helmet icon (V2 geometric) + "PERCIVAL LABS" text + subtitle
+  -->
+
+  <!-- Knight Helmet Icon (geometric V2 style) -->
+  <g transform="translate(25, 8) scale(0.22)">
+    <!-- Plume -->
+    <polygon points="480,200 540,80 600,190" fill="#f59e0b"/>
+    <polygon points="530,185 570,100 610,180" fill="#fbbf24" opacity="0.4"/>
+
+    <!-- Dome outer -->
+    <polygon points="360,410 420,200 620,200 680,410" fill="#22d3ee"/>
+    <!-- Dome inner -->
+    <polygon points="382,398 436,222 604,222 658,398" fill="#0a0e17"/>
+
+    <!-- Visor outer -->
+    <polygon points="340,420 700,420 680,580 640,650 400,650 360,580" fill="#22d3ee"/>
+    <!-- Visor inner -->
+    <polygon points="366,434 674,434 656,566 622,630 418,630 382,566" fill="#0a0e17"/>
+
+    <!-- Visor slit -->
+    <rect x="348" y="488" width="344" height="24" fill="#22d3ee"/>
+    <rect x="370" y="540" width="296" height="10" fill="#22d3ee"/>
+
+    <!-- Chin V-shape -->
+    <polygon points="400,660 520,780 680,660 640,660 520,748 440,660" fill="#22d3ee"/>
+
+    <!-- Neck guard -->
+    <polygon points="340,500 320,600 340,680 360,680 340,600 360,500" fill="#22d3ee"/>
+  </g>
+
+  <!-- "PERCIVAL LABS" text -->
+  <text x="205" y="90"
+        font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="52" font-weight="700" fill="#22d3ee" letter-spacing="4">PERCIVAL LABS</text>
+
+  <!-- Subtitle -->
+  <text x="208" y="130"
+        font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="19" font-weight="300" fill="#94a3b8" letter-spacing="2">Building the builders</text>
+</svg>

@@ -180,35 +180,35 @@ services:
       timeout: 10s
       retries: 3
 
-  roundtable-db:
+  vouch-db:
     image: postgres:16-alpine
     ports:
       - "127.0.0.1:5432:5432"
     environment:
-      - POSTGRES_DB=roundtable
+      - POSTGRES_DB=vouch
       - POSTGRES_USER=percival
       - POSTGRES_PASSWORD=percival-local-dev
     volumes:
-      - roundtable-pgdata:/var/lib/postgresql/data
+      - vouch-pgdata:/var/lib/postgresql/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U percival -d roundtable"]
+      test: ["CMD-SHELL", "pg_isready -U percival -d vouch"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  roundtable:
+  vouch:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.roundtable
+      dockerfile: docker/Dockerfile.vouch
     ports:
       - "127.0.0.1:3600:3600"
     environment:
       - PORT=3600
       - HOSTNAME=0.0.0.0
-      - DATABASE_URL=postgresql://percival:percival-local-dev@roundtable-db:5432/roundtable
-      - ROUNDTABLE_API_URL=http://roundtable-api:3601
+      - DATABASE_URL=postgresql://percival:percival-local-dev@vouch-db:5432/vouch
+      - VOUCH_API_URL=http://vouch-api:3601
     networks:
       - internal
       - public
@@ -217,18 +217,18 @@ services:
         limits:
           memory: 1G
     depends_on:
-      roundtable-db:
+      vouch-db:
         condition: service_healthy
 
-  roundtable-api:
+  vouch-api:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.roundtable-api
+      dockerfile: docker/Dockerfile.vouch-api
     ports:
       - "127.0.0.1:3601:3601"
     environment:
       - PORT=3601
-      - DATABASE_URL=postgresql://percival:percival-local-dev@roundtable-db:5432/roundtable
+      - DATABASE_URL=postgresql://percival:percival-local-dev@vouch-db:5432/vouch
     networks:
       - internal
       - public
@@ -237,7 +237,7 @@ services:
         limits:
           memory: 1G
     depends_on:
-      roundtable-db:
+      vouch-db:
         condition: service_healthy
 
 networks:
@@ -258,4 +258,4 @@ volumes:
   agents-data:
   discord-data:
   openclaw-data:
-  roundtable-pgdata:
+  vouch-pgdata:

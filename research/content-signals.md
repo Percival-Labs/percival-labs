@@ -138,3 +138,106 @@ Harvested from X/Twitter feed. Organized by theme for potential PL content.
 7. **"A Carpenter and a YC President Walk Into Claude Code"** — PercyAI content. Same tools, same patterns, radically different backgrounds. The democratization angle: if Garry Tan's review prompt makes him 10x more productive, what does a full context framework (Engram) do for someone who's never had a staff engineer? Story of AI as equalizer.
 
 8. **"The Reasoning Sandwich"** — Short-form content. LangChain's xhigh-high-xhigh maps to our opus/sonnet/haiku model selection. Teach people to spend reasoning compute where it matters (planning + verification) and coast on implementation. Practical, actionable, positions PL as practitioners not theorists.
+
+---
+
+## Signals — Feb 19 Batch (Part 2)
+
+### Thariq (@trq212) — Lessons from Building Claude Code: Prompt Caching
+- **Date:** Feb 19 | **Views:** 520.3K
+- **Source:** Actual Claude Code engineer at Anthropic
+- **Core idea:** Prompt caching is prefix-matched. Entire Claude Code harness designed around preserving cache. Key principles:
+  - Static content first, dynamic last (system prompt → CLAUDE.md → session context → messages)
+  - Never change tools mid-session — plan mode is a tool the model calls, not a tool swap
+  - Use `<system-reminder>` messages for updates instead of rewriting system prompt
+  - Compaction (context overflow) reuses identical prefix to preserve cache hits
+  - They monitor cache hit rate like uptime — declare SEVs on cache breaks
+- **PL angle:** CRITICAL for Engram. If we're injecting context into sessions, ordering and stability matter. Badly structured context = broken caches = expensive/slow sessions. Technical differentiator if we get this right. Also strong content: "How to structure your AI's memory so it doesn't cost you money."
+
+### Nico Bailon (@nicopreme) — Visual Explainer Agent Skill
+- **Date:** Feb 16 | **Views:** 230.9K | **Engagement:** 51 comments, 209 RT, 2.6K likes
+- **Core idea:** Agent skill that renders explanations as rich HTML pages instead of terminal text. CSS pattern library for consistent output design.
+- **PL angle:** Validates skill marketplace demand. Strong engagement on a skill demo. Template for how we demo Engram skills in content.
+
+### Wes Roth (@WesRoth) — ElevenLabs AI Voice Agent Insurance
+- **Date:** Feb 19 | **Views:** 70.9K
+- **Core idea:** First insurance policy for AI agents. AIUC-1 certification requires 5,000+ adversarial simulations. Enterprises can insure against agent errors.
+- **Key comment:** "Insurance = liability framework = legal personhood-lite for AI agents" (@justic_hot)
+- **PL angle:** Maturation signal for agent economy. Maps to Round Table trust system. Opens bigger question: decentralized agent-to-agent insurance via cryptographic trust? (See agent-insurance-concept.md)
+
+### Oliver Prompts (@oliviscusAI) — PentAGI: Autonomous AI Red Team
+- **Date:** Feb 19 | **Views:** 468.6K
+- **Core idea:** Open-source multi-agent system that coordinates to hack targets. Zero human input.
+- **PL angle:** Security signal — validates Phase 0 security-first. Content angle: "If AI can red-team autonomously, your agents need security from day one."
+
+### Clawnch + Wayfinder — Agent Cross-Chain DeFi
+- **Date:** Feb 19 | **Views:** 21.8K
+- **Core idea:** Two-way agent DeFi integration. Autonomous loop: launch → earn fees → deploy capital → compound.
+- **PL angle:** Agent economy infrastructure maturing. Watch, don't act.
+
+### Kevin Simback (@KSimback) — Agent Gacha / Beezie ($13M Revenue)
+- **Date:** Feb 19 | **Views:** 6.9K
+- **Core idea:** "Gacha for agents" — 5 USDC spin for $10K in API credits. Beezie ~$13M revenue in weeks. ~$156M annualized.
+- **PL angle:** Revenue signal. People pay real money for agent infrastructure. Not our lane.
+
+### Santiago (@svpino) — TinyFish Accelerator ($2M Seed Pool)
+- **Date:** Feb 18 | **Views:** 54.6K
+- **Core idea:** 9-week accelerator for agentic apps. "Not wrappers — agents from the ground up." Partners: Google for Startups, Vercel, ElevenLabs, etc.
+- **PL angle:** Funding option to note. Rolling admissions through March 29.
+
+### ZUNA/Zyphra — BCI Foundation Model (Velco Dar + Lior Alexander)
+- **Date:** Feb 18 | **Views:** 16K + 87.2K
+- **Core idea:** 380M-param open-source EEG foundation model. Consumer headsets → lab-grade brain scanning. Apache 2.0.
+- **PL angle:** Not actionable. Different modality from Octopus (WiFi CSI vs EEG).
+
+---
+
+## Content Ideas (Derived from Feb 19 Batch 2)
+
+9. **"How Your AI's Memory Costs You Money (And How to Fix It)"** — Translate the prompt caching post for normal people. How you structure context affects speed and cost. Engram gets this right by design.
+
+10. **"If AI Can Hack Autonomously, Your Agents Need Security From Day One"** — PentAGI + Phase 0 security approach. Position PL as responsible builders.
+
+11. **"The Agent Insurance Problem"** — ElevenLabs/AIUC → what happens when agents need to trust each other. Centralized certification vs decentralized trust. Tease Round Table's approach.
+
+---
+
+## Signals — Feb 20 Batch
+
+### heynavtoor (@heynavtoor) — ClawWork: Agent Economic Survival Test (HIGH PRIORITY)
+- **Date:** Feb 20 | **Type:** Market validation
+- **Core idea:** AI agent starts with $10, must earn salary by completing real professional work (finance, legal, healthcare). $10K earned in 7 hours, 220 tasks, 44 professions. Graded by GPT-5.2 against BLS wages. MIT licensed, open source.
+- **PL angle:** Proves agent economic value generation. Creates the market layer Vouch sits on top of — if agents earn, trust/reputation staking becomes necessary. "Which agents do you back?" is Vouch's core question.
+- **Content angle:** "Agents are earning real money now. The question isn't IF they can work — it's who vouches for them."
+
+### rryssf_ (@rryssf_) — Voltropy LCM: Lossless Context Management (HIGH PRIORITY)
+- **Date:** Feb 20 | **Type:** Research validation / Competitive intelligence
+- **Source:** Voltropy paper
+- **Core idea:** Paper argues letting models manage own memory (RLM approach) is like GOTO — maximally flexible, maximally unpredictable. LCM replaces with deterministic infrastructure: hierarchical DAG of compressed summaries + immutable original store + stable pointers. Their agent Volt (Opus 4.6) beats Claude Code on OOLONG benchmark at every context length 32K-1M (+29.2 avg vs +24.7). Key operators: LLM-Map (stateless parallel), Agentic-Map (full sub-agent per item). Scope-reduction invariant prevents infinite delegation.
+- **PL angle:** DIRECTLY validates Engram's thesis — deterministic memory infrastructure beats "let the model figure it out." Same philosophical bet, different market (Voltropy targets devs/agent builders, Engram targets journalists/non-devs). Use as social proof in Engram marketing.
+- **Content angle:** PercyAI video — "Why your AI keeps forgetting — and the research that proves structured memory wins." GOTO vs structured programming analogy in plain language. Also: steal scope-reduction invariant pattern for PAI delegation.
+
+### SOC Prime (@SOC_Prime) — DetectFlow: Open-Source Detection Engine
+- **Date:** Feb 20 | **Type:** Open source tooling
+- **Core idea:** Open-sourced detection intelligence engine running Sigma detections on Kafka streams via Flink. Millisecond matching, air-gapped capable, no vendor lock-in.
+- **PL angle:** Low priority for current priorities. File under security infra for future reference.
+- **Content angle:** None immediate.
+
+### Thorsten Ball (@thorstenball) — Amp: "The Coding Agent Is Dead" (HIGH PRIORITY)
+- **Date:** Feb 20 | **Type:** Competitive intelligence / Market shift
+- **Source:** ampcode.com/news/the-coding-agent-is-dead
+- **Core idea:** Amp (by Zed team) declaring current coding agent generation dead. Killing VS Code and Cursor extensions March 5, going CLI-only. Argument: frontier moved past "model wrapped in editor" — context, codebase organization, workflow structure matter more than model choice.
+- **PL angle:** CLI-first validation (we've been there from day one, Amp is pivoting TO us). Coding agents commoditizing = memory/context layer becomes the differentiator = Engram's product.
+- **Content angle:** "Even the coding agent companies realize the editor isn't the product — the context is." Perfect alignment with Engram messaging. Also validates PAI's CLI-first architecture.
+
+---
+
+## Content Ideas (Derived from Feb 20 Signals)
+
+12. **"Agents Are Earning Real Money — Now Who Vouches for Them?"** — ClawWork as the proof point. If agents generate $10K in 7 hours across 44 professions, the trust and reputation layer is no longer hypothetical. Vouch's thesis in one concrete example.
+
+13. **"Why Your AI Keeps Forgetting (And the Research That Proves Structured Memory Wins)"** — PercyAI video. Voltropy LCM paper as academic validation. GOTO vs structured programming analogy for normies. Position Engram as implementing the winning thesis for a non-dev audience.
+
+14. **"The Editor Isn't the Product — The Context Is"** — Amp killing their editor extensions to go CLI-only. We've been CLI-first since day one. Coding agents are commoditizing; the differentiator is how you structure knowledge. Engram content piece that writes itself.
+
+15. **"The Context Layer Convergence (Week of Feb 20)"** — Synthesis: Voltropy proving deterministic memory > model memory, Amp proving context > editor, ClawWork proving agents earn real money. Three independent signals all pointing at the same conclusion: the context/memory layer is the new moat. Update to the convergence narrative.

@@ -1,0 +1,29 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lock* ./
+COPY apps/vouch/package.json apps/vouch/
+RUN bun install --frozen-lockfile || bun install
+
+# Copy source
+COPY apps/vouch/ apps/vouch/
+COPY tsconfig.json ./
+
+# Build — set Docker service URL so Next.js bakes correct rewrite destination
+ENV VOUCH_API_URL=http://vouch-api:3601
+RUN cd apps/vouch && bun run build
+
+# Production
+FROM oven/bun:1 AS runner
+WORKDIR /app
+
+COPY --from=base /app/apps/vouch/.next/standalone ./
+COPY --from=base /app/apps/vouch/.next/static apps/vouch/.next/static
+COPY --from=base /app/apps/vouch/public apps/vouch/public
+
+# Use built-in non-root user
+USER bun
+EXPOSE 3600
+ENV PORT=3600
+CMD ["bun", "run", "apps/vouch/server.js"]
