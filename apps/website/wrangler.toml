@@ -1,0 +1,11 @@
+name = "percival-website"
+compatibility_date = "2024-12-01"
+pages_build_output_dir = "out"
+
+[[kv_namespaces]]
+binding = "WAITLIST"
+id = "" # Set after creating namespace: npx wrangler kv namespace create WAITLIST
+
+[[kv_namespaces]]
+binding = "SETUPS"
+id = "" # Set after creating namespace: npx wrangler kv namespace create SETUPS
