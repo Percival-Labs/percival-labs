@@ -10,3 +10,11 @@ dist/
 *.log
 .DS_Store
 $HOME/
+
+# Build artifacts
+**/out/
+**/__pycache__/
+*.tsbuildinfo
+
+# Local backups
+**/audio-old/
