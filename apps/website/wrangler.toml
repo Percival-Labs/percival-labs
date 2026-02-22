@@ -4,8 +4,8 @@ pages_build_output_dir = "out"
 
 [[kv_namespaces]]
 binding = "WAITLIST"
-id = "" # Set after creating namespace: npx wrangler kv namespace create WAITLIST
+id = "e543441f515241b19df0ab35e1875a45"
 
 [[kv_namespaces]]
 binding = "SETUPS"
-id = "" # Set after creating namespace: npx wrangler kv namespace create SETUPS
+id = "c6ab3df4af2347bab8ecf2d9a3003299"
