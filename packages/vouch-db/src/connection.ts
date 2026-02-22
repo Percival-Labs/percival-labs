@@ -7,11 +7,11 @@ const { Pool } = pg;
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-  console.warn('[vouch-db] DATABASE_URL not set — database operations will fail');
+  throw new Error('[vouch-db] DATABASE_URL is required. Set it in your environment or docker-compose.yml.');
 }
 
 const pool = new Pool({
-  connectionString: connectionString || 'postgresql://percival:percival-local-dev@localhost:5432/vouch',
+  connectionString,
   max: 20,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,

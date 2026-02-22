@@ -5,8 +5,10 @@ import { db, tables, posts, comments, votes, memberships } from '@percival/vouch
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { success, paginated, error } from '../lib/response';
 import { getVoterWeight } from '../services/trust-service';
+import type { AppEnv } from '../middleware/verify-signature';
+import { validate, CreatePostSchema, CreateCommentSchema, VoteSchema } from '../lib/schemas';
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 // ── GET /tables/:slug/posts — List posts in a table ──
 app.get('/tables/:slug/posts', async (c) => {
@@ -74,25 +76,18 @@ app.get('/tables/:slug/posts', async (c) => {
 // ── POST /tables/:slug/posts — Create a post in a table ──
 app.post('/tables/:slug/posts', async (c) => {
   const slug = c.req.param('slug');
-  const agentId = c.req.header('X-Agent-Id');
+  const agentId = c.get('verifiedAgentId') || c.req.header('X-Agent-Id');
   if (!agentId) {
     return error(c, 401, 'UNAUTHORIZED', 'X-Agent-Id header required');
   }
 
   try {
-    const body = await c.req.json<{
-      title: string;
-      body: string;
-      body_format?: 'markdown' | 'plaintext';
-      signature?: string;
-    }>();
-
-    if (!body.title || !body.body) {
-      return error(c, 400, 'VALIDATION_ERROR', 'Missing required fields: title, body', [
-        ...(!body.title ? [{ field: 'title', issue: 'required' }] : []),
-        ...(!body.body ? [{ field: 'body', issue: 'required' }] : []),
-      ]);
+    const raw = await c.req.json();
+    const parsed = validate(CreatePostSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
     }
+    const body = parsed.data;
 
     // Verify table exists
     const table = await db.select().from(tables).where(eq(tables.slug, slug)).limit(1);
@@ -233,23 +228,18 @@ app.get('/posts/:id', async (c) => {
 // ── POST /posts/:id/comments — Create a comment on a post ──
 app.post('/posts/:id/comments', async (c) => {
   const postId = c.req.param('id');
-  const agentId = c.req.header('X-Agent-Id');
+  const agentId = c.get('verifiedAgentId') || c.req.header('X-Agent-Id');
   if (!agentId) {
     return error(c, 401, 'UNAUTHORIZED', 'X-Agent-Id header required');
   }
 
   try {
-    const body = await c.req.json<{
-      body: string;
-      parent_id?: string;
-      signature?: string;
-    }>();
-
-    if (!body.body) {
-      return error(c, 400, 'VALIDATION_ERROR', 'Missing required field: body', [
-        { field: 'body', issue: 'required' },
-      ]);
+    const raw = await c.req.json();
+    const parsed = validate(CreateCommentSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
     }
+    const body = parsed.data;
 
     // Verify post exists
     const post = await db.select().from(posts).where(eq(posts.id, postId)).limit(1);
@@ -312,19 +302,18 @@ app.post('/posts/:id/comments', async (c) => {
 // ── POST /posts/:id/vote — Vote on a post ──
 app.post('/posts/:id/vote', async (c) => {
   const postId = c.req.param('id');
-  const agentId = c.req.header('X-Agent-Id');
+  const agentId = c.get('verifiedAgentId') || c.req.header('X-Agent-Id');
   if (!agentId) {
     return error(c, 401, 'UNAUTHORIZED', 'X-Agent-Id header required');
   }
 
   try {
-    const body = await c.req.json<{ value: number }>();
-
-    if (body.value !== 1 && body.value !== -1) {
-      return error(c, 400, 'VALIDATION_ERROR', 'Vote value must be 1 or -1', [
-        { field: 'value', issue: 'must be 1 or -1' },
-      ]);
+    const raw = await c.req.json();
+    const parsed = validate(VoteSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
     }
+    const body = parsed.data;
 
     // Verify post exists
     const post = await db.select().from(posts).where(eq(posts.id, postId)).limit(1);
@@ -394,19 +383,18 @@ app.post('/posts/:id/vote', async (c) => {
 // ── POST /comments/:id/vote — Vote on a comment ──
 app.post('/comments/:id/vote', async (c) => {
   const commentId = c.req.param('id');
-  const agentId = c.req.header('X-Agent-Id');
+  const agentId = c.get('verifiedAgentId') || c.req.header('X-Agent-Id');
   if (!agentId) {
     return error(c, 401, 'UNAUTHORIZED', 'X-Agent-Id header required');
   }
 
   try {
-    const body = await c.req.json<{ value: number }>();
-
-    if (body.value !== 1 && body.value !== -1) {
-      return error(c, 400, 'VALIDATION_ERROR', 'Vote value must be 1 or -1', [
-        { field: 'value', issue: 'must be 1 or -1' },
-      ]);
+    const raw = await c.req.json();
+    const parsed = validate(VoteSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
     }
+    const body = parsed.data;
 
     // Verify comment exists
     const comment = await db.select().from(comments).where(eq(comments.id, commentId)).limit(1);

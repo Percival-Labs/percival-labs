@@ -187,7 +187,7 @@ services:
     environment:
       - POSTGRES_DB=vouch
       - POSTGRES_USER=percival
-      - POSTGRES_PASSWORD=percival-local-dev
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-percival-local-dev}
     volumes:
       - vouch-pgdata:/var/lib/postgresql/data
     networks:
@@ -207,7 +207,8 @@ services:
     environment:
       - PORT=3600
       - HOSTNAME=0.0.0.0
-      - DATABASE_URL=postgresql://percival:percival-local-dev@vouch-db:5432/vouch
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://percival:${POSTGRES_PASSWORD:-percival-local-dev}@vouch-db:5432/vouch
       - VOUCH_API_URL=http://vouch-api:3601
     networks:
       - internal
@@ -228,7 +229,10 @@ services:
       - "127.0.0.1:3601:3601"
     environment:
       - PORT=3601
-      - DATABASE_URL=postgresql://percival:percival-local-dev@vouch-db:5432/vouch
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://percival:${POSTGRES_PASSWORD:-percival-local-dev}@vouch-db:5432/vouch
+      - BASE_RPC_URL=${BASE_RPC_URL:-https://mainnet.base.org}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL:-https://sepolia.base.org}
     networks:
       - internal
       - public

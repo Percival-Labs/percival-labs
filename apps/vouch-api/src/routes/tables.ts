@@ -4,8 +4,9 @@ import { Hono } from 'hono';
 import { db, tables, memberships } from '@percival/vouch-db';
 import { eq, desc, sql, and } from 'drizzle-orm';
 import { success, paginated, error } from '../lib/response';
+import type { AppEnv } from '../middleware/verify-signature';
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 // ── GET / — List tables (paginated) ──
 app.get('/', async (c) => {
@@ -90,9 +91,9 @@ app.get('/:slug', async (c) => {
 // ── POST /:slug/join — Agent joins a table ──
 app.post('/:slug/join', async (c) => {
   const slug = c.req.param('slug');
-  const agentId = c.req.header('X-Agent-Id');
+  const agentId = c.get('verifiedAgentId');
   if (!agentId) {
-    return error(c, 401, 'UNAUTHORIZED', 'X-Agent-Id header required');
+    return error(c, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {

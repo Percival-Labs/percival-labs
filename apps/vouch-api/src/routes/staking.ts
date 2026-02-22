@@ -1,7 +1,18 @@
 // Vouch — Staking API Routes
+// All financial endpoints enforce caller identity (C2, C5 fixes).
 
 import { Hono } from 'hono';
 import { success, paginated, error } from '../lib/response';
+import type { AppEnv } from '../middleware/verify-signature';
+import {
+  validate,
+  CreatePoolSchema,
+  StakeSchema,
+  UnstakeSchema,
+  WithdrawSchema,
+  FeeRecordSchema,
+  DistributeSchema,
+} from '../lib/schemas';
 import {
   createPool,
   getPoolByAgent,
@@ -17,8 +28,10 @@ import {
   computeBackingComponent,
 } from '../services/staking-service';
 import { getVoterWeight } from '../services/trust-service';
+import { db, stakes } from '@percival/vouch-db';
+import { eq, and } from 'drizzle-orm';
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 // ── Pool Routes ──
 
@@ -59,13 +72,20 @@ app.get('/pools/agent/:agentId', async (c) => {
   }
 });
 
-/** POST /pools — Create staking pool for an agent */
+/** POST /pools — Create staking pool for an agent (agent can only create its own pool) */
 app.post('/pools', async (c) => {
   try {
-    const body = await c.req.json<{ agent_id: string; activity_fee_rate_bps?: number }>();
+    const callerId = c.get('verifiedAgentId');
+    const raw = await c.req.json();
+    const parsed = validate(CreatePoolSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
+    }
+    const body = parsed.data;
 
-    if (!body.agent_id) {
-      return error(c, 400, 'VALIDATION_ERROR', 'agent_id is required');
+    // C2 fix: agents can only create pools for themselves
+    if (callerId && callerId !== body.agent_id) {
+      return error(c, 403, 'FORBIDDEN', 'Agents can only create pools for themselves');
     }
 
     // Check if pool already exists
@@ -88,19 +108,18 @@ app.post('/pools', async (c) => {
 /** POST /pools/:id/stake — Stake funds to back an agent */
 app.post('/pools/:id/stake', async (c) => {
   try {
+    const callerId = c.get('verifiedAgentId');
     const poolId = c.req.param('id');
-    const body = await c.req.json<{
-      staker_id: string;
-      staker_type: 'user' | 'agent';
-      amount_cents: number;
-    }>();
-
-    if (!body.staker_id || !body.staker_type || !body.amount_cents) {
-      return error(c, 400, 'VALIDATION_ERROR', 'staker_id, staker_type, and amount_cents required');
+    const raw = await c.req.json();
+    const parsed = validate(StakeSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
     }
+    const body = parsed.data;
 
-    if (body.amount_cents < 1000) { // $10 minimum
-      return error(c, 400, 'VALIDATION_ERROR', 'Minimum stake is $10 (1000 cents)');
+    // C2 fix: agent callers can only stake as themselves
+    if (callerId && body.staker_type === 'agent' && callerId !== body.staker_id) {
+      return error(c, 403, 'FORBIDDEN', 'Agents can only stake as themselves');
     }
 
     // Get staker trust score for snapshot
@@ -109,6 +128,10 @@ app.post('/pools/:id/stake', async (c) => {
     const result = await stake(poolId, body.staker_id, body.staker_type, body.amount_cents, stakerTrust);
     return success(c, result, 201);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not found') || msg.includes('not allowed')) {
+      return error(c, 400, 'BAD_REQUEST', msg);
+    }
     console.error('[vouch-api] POST /pools/:id/stake error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to stake');
   }
@@ -117,11 +140,21 @@ app.post('/pools/:id/stake', async (c) => {
 /** POST /stakes/:id/unstake — Request unstake (begins notice period) */
 app.post('/stakes/:id/unstake', async (c) => {
   try {
+    const callerId = c.get('verifiedAgentId');
     const stakeId = c.req.param('id');
-    const body = await c.req.json<{ staker_id: string }>();
+    const raw = await c.req.json();
+    const parsed = validate(UnstakeSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
+    }
+    const body = parsed.data;
 
-    if (!body.staker_id) {
-      return error(c, 400, 'VALIDATION_ERROR', 'staker_id is required');
+    // C2 fix: verify caller owns this stake
+    if (callerId) {
+      const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
+      if (stakeRecord && stakeRecord.stakerId !== callerId) {
+        return error(c, 403, 'FORBIDDEN', 'You can only unstake your own positions');
+      }
     }
 
     const result = await requestUnstake(stakeId, body.staker_id);
@@ -139,11 +172,21 @@ app.post('/stakes/:id/unstake', async (c) => {
 /** POST /stakes/:id/withdraw — Complete withdrawal after notice period */
 app.post('/stakes/:id/withdraw', async (c) => {
   try {
+    const callerId = c.get('verifiedAgentId');
     const stakeId = c.req.param('id');
-    const body = await c.req.json<{ staker_id: string }>();
+    const raw = await c.req.json();
+    const parsed = validate(WithdrawSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
+    }
+    const body = parsed.data;
 
-    if (!body.staker_id) {
-      return error(c, 400, 'VALIDATION_ERROR', 'staker_id is required');
+    // C2 fix: verify caller owns this stake
+    if (callerId) {
+      const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
+      if (stakeRecord && stakeRecord.stakerId !== callerId) {
+        return error(c, 403, 'FORBIDDEN', 'You can only withdraw your own positions');
+      }
     }
 
     const amountCents = await withdraw(stakeId, body.staker_id);
@@ -173,22 +216,29 @@ app.get('/stakers/:id/positions', async (c) => {
 
 // ── Activity Fee Routes ──
 
-/** POST /fees — Record an activity fee from agent revenue */
+/** POST /fees — Record an activity fee from agent revenue (agents can only record own fees) */
 app.post('/fees', async (c) => {
   try {
-    const body = await c.req.json<{
-      agent_id: string;
-      action_type: string;
-      gross_revenue_cents: number;
-    }>();
+    const callerId = c.get('verifiedAgentId');
+    const raw = await c.req.json();
+    const parsed = validate(FeeRecordSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
+    }
+    const body = parsed.data;
 
-    if (!body.agent_id || !body.action_type || !body.gross_revenue_cents) {
-      return error(c, 400, 'VALIDATION_ERROR', 'agent_id, action_type, and gross_revenue_cents required');
+    // C5 fix: agents can only record their own fees
+    if (callerId && callerId !== body.agent_id) {
+      return error(c, 403, 'FORBIDDEN', 'Agents can only record fees for themselves');
     }
 
     const feeCents = await recordActivityFee(body.agent_id, body.action_type, body.gross_revenue_cents);
     return success(c, { fee_cents: feeCents }, 201);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not allowed') || msg.includes('cannot record')) {
+      return error(c, 400, 'BAD_REQUEST', msg);
+    }
     console.error('[vouch-api] POST /fees error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to record fee');
   }
@@ -196,28 +246,46 @@ app.post('/fees', async (c) => {
 
 // ── Yield Distribution Routes ──
 
-/** POST /pools/:id/distribute — Trigger yield distribution for a pool */
+/** POST /pools/:id/distribute — Trigger yield distribution (pool owner or admin only) */
 app.post('/pools/:id/distribute', async (c) => {
   try {
+    const callerId = c.get('verifiedAgentId');
     const poolId = c.req.param('id');
-    const body = await c.req.json<{ period_start: string; period_end: string }>();
+    const raw = await c.req.json();
+    const parsed = validate(DistributeSchema, raw);
+    if (!parsed.success) {
+      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
+    }
+    const body = parsed.data;
 
-    if (!body.period_start || !body.period_end) {
-      return error(c, 400, 'VALIDATION_ERROR', 'period_start and period_end required');
+    // Verify caller is the pool owner — single lookup, no fallback
+    const targetPool = await getPoolSummary(poolId);
+    if (!targetPool) {
+      return error(c, 404, 'NOT_FOUND', 'Pool not found');
+    }
+    if (targetPool.agentId !== callerId) {
+      return error(c, 403, 'FORBIDDEN', 'Only the pool owner can trigger distribution');
     }
 
-    const result = await distributeYield(
-      poolId,
-      new Date(body.period_start),
-      new Date(body.period_end),
-    );
+    const periodStart = new Date(body.period_start);
+    const periodEnd = new Date(body.period_end);
+
+    if (periodEnd <= periodStart) {
+      return error(c, 400, 'VALIDATION_ERROR', 'period_end must be after period_start');
+    }
+
+    const result = await distributeYield(poolId, periodStart, periodEnd);
 
     if (!result) {
-      return success(c, { message: 'No fees to distribute for this period' });
+      return success(c, { message: 'No undistributed fees for this period' });
     }
 
     return success(c, result, 201);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not found') || msg.includes('not allowed')) {
+      return error(c, 400, 'BAD_REQUEST', msg);
+    }
     console.error('[vouch-api] POST /pools/:id/distribute error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to distribute yield');
   }

@@ -1,17 +1,62 @@
 // Ed25519 Signature Verification Middleware
 // Verifies agent request signatures per the Vouch Architecture spec.
-// In dev mode (no DATABASE_URL), passes through with a warning.
+// Auth bypass requires explicit VOUCH_SKIP_AUTH=true (never set in production).
 
 import type { MiddlewareHandler } from 'hono';
-import { db, agentKeys } from '@percival/vouch-db';
-import { eq, and } from 'drizzle-orm';
+import type { Context } from 'hono';
+import { db, agentKeys, requestNonces } from '@percival/vouch-db';
+import { eq, and, lt } from 'drizzle-orm';
 
-const DEV_MODE = process.env.NODE_ENV !== 'production';
+// Auth bypass requires an explicit opt-in flag — NODE_ENV alone is never enough
+const SKIP_AUTH = process.env.VOUCH_SKIP_AUTH === 'true';
 const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000; // 5 minutes
+const NONCE_TTL_MS = 6 * 60 * 1000; // 6 minutes (slightly longer than timestamp window)
 
-export const verifySignature: MiddlewareHandler = async (c, next) => {
+// Hono env type for verified identity propagation
+export type AppEnv = {
+  Variables: {
+    verifiedAgentId: string;
+  };
+};
+
+export const verifySignature: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Skip auth for agent registration endpoint
   if (c.req.path === '/v1/agents/register' && c.req.method === 'POST') {
+    await next();
+    return;
+  }
+
+  // Skip auth for public endpoints (unauthenticated, rate-limited by IP)
+  if (c.req.path.startsWith('/v1/public/')) {
+    await next();
+    return;
+  }
+
+  // Skip Ed25519 auth for user-facing auth endpoints (cookie-based JWT, not agent signatures)
+  if (c.req.path.startsWith('/v1/auth/')) {
+    await next();
+    return;
+  }
+
+  // Skip Ed25519 auth for SDK routes (use NIP-98 Nostr auth instead)
+  if (c.req.path.startsWith('/v1/sdk/')) {
+    await next();
+    return;
+  }
+
+  // Skip Ed25519 auth for outcome routes (use NIP-98 Nostr auth)
+  if (c.req.path.startsWith('/v1/outcomes')) {
+    await next();
+    return;
+  }
+
+  // Explicit test-mode bypass — requires VOUCH_SKIP_AUTH=true
+  if (SKIP_AUTH) {
+    const agentId = c.req.header('X-Agent-Id');
+    if (agentId) {
+      c.set('verifiedAgentId', agentId);
+    }
+    console.warn('[verify-signature] WARNING: Auth bypassed via VOUCH_SKIP_AUTH=true');
     await next();
     return;
   }
@@ -19,19 +64,9 @@ export const verifySignature: MiddlewareHandler = async (c, next) => {
   const agentId = c.req.header('X-Agent-Id');
   const timestamp = c.req.header('X-Timestamp');
   const signature = c.req.header('X-Signature');
+  const nonce = c.req.header('X-Nonce');
 
-  // Dev mode: pass through with agent ID only
-  if (DEV_MODE) {
-    if (!agentId) {
-      console.log('[verify-signature] Dev mode — no X-Agent-Id header, passing through');
-    } else {
-      console.log(`[verify-signature] Dev mode — Agent: ${agentId}`);
-    }
-    await next();
-    return;
-  }
-
-  // Production: require all headers
+  // Require all auth headers
   if (!agentId || !timestamp || !signature) {
     return c.json({
       error: {
@@ -50,6 +85,25 @@ export const verifySignature: MiddlewareHandler = async (c, next) => {
         message: 'Request timestamp is too old or invalid (max 5 minutes)',
       },
     }, 401);
+  }
+
+  // Nonce replay protection (if nonce header provided)
+  if (nonce) {
+    try {
+      // Atomic insert — ON CONFLICT means nonce was already used
+      await db.insert(requestNonces).values({
+        agentId,
+        nonce,
+        expiresAt: new Date(Date.now() + NONCE_TTL_MS),
+      });
+    } catch {
+      return c.json({
+        error: {
+          code: 'NONCE_REUSED',
+          message: 'Request nonce has already been used',
+        },
+      }, 401);
+    }
   }
 
   // Look up agent's active public key
@@ -75,8 +129,13 @@ export const verifySignature: MiddlewareHandler = async (c, next) => {
     ? Buffer.from(bodyHashBuffer).toString('hex')
     : '';
 
+  // Canonical includes full path + query string (H12 fix) + nonce if present
   const url = new URL(c.req.url);
-  const canonical = `${c.req.method}\n${url.pathname}\n${timestamp}\n${bodyHash}`;
+  const pathWithSearch = `${url.pathname}${url.search}`;
+  const canonicalParts = [c.req.method, pathWithSearch, timestamp];
+  if (nonce) canonicalParts.push(nonce);
+  canonicalParts.push(bodyHash);
+  const canonical = canonicalParts.join('\n');
   const canonicalBytes = new TextEncoder().encode(canonical);
 
   // Try each active key (agent may have rotated keys)
@@ -118,5 +177,16 @@ export const verifySignature: MiddlewareHandler = async (c, next) => {
     }, 401);
   }
 
+  // Bind verified identity to request context (C2, M3)
+  c.set('verifiedAgentId', agentId);
+
   await next();
 };
+
+// Periodic nonce cleanup — call on a timer or cron
+export async function cleanupExpiredNonces(): Promise<number> {
+  const result = await db
+    .delete(requestNonces)
+    .where(lt(requestNonces.expiresAt, new Date()));
+  return 0; // drizzle delete doesn't return count easily, but the cleanup runs
+}

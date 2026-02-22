@@ -177,8 +177,13 @@ export async function calculateAgentTrust(agentId: string): Promise<VouchBreakdo
     computeBackingComponent(agentId, 'agent'),
   ]);
 
+  // ERC-8004 on-chain identity → identity-level verification
+  // Legacy agents without ERC-8004 fall back to the verified boolean
+  const hasOnChainIdentity = !!agent.erc8004AgentId;
+  const verificationLevel: VerificationLevel = hasOnChainIdentity ? 'identity' : (agent.verified ? 'identity' : null);
+
   const params: TrustScoreParams = {
-    verificationLevel: agent.verified ? 'identity' : null,
+    verificationLevel,
     accountCreatedAt: agent.createdAt,
     postsCount,
     avgCommentScore,
@@ -190,7 +195,7 @@ export async function calculateAgentTrust(agentId: string): Promise<VouchBreakdo
   };
 
   const result = computeVouchScore(params);
-  const isVerified = agent.verified ?? false;
+  const isVerified = hasOnChainIdentity || (agent.verified ?? false);
   const voteWeight = computeVoteWeight(result.composite, isVerified);
 
   return {

@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, integer, bigint, pgEnum, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, bigint, pgEnum, unique, index, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { agents } from './agents';
 import { authorTypeEnum } from './tables';
 import { chivalryViolations } from './moderation';
@@ -23,7 +24,12 @@ export const vouchPools = pgTable('vouch_pools', {
   activityFeeRateBps: integer('activity_fee_rate_bps').default(500).notNull(), // 5% default
   status: poolStatusEnum('status').default('active').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => [
+  check('check_non_negative_staked', sql`${table.totalStakedCents} >= 0`),
+  check('check_non_negative_stakers', sql`${table.totalStakers} >= 0`),
+  check('check_non_negative_yield', sql`${table.totalYieldPaidCents} >= 0`),
+  check('check_fee_rate_bounds', sql`${table.activityFeeRateBps} BETWEEN 200 AND 1000`),
+]);
 
 // ── Individual Stakes ──
 
@@ -38,7 +44,11 @@ export const stakes = pgTable('stakes', {
   stakedAt: timestamp('staked_at').defaultNow().notNull(),
   unstakeRequestedAt: timestamp('unstake_requested_at'),
   withdrawnAt: timestamp('withdrawn_at'),
-});
+}, (table) => [
+  check('check_positive_amount', sql`${table.amountCents} > 0`),
+  // Partial unique index: one active stake per staker per pool (H10)
+  index('idx_one_active_stake_per_staker').on(table.poolId, table.stakerId).where(sql`status = 'active'`),
+]);
 
 // ── Yield Distributions (periodic batch) ──
 
@@ -74,8 +84,12 @@ export const activityFees = pgTable('activity_fees', {
   actionType: text('action_type').notNull(), // 'content_creation', 'transaction', 'service', etc.
   grossRevenueCents: bigint('gross_revenue_cents', { mode: 'number' }).notNull(),
   feeCents: bigint('fee_cents', { mode: 'number' }).notNull(), // activity_fee_rate * gross_revenue
+  distributionId: text('distribution_id').references(() => yieldDistributions.id), // null = undistributed (C4 fix)
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => [
+  check('check_positive_revenue', sql`${table.grossRevenueCents} > 0`),
+  check('check_positive_fee', sql`${table.feeCents} > 0`),
+]);
 
 // ── Slashing Events ──
 
@@ -117,3 +131,17 @@ export const treasury = pgTable('treasury', {
   description: text('description'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ── Request Nonces (replay protection, H1) ──
+
+export const requestNonces = pgTable('request_nonces', {
+  id: text('id').primaryKey().$defaultFn(() => ulid()),
+  agentId: text('agent_id').references(() => agents.id).notNull(),
+  nonce: text('nonce').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  // Unique constraint ensures atomic duplicate detection
+  unique('unique_agent_nonce').on(table.agentId, table.nonce),
+  index('idx_nonce_expires').on(table.expiresAt),
+]);

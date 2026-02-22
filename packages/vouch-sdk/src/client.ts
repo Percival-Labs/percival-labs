@@ -1,7 +1,7 @@
 // VouchClient — typed SDK for the Vouch Agent API.
 // Zero external dependencies. Ed25519 auth via crypto.subtle.
 
-import { generateKeyPair, signRequest, importPrivateKey, importPublicKey } from './crypto';
+import { generateKeyPair, signRequest, importPrivateKey, importPublicKey, buildRegistrationMessage } from './crypto';
 import { VouchApiError } from './errors';
 import type {
   Agent,
@@ -22,7 +22,15 @@ import type {
 // ── Options ──
 
 export interface VouchClientOptions {
-  name: string;
+  /** On-chain ERC-8004 token ID (as string for bigint) */
+  erc8004AgentId: string;
+  /** Chain identifier, e.g. "eip155:8453" (Base) or "eip155:84532" (Base Sepolia) */
+  erc8004Chain: string;
+  /** Ethereum address that owns the ERC-8004 NFT */
+  ownerAddress: string;
+  /** EIP-191 hex signature of the registration message */
+  ownerSignature: string;
+  name?: string;
   modelFamily?: string;
   description?: string;
   baseUrl?: string;
@@ -30,6 +38,8 @@ export interface VouchClientOptions {
 
 export interface VouchFromCredentials {
   agentId: string;
+  erc8004AgentId?: string;
+  erc8004Chain?: string;
   privateKeyBase64: string;
   publicKeyBase64: string;
   baseUrl?: string;
@@ -127,21 +137,31 @@ export class VouchClient {
   }
 
   /**
-   * Register a new agent and return an authenticated client.
-   * Generates an Ed25519 key pair and calls POST /v1/agents/register.
+   * Register a new agent with ERC-8004 on-chain identity and return an authenticated client.
+   *
+   * The caller is responsible for:
+   * 1. Minting the ERC-8004 NFT on Base (using @agentic-trust/8004-sdk or any method)
+   * 2. Signing the ownership proof with their Ethereum wallet (EIP-191)
+   * 3. Passing the pre-computed ownerSignature
+   *
+   * This method generates a fresh Ed25519 key pair for API authentication.
    */
   static async create(opts: VouchClientOptions): Promise<VouchClient> {
     const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
     const kp = await generateKeyPair();
 
     const body = JSON.stringify({
-      name: opts.name,
+      erc8004AgentId: opts.erc8004AgentId,
+      erc8004Chain: opts.erc8004Chain,
+      ownerAddress: opts.ownerAddress,
+      ownerSignature: opts.ownerSignature,
       publicKey: kp.publicKeyBase64,
+      name: opts.name,
       modelFamily: opts.modelFamily,
       description: opts.description,
     });
 
-    // Registration does NOT require signature auth
+    // Registration does NOT require Ed25519 signature auth
     const res = await fetch(`${baseUrl}/v1/agents/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -152,7 +172,11 @@ export class VouchClient {
       await throwApiError(res);
     }
 
-    const json = await res.json() as SingleResponse<{ agent_id: string }>;
+    const json = await res.json() as SingleResponse<{
+      agent_id: string;
+      erc8004_agent_id: string;
+      erc8004_chain: string;
+    }>;
 
     return new VouchClient(
       json.data.agent_id,
@@ -199,7 +223,7 @@ export class VouchClient {
     body?: unknown,
   ): Promise<T> {
     const bodyStr = body ? JSON.stringify(body) : undefined;
-    const { signature, timestamp } = await signRequest(
+    const { signature, timestamp, nonce } = await signRequest(
       this.privateKey,
       method,
       path,
@@ -210,6 +234,7 @@ export class VouchClient {
       'X-Agent-Id': this.agentId,
       'X-Timestamp': timestamp,
       'X-Signature': signature,
+      'X-Nonce': nonce,
     };
 
     if (bodyStr) {

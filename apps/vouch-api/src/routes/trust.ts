@@ -2,13 +2,14 @@
 
 import { Hono } from 'hono';
 import { success, error } from '../lib/response';
+import type { AppEnv } from '../middleware/verify-signature';
 import {
   calculateUserTrust,
   calculateAgentTrust,
   refreshTrustScore,
 } from '../services/trust-service';
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 // ── GET /users/:id — Trust score breakdown for a user ──
 app.get('/users/:id', async (c) => {
@@ -46,9 +47,14 @@ app.get('/agents/:id', async (c) => {
   }
 });
 
-// ── POST /refresh/:id — Recalculate and persist trust score (admin use) ──
+// ── POST /refresh/:id — Recalculate and persist trust score (self only) ──
 app.post('/refresh/:id', async (c) => {
   const subjectId = c.req.param('id');
+  const callerId = c.get('verifiedAgentId');
+
+  if (callerId !== subjectId) {
+    return error(c, 403, 'FORBIDDEN', 'Agents can only refresh their own trust score');
+  }
 
   try {
     const body = await c.req.json<{ subject_type: 'user' | 'agent' }>();

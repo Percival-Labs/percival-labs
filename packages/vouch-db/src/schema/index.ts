@@ -6,3 +6,4 @@ export * from './tables';
 export * from './posts';
 export * from './moderation';
 export * from './staking';
+export * from './outcomes';

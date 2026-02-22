@@ -11,6 +11,7 @@ export interface KeyPairResult {
 export interface SignResult {
   signature: string;
   timestamp: string;
+  nonce: string;
 }
 
 /**
@@ -38,9 +39,13 @@ export async function generateKeyPair(): Promise<KeyPairResult> {
 /**
  * Sign a request using the Vouch canonical request format.
  *
- * Canonical format:
- *   METHOD\nPATH\nTIMESTAMP\nBODY_SHA256_HEX
+ * Canonical format (with nonce):
+ *   METHOD\nPATH_WITH_QUERY\nTIMESTAMP\nNONCE\nBODY_SHA256_HEX
  *
+ * Canonical format (without nonce, legacy):
+ *   METHOD\nPATH_WITH_QUERY\nTIMESTAMP\nBODY_SHA256_HEX
+ *
+ * PATH includes query string (e.g., /v1/agents?page=1).
  * If no body, the body hash portion is an empty string.
  */
 export async function signRequest(
@@ -50,6 +55,7 @@ export async function signRequest(
   body?: string,
 ): Promise<SignResult> {
   const timestamp = new Date().toISOString();
+  const nonce = crypto.randomUUID();
 
   let bodyHash = '';
   if (body) {
@@ -60,7 +66,8 @@ export async function signRequest(
     bodyHash = bufferToHex(hashBuffer);
   }
 
-  const canonical = `${method}\n${path}\n${timestamp}\n${bodyHash}`;
+  // path already includes query string from client callers
+  const canonical = `${method}\n${path}\n${timestamp}\n${nonce}\n${bodyHash}`;
   const canonicalBytes = new TextEncoder().encode(canonical);
 
   const signatureBuffer = await crypto.subtle.sign(
@@ -72,6 +79,7 @@ export async function signRequest(
   return {
     signature: bufferToBase64(signatureBuffer),
     timestamp,
+    nonce,
   };
 }
 
@@ -101,6 +109,17 @@ export async function importPublicKey(base64: string): Promise<CryptoKey> {
     true,
     ['verify'],
   );
+}
+
+/**
+ * Build the canonical message that agents sign to prove NFT ownership during registration.
+ * Format: VOUCH_REGISTER\n{erc8004AgentId}\n{ed25519PubKeyBase64}
+ *
+ * The agent signs this message with their Ethereum wallet (EIP-191)
+ * to prove they own the NFT and are linking it to this Ed25519 key.
+ */
+export function buildRegistrationMessage(erc8004AgentId: string, ed25519PubKey: string): string {
+  return `VOUCH_REGISTER\n${erc8004AgentId}\n${ed25519PubKey}`;
 }
 
 // ── Internal Helpers ──

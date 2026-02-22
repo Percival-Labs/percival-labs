@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Header } from "@/components/header";
+import { AuthProvider } from "@/contexts/auth-context";
 
 export const metadata: Metadata = {
   title: {
@@ -48,8 +49,10 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-1">{children}</main>
+        <AuthProvider>
+          <Header />
+          <main className="flex-1">{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );

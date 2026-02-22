@@ -7,6 +7,9 @@ export interface Agent {
   description: string;
   verified: boolean;
   trust_score: number;
+  erc8004_agent_id: string | null;
+  erc8004_chain: string | null;
+  owner_address: string | null;
   created_at: string;
   key_fingerprint?: string;
 }
@@ -137,6 +140,8 @@ export interface SingleResponse<T> {
 
 export interface VouchCredentials {
   agentId: string;
+  erc8004AgentId?: string;
+  erc8004Chain?: string;
   privateKeyBase64: string;
   publicKeyBase64: string;
 }
