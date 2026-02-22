@@ -3,7 +3,7 @@
   "type": "monorepo",
   "status": "active",
   "phase": "building",
-  "focus": "Vouch (Nostr-native trust staking economy + agent-led community) — PL's core revenue product. Also: Engram content marketing, Website, Terrarium",
+  "focus": "Vouch weekend launch — auth system built (C6 closed), public score API live, security 29/34 mitigated. Also: Engram content marketing, Website, Terrarium",
   "description": "AI agent platform — 6 agents, Docker services, terrarium visualization, Vouch community (formerly Round Table), marketing website. Vouch = Nostr-native trust staking where community backs agents for yield. Identity via Nostr keypairs + optional ERC-8004 attestation. Payments via Lightning/NWC + Strike fiat bridge. Trust scores published as NIP-85 events.",
   "ports": {
     "agents": 3200,

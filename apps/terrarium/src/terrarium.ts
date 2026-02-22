@@ -207,6 +207,7 @@ export function terrariumPage(): string {
     <span class="music-controls" id="music-controls">
       <button class="music-btn" id="music-toggle" title="Toggle music">&#9835;</button>
       <span class="music-track" id="music-track"></span>
+      <span class="music-credit">Music: FASSounds, Purrple Cat, Riddiman (CC-BY)</span>
     </span>
   </div>
   <audio id="bg-music" preload="auto"></audio>
@@ -326,6 +327,12 @@ function generateCSS(): string {
     }
     #status-bar .music-btn:hover { color: rgba(255,255,255,0.9); }
     #status-bar .music-btn.playing { color: #22c55e; }
+    #status-bar .music-credit {
+      font-size: 9px;
+      opacity: 0.3;
+      margin-left: 6px;
+      white-space: nowrap;
+    }
     #status-bar .music-track {
       font-size: 10px;
       opacity: 0.4;
@@ -520,6 +527,30 @@ windowBeam.castShadow = true;
 scene.add(windowBeam);
 scene.add(windowBeam.target);
 
+// Volumetric light shaft planes (visible god-rays through windows)
+const shaftMat = new THREE.MeshBasicMaterial({
+  color: new THREE.Color(0xFFE8C0),
+  transparent: true,
+  opacity: 0.04,
+  side: THREE.DoubleSide,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+// Two crossing planes create a volumetric look from any angle
+for (let i = 0; i < 3; i++) {
+  const shaftGeo = new THREE.PlaneGeometry(3.5 + i * 1.2, 12);
+  const shaft = new THREE.Mesh(shaftGeo, shaftMat.clone());
+  shaft.material.opacity = 0.035 - i * 0.008;
+  shaft.position.set(-3 + i * 4, 5.5, -8 + i * 1.5);
+  shaft.rotation.x = -0.25;
+  shaft.rotation.y = (i - 1) * 0.15;
+  shaft.rotation.z = 0.05 * (i - 1);
+  shaft.userData.isLightShaft = true;
+  shaft.userData.baseOpacity = shaft.material.opacity;
+  scene.add(shaft);
+}
+
 // Warm fill from the right (complementary to window light)
 const fillSun = new THREE.DirectionalLight(0x8A7A6A, 0.5);
 fillSun.position.set(8, 10, 4);
@@ -680,6 +711,11 @@ for (const sc of sconcePositions) {
   scene.add(light);
 }
 
+// Mesh references for animation (populated during GLB traverse)
+const catMeshes = [];      // Cat_Body, Cat_Tail_*, Cat_Head, etc.
+const plantMeshes = [];    // Plant_*_Foliage_*, HangingPlant_*_Foliage_*
+let rugMesh = null;        // Rug mesh for material enhancement
+
 const loader = new GLTFLoader();
 loader.load('/public/models/office.glb', (gltf) => {
   const office = gltf.scene;
@@ -718,10 +754,25 @@ loader.load('/public/models/office.glb', (gltf) => {
       }
 
       // Hide props that were positioned for wall-facing desks (now float in pod layout)
-      const hidePatterns = ['Blueprint', 'Kanban_', 'Pegboard', 'Whiteboard', 'Percy_WB_', 'Scout_CB_', 'Corkboard', 'StickyNote', 'Poster_', 'Poster2_', 'WindowFrame', 'WindowGlass', 'WindowBar', 'Sage_Bookcase_', 'Sage_Book_'];
+      const hidePatterns = ['Blueprint', 'Kanban_', 'Pegboard', 'Whiteboard', 'Percy_WB_', 'Scout_CB_', 'Scout_Pin', 'Corkboard', 'StickyNote', 'Sticky', 'PostIt', 'Post_It', 'Note_', 'Memo', 'Poster_', 'Poster2_', 'WindowFrame', 'WindowGlass', 'WindowBar', 'Sage_Bookcase_', 'Sage_Book_', 'Filing', 'Cabinet', 'FileCab', 'PegHook', 'Forge_Tool_'];
       if (hidePatterns.some(p => child.name.includes(p))) {
         child.visible = false;
         return;
+      }
+
+      // Capture cat mesh references for idle animation
+      if (child.name.startsWith('Cat_')) {
+        catMeshes.push(child);
+      }
+
+      // Capture plant foliage references for sway animation
+      if (child.name.includes('Foliage') || child.name.includes('_Leaf')) {
+        plantMeshes.push(child);
+      }
+
+      // Capture rug for material enhancement
+      if (child.name === 'Rug') {
+        rugMesh = child;
       }
 
       // Emissive objects (LEDs, bulbs, lamp shades, window glass) keep PBR
@@ -765,6 +816,101 @@ loader.load('/public/models/office.glb', (gltf) => {
 
   scene.add(office);
   console.log('[Terrarium] GLB loaded:', meshCount, 'meshes,', toonCount, 'converted to toon');
+
+  // --- Rug enhancement: warm Persian-style pattern via CanvasTexture ---
+  if (rugMesh) {
+    const rugCanvas = document.createElement('canvas');
+    rugCanvas.width = 512;
+    rugCanvas.height = 512;
+    const rc = rugCanvas.getContext('2d');
+
+    // Base: deep warm burgundy
+    rc.fillStyle = '#5A2828';
+    rc.fillRect(0, 0, 512, 512);
+
+    // Border band
+    rc.strokeStyle = '#8B6B3A';
+    rc.lineWidth = 18;
+    rc.strokeRect(30, 30, 452, 452);
+    rc.strokeStyle = '#3A1818';
+    rc.lineWidth = 6;
+    rc.strokeRect(44, 44, 424, 424);
+    rc.strokeStyle = '#C8A050';
+    rc.lineWidth = 2;
+    rc.strokeRect(52, 52, 408, 408);
+
+    // Inner decorative border
+    rc.strokeStyle = '#6B4A28';
+    rc.lineWidth = 10;
+    rc.strokeRect(68, 68, 376, 376);
+
+    // Center medallion
+    const cx = 256, cy = 256;
+    // Outer ring
+    rc.beginPath();
+    rc.arc(cx, cy, 120, 0, Math.PI * 2);
+    rc.fillStyle = '#6B3030';
+    rc.fill();
+    rc.strokeStyle = '#C8A050';
+    rc.lineWidth = 2;
+    rc.stroke();
+    // Inner ring
+    rc.beginPath();
+    rc.arc(cx, cy, 85, 0, Math.PI * 2);
+    rc.fillStyle = '#4A2020';
+    rc.fill();
+    rc.strokeStyle = '#8B6B3A';
+    rc.lineWidth = 1.5;
+    rc.stroke();
+    // Center dot
+    rc.beginPath();
+    rc.arc(cx, cy, 30, 0, Math.PI * 2);
+    rc.fillStyle = '#C8A050';
+    rc.fill();
+
+    // Star points around medallion
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const px = cx + Math.cos(angle) * 100;
+      const py = cy + Math.sin(angle) * 100;
+      rc.beginPath();
+      rc.arc(px, py, 8, 0, Math.PI * 2);
+      rc.fillStyle = '#C8A050';
+      rc.fill();
+    }
+
+    // Corner flourishes
+    for (const [cornerX, cornerY] of [[90, 90], [422, 90], [90, 422], [422, 422]]) {
+      rc.beginPath();
+      rc.arc(cornerX, cornerY, 35, 0, Math.PI * 2);
+      rc.fillStyle = '#6B3030';
+      rc.fill();
+      rc.strokeStyle = '#8B6B3A';
+      rc.lineWidth = 1.5;
+      rc.stroke();
+      rc.beginPath();
+      rc.arc(cornerX, cornerY, 15, 0, Math.PI * 2);
+      rc.fillStyle = '#C8A050';
+      rc.fill();
+    }
+
+    // Subtle noise texture overlay
+    rc.globalAlpha = 0.08;
+    for (let i = 0; i < 3000; i++) {
+      const nx = Math.random() * 512;
+      const ny = Math.random() * 512;
+      rc.fillStyle = Math.random() > 0.5 ? '#000' : '#FFF';
+      rc.fillRect(nx, ny, 1, 1);
+    }
+    rc.globalAlpha = 1;
+
+    const rugTex = new THREE.CanvasTexture(rugCanvas);
+    rugMesh.material = new THREE.MeshToonMaterial({
+      map: rugTex,
+      gradientMap: gradientMap,
+      color: new THREE.Color('#D8C0A0'),
+    });
+  }
 
   // --- Extra bookshelves (programmatic, cozy clutter) ---
   const shelfWood = new THREE.MeshToonMaterial({ color: new THREE.Color('#7A5C3A'), gradientMap: gradientMap });
@@ -873,225 +1019,177 @@ loader.load('/public/models/office.glb', (gltf) => {
   const ledStrip2 = new THREE.Mesh(new THREE.BoxGeometry(18, 0.03, 0.03), neonRoseMat);
   ledStrip2.position.set(0, 9.8, -10.6);
   scene.add(ledStrip2);
-  // Teal strip under round table platform
-  const ledStrip3 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.03, 0.03), neonTealMat);
-  ledStrip3.position.set(0, 0.08, 1.5);
-  scene.add(ledStrip3);
-  const ledStrip4 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.03, 0.03), neonTealMat);
-  ledStrip4.position.set(0, 0.08, -5.5);
-  scene.add(ledStrip4);
+  // (Round table LED strips removed — caused floating artifacts)
 
-  // --- Server rack cluster (back-left corner) ---
-  const rackMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x1A1A22), gradientMap: gradientMap });
-  const rackLedMat = new THREE.MeshStandardMaterial({
-    color: 0x40E0A0, emissive: new THREE.Color(0x40E0A0), emissiveIntensity: 0.7,
-  });
-  for (let r = 0; r < 3; r++) {
-    const rack = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.6), rackMat);
-    rack.position.set(-10.8, 1.75, -8.5 + r * 1.0);
-    scene.add(rack);
-    // Status LEDs on each rack
-    for (let led = 0; led < 4; led++) {
-      const ledMesh = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), rackLedMat);
-      ledMesh.position.set(-10.38, 1.0 + led * 0.6, -8.5 + r * 1.0);
-      scene.add(ledMesh);
-    }
-  }
-
-  // --- Holographic display (floating translucent plane near round table) ---
-  const holoMat = new THREE.MeshStandardMaterial({
-    color: 0x5ABFB0, emissive: new THREE.Color(0x5ABFB0), emissiveIntensity: 0.4,
-    transparent: true, opacity: 0.15, side: THREE.DoubleSide,
-  });
-  const holo = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 1.5), holoMat);
-  holo.position.set(0, 3.5, -3);
-  holo.rotation.y = Math.PI * 0.15;
-  scene.add(holo);
-  // Holo frame edges (thin bright lines)
-  const holoEdgeMat = new THREE.MeshStandardMaterial({
-    color: 0x5ABFB0, emissive: new THREE.Color(0x5ABFB0), emissiveIntensity: 0.8,
-  });
-  const holoTop = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.015, 0.015), holoEdgeMat);
-  holoTop.position.set(0, 4.25, -3);
-  holoTop.rotation.y = Math.PI * 0.15;
-  scene.add(holoTop);
-  const holoBot = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.015, 0.015), holoEdgeMat);
-  holoBot.position.set(0, 2.75, -3);
-  holoBot.rotation.y = Math.PI * 0.15;
-  scene.add(holoBot);
-
-  // --- Floor cable bundles (running between desks) ---
-  const cableMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x2A2520), gradientMap: gradientMap });
-  // Cable from server rack toward center
-  const cable1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 8, 6), cableMat);
-  cable1.rotation.x = Math.PI / 2;
-  cable1.position.set(-9, 0.04, -5);
-  scene.add(cable1);
-  // Cable across front area
-  const cable2 = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 12, 6), cableMat);
-  cable2.rotation.z = Math.PI / 2;
-  cable2.position.set(0, 0.03, 3);
-  scene.add(cable2);
+  // (Server racks removed — clipped into existing GLB furniture)
+  // (Floor cables removed — caused lines across carpet)
 
 }, undefined, (error) => {
   console.error('[Terrarium] GLB load failed:', error);
 });
 
 // ============================================================
-// LOAD AGENT ROBOT MODELS (GLB)
+// PROCEDURAL ROBOT AGENTS (Ghibli × Cyberpunk)
 // ============================================================
 
 const robots = {};
-const agentLoader = new GLTFLoader();
-let robotsLoaded = 0;
 
+function buildRobot(agent) {
+  const group = new THREE.Group();
+  const ac = new THREE.Color(agent.color);
+  // Warm body base (cream-tan, Ghibli warmth)
+  const bodyBase = new THREE.Color(0xE8D8C4);
+  const bodyTint = bodyBase.clone().lerp(ac, 0.12);
+
+  // --- Materials ---
+  const bodyMat = new THREE.MeshToonMaterial({
+    color: bodyTint, gradientMap: gradientMap,
+    emissive: new THREE.Color(0x1A1008), emissiveIntensity: 0.1,
+  });
+  const darkMat = new THREE.MeshToonMaterial({
+    color: new THREE.Color(0x3A3530), gradientMap: gradientMap,
+  });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: ac, emissive: ac, emissiveIntensity: 0.6,
+  });
+  const eyeMat = new THREE.MeshStandardMaterial({
+    color: ac, emissive: ac, emissiveIntensity: 0.5,
+  });
+  const visorMat = new THREE.MeshToonMaterial({
+    color: new THREE.Color(0x1A1820), gradientMap: gradientMap,
+  });
+
+  // --- Legs (short stubby cylinders) ---
+  for (const side of [-0.12, 0.12]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.4, 8), darkMat);
+    leg.position.set(side, 0.2, 0);
+    leg.castShadow = true;
+    group.add(leg);
+    // Foot (rounded box)
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.16), darkMat);
+    foot.position.set(side, 0.03, 0.02);
+    group.add(foot);
+  }
+
+  // --- Body (rounded capsule torso — Ghibli chunky proportions) ---
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.5, 8, 16), bodyMat);
+  torso.position.y = 0.9;
+  torso.castShadow = true;
+  group.add(torso);
+
+  // Chest panel (darker inset — cyberpunk detail)
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.06), visorMat);
+  panel.position.set(0, 0.88, 0.22);
+  group.add(panel);
+
+  // Chest LED strip (agent-colored glow)
+  const chestLed = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.025, 0.02), accentMat);
+  chestLed.position.set(0, 0.92, 0.26);
+  group.add(chestLed);
+
+  // Belly accent dot (small round LED)
+  const bellyLed = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), accentMat.clone());
+  bellyLed.position.set(0, 0.78, 0.25);
+  group.add(bellyLed);
+
+  // --- Arms (simple tubes hanging at sides) ---
+  for (const side of [-1, 1]) {
+    const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), darkMat);
+    shoulderJoint.position.set(side * 0.28, 1.05, 0);
+    group.add(shoulderJoint);
+
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.35, 6, 8), bodyMat);
+    arm.position.set(side * 0.30, 0.72, 0);
+    arm.castShadow = true;
+    group.add(arm);
+
+    // Hand (small sphere)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), bodyMat);
+    hand.position.set(side * 0.30, 0.5, 0);
+    group.add(hand);
+  }
+
+  // --- Neck (short connector) ---
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.10, 0.12, 8), darkMat);
+  neck.position.y = 1.28;
+  group.add(neck);
+
+  // --- Head (large sphere — Ghibli big-head proportions) ---
+  const headGroup = new THREE.Group();
+  headGroup.position.y = 1.52;
+
+  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), bodyMat);
+  headMesh.castShadow = true;
+  headGroup.add(headMesh);
+
+  // Face visor (dark curved panel — cyberpunk helmet feel)
+  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8, 0, Math.PI, 0, Math.PI * 0.55), visorMat);
+  visor.rotation.x = -0.15;
+  visor.position.set(0, 0.02, 0.12);
+  headGroup.add(visor);
+
+  // --- Eyes (large, expressive — Ghibli signature) ---
+  const eyeGeo = new THREE.SphereGeometry(0.065, 10, 8);
+  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-0.1, 0.04, 0.24);
+  headGroup.add(leftEye);
+
+  const rightEye = new THREE.Mesh(eyeGeo, eyeMat.clone());
+  rightEye.position.set(0.1, 0.04, 0.24);
+  headGroup.add(rightEye);
+
+  // Eye pupils (dark inner dot for expression)
+  const pupilGeo = new THREE.SphereGeometry(0.025, 8, 6);
+  const pupilMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x0A0A12), gradientMap: gradientMap });
+  const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
+  leftPupil.position.set(-0.1, 0.04, 0.30);
+  headGroup.add(leftPupil);
+  const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
+  rightPupil.position.set(0.1, 0.04, 0.30);
+  headGroup.add(rightPupil);
+
+  // --- Antenna (cyberpunk comms) ---
+  const antennaStem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.3, 6), darkMat);
+  antennaStem.position.set(0.14, 0.38, -0.05);
+  headGroup.add(antennaStem);
+
+  const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), accentMat.clone());
+  antennaTip.position.set(0.14, 0.55, -0.05);
+  headGroup.add(antennaTip);
+
+  // --- Ear panels (small side accents) ---
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.08), darkMat);
+    ear.position.set(side * 0.28, 0, 0);
+    headGroup.add(ear);
+    // Tiny LED on ear
+    const earLed = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 4), accentMat.clone());
+    earLed.position.set(side * 0.30, 0.02, 0);
+    headGroup.add(earLed);
+  }
+
+  group.add(headGroup);
+
+  // --- Set up animation hooks ---
+  group.userData.head = headGroup;
+  group.userData.eyes = [leftEye, rightEye];
+
+  return group;
+}
+
+// Build and position all robots
 for (const agent of AGENT_DATA) {
   const [ax, , az] = agent.position;
+  const robot = buildRobot(agent);
 
-  agentLoader.load('/public/models/agents/' + agent.id + '.glb', (gltf) => {
-    const model = gltf.scene;
-
-    // Convert materials to warm Ghibli toon style, preserve emissive for bloom
-    model.traverse((child) => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-
-        const oldMat = child.material;
-        if (!oldMat) return;
-
-        // Mark head mesh for bubble positioning (set in Blender via custom property)
-        if (child.name.toLowerCase().includes('head') && !child.name.toLowerCase().includes('gog')) {
-          model.userData.head = child;
-        }
-
-        // Keep emissive materials (eyes, antenna, LEDs) as PBR for bloom
-        // Warm up eye glow slightly for Ghibli softness
-        const hasEmissive = oldMat.emissiveIntensity > 0.3;
-        if (hasEmissive) {
-          if (child.name.toLowerCase().includes('iris')) {
-            if (!model.userData.eyes) model.userData.eyes = [];
-            model.userData.eyes.push(child);
-            // Soften eye glow — warm the emissive slightly
-            const ec = oldMat.emissive.clone();
-            ec.lerp(new THREE.Color(0xFFE8D0), 0.15);
-            oldMat.emissive = ec;
-            oldMat.emissiveIntensity = Math.min(oldMat.emissiveIntensity, 0.5);
-          }
-          return;
-        }
-
-        // Convert to Ghibli-warm toon — slightly warm-shift all robot colors
-        const baseColor = oldMat.color ? oldMat.color.clone() : new THREE.Color(0xcccccc);
-        baseColor.lerp(new THREE.Color(0xF0E0D0), 0.08); // subtle warm tint
-        const toonMat = new THREE.MeshToonMaterial({
-          color: baseColor,
-          gradientMap: gradientMap,
-        });
-        // Add subtle warm emissive to all robot parts (soft Ghibli fill glow)
-        toonMat.emissive = new THREE.Color(0x1A1008);
-        toonMat.emissiveIntensity = 0.15;
-        if (oldMat.emissive && oldMat.emissiveIntensity > 0) {
-          toonMat.emissive = oldMat.emissive.clone();
-          toonMat.emissiveIntensity = oldMat.emissiveIntensity;
-        }
-        child.material = toonMat;
-      }
-    });
-
-    // If no head found by name, use the highest mesh as fallback
-    if (!model.userData.head) {
-      let highestY = -Infinity;
-      model.traverse((child) => {
-        if (child.isMesh) {
-          const worldPos = new THREE.Vector3();
-          child.getWorldPosition(worldPos);
-          if (worldPos.y > highestY) {
-            highestY = worldPos.y;
-            model.userData.head = child;
-          }
-        }
-      });
-    }
-
-    // --- Cyberpunk accessories (antenna + neon accent strip) ---
-    const agentColor = new THREE.Color(agent.color);
-
-    // Small antenna on head
-    const antennaGeo = new THREE.CylinderGeometry(0.015, 0.02, 0.35, 6);
-    const antennaMat = new THREE.MeshToonMaterial({ color: new THREE.Color(0x4A4040), gradientMap: gradientMap });
-    const antenna = new THREE.Mesh(antennaGeo, antennaMat);
-    antenna.position.set(0.12, 2.15, 0);
-    model.add(antenna);
-    // Antenna tip LED (agent-colored glow)
-    const tipGeo = new THREE.SphereGeometry(0.035, 8, 6);
-    const tipMat = new THREE.MeshStandardMaterial({
-      color: agentColor, emissive: agentColor, emissiveIntensity: 0.8,
-    });
-    const tip = new THREE.Mesh(tipGeo, tipMat);
-    tip.position.set(0.12, 2.35, 0);
-    model.add(tip);
-
-    // Neon accent strip on torso (thin glowing line)
-    const stripGeo = new THREE.BoxGeometry(0.28, 0.02, 0.04);
-    const stripMat = new THREE.MeshStandardMaterial({
-      color: agentColor, emissive: agentColor, emissiveIntensity: 0.5,
-      transparent: true, opacity: 0.8,
-    });
-    const strip = new THREE.Mesh(stripGeo, stripMat);
-    strip.position.set(0, 1.15, 0.25);
-    model.add(strip);
-
-    // Position robot at desk (offset from desk by facing direction)
-    // Robot faces TOWARD desk (opposite of facing direction)
-    const f = agent.facing || 0;
-    const dOff = agent.deskOffset ?? 0.8;
-    model.position.set(ax + Math.sin(f) * dOff, 0, az + Math.cos(f) * dOff);
-    model.rotation.y = f + Math.PI;
-    scene.add(model);
-    robots[agent.id] = model;
-    robotsLoaded++;
-    console.log('[Terrarium] Agent GLB loaded:', agent.name, '(' + robotsLoaded + '/' + AGENT_DATA.length + ')');
-  }, undefined, (error) => {
-    console.warn('[Terrarium] Agent GLB failed for', agent.id, '— falling back to placeholder');
-    // Fallback: simple colored sphere as placeholder
-    const fallback = new THREE.Group();
-    const bodyColor = new THREE.Color(agent.color);
-    const bodyGeo = new THREE.CapsuleGeometry(0.3, 1.0, 8, 16);
-    const bodyMat = new THREE.MeshToonMaterial({ color: bodyColor, gradientMap: gradientMap });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 1.0;
-    body.castShadow = true;
-    fallback.add(body);
-
-    // Head sphere for bubble positioning
-    const headGeo = new THREE.SphereGeometry(0.28, 12, 8);
-    const head = new THREE.Mesh(headGeo, bodyMat);
-    head.position.y = 1.8;
-    head.castShadow = true;
-    fallback.add(head);
-    fallback.userData.head = head;
-
-    // Emissive eyes
-    const eyeGeo = new THREE.SphereGeometry(0.06, 8, 6);
-    const eyeMat = new THREE.MeshStandardMaterial({
-      color: bodyColor, emissive: bodyColor, emissiveIntensity: 0.6,
-    });
-    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-0.1, 1.83, 0.22);
-    fallback.add(leftEye);
-    const rightEye = new THREE.Mesh(eyeGeo, eyeMat.clone());
-    rightEye.position.set(0.1, 1.83, 0.22);
-    fallback.add(rightEye);
-    fallback.userData.eyes = [leftEye, rightEye];
-
-    const ff = agent.facing || 0;
-    const dfOff = agent.deskOffset ?? 0.8;
-    fallback.position.set(ax + Math.sin(ff) * dfOff, 0, az + Math.cos(ff) * dfOff);
-    fallback.rotation.y = ff + Math.PI;
-    scene.add(fallback);
-    robots[agent.id] = fallback;
-  });
+  const f = agent.facing || 0;
+  const dOff = agent.deskOffset ?? 0.8;
+  robot.scale.set(1.6, 1.6, 1.6);
+  robot.position.set(ax + Math.sin(f) * dOff, 0, az + Math.cos(f) * dOff);
+  robot.rotation.y = f + Math.PI;
+  scene.add(robot);
+  robots[agent.id] = robot;
+  console.log('[Terrarium] Procedural robot built:', agent.name);
 }
 
 
@@ -2133,11 +2231,7 @@ function animate() {
   const t = clock.getElapsedTime();
   const dt = clock.getDelta();
 
-  // Camera drift — smooth figure-8 pattern with subtle height variation
-  camera.position.x = cameraBaseX + Math.sin(t * 0.06) * 0.5 + Math.sin(t * 0.15) * 0.12;
-  camera.position.z = cameraBaseZ + Math.cos(t * 0.08) * 0.35;
-  camera.position.y = cameraBaseY + Math.sin(t * 0.04) * 0.15;
-  camera.lookAt(0, 1, -2);
+  // Camera: static (drift removed — caused unsettling whole-room sway)
 
   // Animate robots
   for (let i = 0; i < AGENT_DATA.length; i++) {
@@ -2148,13 +2242,9 @@ function animate() {
     const state = animState[agent.id];
     const offset = i * 1.1;
 
-    // --- Breathing: subtle Y bob + very slight scale pulse ---
-    const breathVal = Math.sin(t * state.breathSpeed + state.breathPhase);
-    robot.position.y = breathVal * 0.025;
-
-    // --- Work lean: personality-driven amplitude ---
+    // --- Work lean: personality-driven amplitude (only when active) ---
     const leanMult = state.isActive ? state.activeMult : 1.0;
-    const leanAmp = state.isActive ? state.leanAmpActive : state.leanAmpIdle;
+    const leanAmp = state.isActive ? state.leanAmpActive : 0;
     const leanVal = Math.sin(t * state.leanSpeed * leanMult + state.leanPhase);
     robot.rotation.x = leanVal * leanAmp;
 
@@ -2257,6 +2347,42 @@ function animate() {
     }
     sparkPos.needsUpdate = true;
   }
+
+  // --- Cat idle animation: breathing + tail flick ---
+  for (const catPart of catMeshes) {
+    if (catPart.name === 'Cat_Body' || catPart.name === 'Cat_Head') {
+      // Slow breathing bob
+      catPart.position.y += Math.sin(t * 0.8) * 0.0008;
+    }
+    if (catPart.name.startsWith('Cat_Tail_')) {
+      // Lazy tail flick
+      const tailIdx = catPart.name.endsWith('2') ? 1.5 : 1.0;
+      catPart.rotation.y = Math.sin(t * 0.6 + tailIdx) * 0.15 * tailIdx;
+      catPart.rotation.z = Math.sin(t * 0.4) * 0.05;
+    }
+    if (catPart.name.startsWith('Cat_Ear_')) {
+      // Occasional ear twitch
+      catPart.rotation.z = Math.sin(t * 1.2 + (catPart.name.endsWith('L') ? 0 : Math.PI)) * 0.06;
+    }
+  }
+
+  // --- Plant sway: gentle breeze ---
+  for (let i = 0; i < plantMeshes.length; i++) {
+    const plant = plantMeshes[i];
+    const phase = i * 2.3;  // Offset each plant
+    const swaySpeed = 0.3 + (i % 3) * 0.1;
+    const swayAmp = 0.015 + (i % 2) * 0.008;
+    plant.rotation.x = Math.sin(t * swaySpeed + phase) * swayAmp;
+    plant.rotation.z = Math.cos(t * swaySpeed * 0.7 + phase) * swayAmp * 0.6;
+  }
+
+  // --- Light shaft shimmer ---
+  scene.children.forEach(child => {
+    if (child.userData && child.userData.isLightShaft) {
+      const base = child.userData.baseOpacity;
+      child.material.opacity = base + Math.sin(t * 0.5 + child.position.x) * base * 0.3;
+    }
+  });
 
   // Update bubble positions (called from overlay JS)
   if (window.__updateBubblePositions) {

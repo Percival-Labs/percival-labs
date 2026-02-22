@@ -28,12 +28,14 @@ const PRICING: Record<string, { input: number; output: number }> = {
   'deepseek/deepseek-chat-v3-0324':      { input: 0.27,   output: 1.10  },
   'thudm/glm-4.7-chat':                 { input: 0.10,   output: 0.10  },
   'qwen/qwen3-coder':                   { input: 0.20,   output: 0.60  },
+  'qwen/qwen3-coder-next':              { input: 0.14,   output: 0.42  },
   'qwen/qwen3-235b-a22b':               { input: 0.14,   output: 0.70  },
   // Ollama/local models (free) — new
   'ollama/glm-4.7-flash':        { input: 0,      output: 0     },
   'ollama/minimax-m2.5':         { input: 0,      output: 0     },
   'ollama/deepseek-v3':          { input: 0,      output: 0     },
   'ollama/qwen3-coder':          { input: 0,      output: 0     },
+  'ollama/qwen3-coder-next':     { input: 0,      output: 0     },
   'ollama/qwen3:235b-a22b':      { input: 0,      output: 0     },
   // OpenClaw (tracked separately, treated as free here)
   'openclaw':                     { input: 0,      output: 0     },

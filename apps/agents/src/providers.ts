@@ -33,6 +33,7 @@ export const MODELS = {
   'glm-4.7': 'thudm/glm-4.7-chat',
   // Qwen
   'qwen3-coder': 'qwen/qwen3-coder',
+  'qwen3-coder-next': 'qwen/qwen3-coder-next',
   'qwen3-235b': 'qwen/qwen3-235b-a22b',
 } as const;
 
