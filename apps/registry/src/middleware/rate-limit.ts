@@ -33,6 +33,7 @@ const TIERS: Record<string, RateLimitTier> = {
 
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const BUCKET_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes without activity
+const MAX_STORE_SIZE = 100_000; // H9 fix: cap store to prevent memory exhaustion DoS
 
 // ── Store ──
 
@@ -95,6 +96,16 @@ function consumeToken(ip: string, tierName: string): {
 
   let bucket = store.get(key);
   if (!bucket) {
+    // H9 fix: reject new keys when store is at capacity
+    if (store.size >= MAX_STORE_SIZE) {
+      return {
+        allowed: false,
+        remaining: 0,
+        limit: tier.maxTokens,
+        resetAt: now + tier.windowMs,
+        retryAfterSeconds: 60,
+      };
+    }
     bucket = { tokens: tier.maxTokens, lastRefill: now };
     store.set(key, bucket);
   }
@@ -134,7 +145,21 @@ export function rateLimiter(): MiddlewareHandler {
   startCleanup();
 
   return async (c: Context, next: Next) => {
-    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    // C5 fix: don't blindly trust X-Forwarded-For. Use connection info or trusted proxy chain.
+    const connInfo = (c.env as any)?.remoteAddr || (c.req.raw as any)?.socket?.remoteAddress;
+    const trustedProxies = process.env.TRUSTED_PROXY_IPS?.split(',').map(s => s.trim());
+    let ip = 'unknown';
+    if (connInfo) {
+      ip = String(connInfo);
+    } else if (trustedProxies && trustedProxies.length > 0) {
+      const xff = c.req.header('x-forwarded-for');
+      if (xff) {
+        const ips = xff.split(',').map(s => s.trim());
+        for (let i = ips.length - 1; i >= 0; i--) {
+          if (!trustedProxies.includes(ips[i])) { ip = ips[i]; break; }
+        }
+      }
+    }
     const tierName = getTierForMethod(c.req.method);
     const result = consumeToken(ip, tierName);
 
