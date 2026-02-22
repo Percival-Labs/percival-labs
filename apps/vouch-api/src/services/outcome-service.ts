@@ -60,6 +60,11 @@ function oppositeRole(role: 'performer' | 'purchaser'): 'performer' | 'purchaser
 export async function reportOutcome(params: ReportOutcomeParams): Promise<OutcomeResult> {
   const { agentPubkey, counterpartyPubkey, role, taskType, taskRef, success, rating, evidence } = params;
 
+  // C4 fix: prevent self-vouching (agent reporting outcomes with itself as counterparty)
+  if (agentPubkey === counterpartyPubkey) {
+    throw new Error('Cannot report outcome with yourself as counterparty');
+  }
+
   if (rating !== undefined) {
     assertValidRating(rating);
   }

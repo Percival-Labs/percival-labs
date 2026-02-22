@@ -227,8 +227,9 @@ outcomeRoutes.post('/', async (c) => {
       task_ref?: string;
     }>();
 
-    if (!body.counterparty || !body.role || !body.task_type || body.success === undefined) {
-      return error(c, 400, 'VALIDATION_ERROR', 'counterparty, role, task_type, and success are required');
+    // H7 fix: require task_ref explicitly to prevent outcome flood with auto-generated UUIDs
+    if (!body.counterparty || !body.role || !body.task_type || body.success === undefined || !body.task_ref) {
+      return error(c, 400, 'VALIDATION_ERROR', 'counterparty, role, task_type, task_ref, and success are required');
     }
 
     if (body.role !== 'performer' && body.role !== 'purchaser') {
@@ -239,12 +240,17 @@ outcomeRoutes.post('/', async (c) => {
       return error(c, 400, 'VALIDATION_ERROR', 'rating must be between 1 and 5');
     }
 
+    // C4 fix: prevent self-vouching at route level
+    if (body.counterparty === pubkey) {
+      return error(c, 400, 'VALIDATION_ERROR', 'Cannot report outcome with yourself as counterparty');
+    }
+
     const result = await reportOutcome({
       agentPubkey: pubkey,
       counterpartyPubkey: body.counterparty,
       role: body.role,
       taskType: body.task_type,
-      taskRef: body.task_ref || crypto.randomUUID(),
+      taskRef: body.task_ref,
       success: body.success,
       rating: body.rating,
       evidence: body.evidence,

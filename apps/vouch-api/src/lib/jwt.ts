@@ -13,9 +13,14 @@ export interface SessionPayload {
   email: string;
 }
 
+// H1: Issuer/audience claims prevent cross-service token confusion
+const ISSUER = 'vouch-api';
+const AUDIENCE = 'vouch-app';
+
 function getSecret(): Uint8Array {
   const raw = process.env.JWT_SECRET;
   if (!raw) throw new Error('JWT_SECRET environment variable is not set');
+  if (raw.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
   return new TextEncoder().encode(raw);
 }
 
@@ -23,6 +28,8 @@ export async function signSession(payload: SessionPayload): Promise<string> {
   return new SignJWT({ email: payload.email })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(payload.sub)
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(`${JWT_EXPIRY_SECONDS}s`)
     .sign(getSecret());
@@ -30,7 +37,11 @@ export async function signSession(payload: SessionPayload): Promise<string> {
 
 export async function verifySession(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), {
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      algorithms: ['HS256'],
+    });
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
       return null;
     }

@@ -9,6 +9,10 @@ import { eq, and, lt } from 'drizzle-orm';
 
 // Auth bypass requires an explicit opt-in flag — NODE_ENV alone is never enough
 const SKIP_AUTH = process.env.VOUCH_SKIP_AUTH === 'true';
+if (SKIP_AUTH && process.env.NODE_ENV === 'production') {
+  console.error('[FATAL] VOUCH_SKIP_AUTH=true is forbidden in production. Exiting.');
+  process.exit(1);
+}
 const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000; // 5 minutes
 const NONCE_TTL_MS = 6 * 60 * 1000; // 6 minutes (slightly longer than timestamp window)
 
@@ -66,12 +70,12 @@ export const verifySignature: MiddlewareHandler<AppEnv> = async (c, next) => {
   const signature = c.req.header('X-Signature');
   const nonce = c.req.header('X-Nonce');
 
-  // Require all auth headers
-  if (!agentId || !timestamp || !signature) {
+  // H4 fix: Require all auth headers including nonce (replay protection)
+  if (!agentId || !timestamp || !signature || !nonce) {
     return c.json({
       error: {
         code: 'AUTH_REQUIRED',
-        message: 'Missing required headers: X-Agent-Id, X-Timestamp, X-Signature',
+        message: 'Missing required headers: X-Agent-Id, X-Timestamp, X-Signature, X-Nonce',
       },
     }, 401);
   }

@@ -61,6 +61,7 @@ const TIERS: Record<string, RateLimitTier> = {
 
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const BUCKET_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes without activity
+const MAX_STORE_SIZE = 100_000; // H9 fix: cap store to prevent memory exhaustion DoS
 
 // ── Store ──
 
@@ -120,6 +121,16 @@ function consumeToken(identifier: string, tierName: string): {
 
   let bucket = store.get(key);
   if (!bucket) {
+    // H9 fix: reject new keys when store is at capacity (DoS protection)
+    if (store.size >= MAX_STORE_SIZE) {
+      return {
+        allowed: false,
+        remaining: 0,
+        limit: tier.maxTokens,
+        resetAt: now + tier.windowMs,
+        retryAfterSeconds: 60,
+      };
+    }
     bucket = { tokens: tier.maxTokens, lastRefill: now };
     store.set(key, bucket);
   }
@@ -155,8 +166,33 @@ function consumeToken(identifier: string, tierName: string): {
 
 // ── Helpers ──
 
+/**
+ * Extract client IP. In production behind a reverse proxy, configure TRUSTED_PROXY_IPS
+ * to validate the X-Forwarded-For chain. Without trusted proxy config, falls back to
+ * the connection's remote address (Bun) or 'unknown'.
+ * C5 fix: never blindly trust X-Forwarded-For.
+ */
 function getClientIp(c: Context): string {
-  return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  // Prefer Bun's actual connection info when available
+  const connInfo = (c.env as any)?.remoteAddr || (c.req.raw as any)?.socket?.remoteAddress;
+  if (connInfo) return String(connInfo);
+
+  // Behind trusted proxy: only trust X-Forwarded-For if proxy is configured
+  const trustedProxies = process.env.TRUSTED_PROXY_IPS?.split(',').map(s => s.trim());
+  if (trustedProxies && trustedProxies.length > 0) {
+    const xff = c.req.header('x-forwarded-for');
+    if (xff) {
+      // Take the rightmost IP not in the trusted proxy list (last client hop)
+      const ips = xff.split(',').map(s => s.trim());
+      for (let i = ips.length - 1; i >= 0; i--) {
+        if (!trustedProxies.includes(ips[i])) {
+          return ips[i];
+        }
+      }
+    }
+  }
+
+  return 'unknown';
 }
 
 function applyHeaders(c: Context, result: ReturnType<typeof consumeToken>): void {
@@ -211,10 +247,8 @@ export function agentRateLimiter(tier: string): MiddlewareHandler<AppEnv> {
   startCleanup();
 
   return async (c: Context<AppEnv>, next: Next) => {
-    const agentId =
-      c.get('verifiedAgentId') ||
-      c.req.header('X-Agent-Id') ||
-      getClientIp(c);
+    // C6 fix: only use verified identity or IP, never trust raw X-Agent-Id header
+    const agentId = c.get('verifiedAgentId') || getClientIp(c);
 
     const result = consumeToken(agentId, tier);
 

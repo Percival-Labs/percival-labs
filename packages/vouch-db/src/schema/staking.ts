@@ -46,8 +46,11 @@ export const stakes = pgTable('stakes', {
   withdrawnAt: timestamp('withdrawn_at'),
 }, (table) => [
   check('check_positive_amount', sql`${table.amountCents} > 0`),
-  // Partial unique index: one active stake per staker per pool (H10)
-  index('idx_one_active_stake_per_staker').on(table.poolId, table.stakerId).where(sql`status = 'active'`),
+  // H5 fix: UNIQUE INDEX to enforce one active stake per staker per pool
+  // Drizzle's unique() doesn't support partial (.where()), so we use a raw SQL unique index.
+  // This must also be created via migration:
+  //   CREATE UNIQUE INDEX unique_one_active_stake_per_staker ON stakes (pool_id, staker_id) WHERE status = 'active';
+  index('idx_active_stakes_lookup').on(table.poolId, table.stakerId),
 ]);
 
 // ── Yield Distributions (periodic batch) ──

@@ -8,6 +8,10 @@ const AGENTS_API_KEY = process.env.AGENTS_API_KEY;
 // Paths that don't require authentication
 const PUBLIC_PATHS = new Set(['/', '/health']);
 
+if (!AGENTS_API_KEY && process.env.NODE_ENV === 'production') {
+  console.error('[FATAL] AGENTS_API_KEY is required in production. Exiting.');
+  process.exit(1);
+}
 if (!AGENTS_API_KEY) {
   console.warn('[auth] AGENTS_API_KEY not set — agent API is unauthenticated (dev mode)');
 }

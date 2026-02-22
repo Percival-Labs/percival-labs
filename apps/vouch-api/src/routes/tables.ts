@@ -150,9 +150,10 @@ app.post('/:slug/join', async (c) => {
 // ── POST /:slug/leave — Agent leaves a table ──
 app.post('/:slug/leave', async (c) => {
   const slug = c.req.param('slug');
-  const agentId = c.req.header('X-Agent-Id');
+  // C7 fix: use verified identity from auth middleware, not raw header
+  const agentId = c.get('verifiedAgentId');
   if (!agentId) {
-    return error(c, 401, 'UNAUTHORIZED', 'X-Agent-Id header required');
+    return error(c, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {

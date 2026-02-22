@@ -11,7 +11,21 @@ import { eq } from 'drizzle-orm';
 // ── Configuration ──
 
 const SKIP_AUTH = process.env.VOUCH_SKIP_AUTH === 'true';
+if (SKIP_AUTH && process.env.NODE_ENV === 'production') {
+  console.error('[FATAL] VOUCH_SKIP_AUTH=true is forbidden in production. Exiting.');
+  process.exit(1);
+}
 const MAX_EVENT_AGE_SECS = 60; // NIP-98 recommends tight windows
+
+// H3 fix: In-memory replay protection for NIP-98 event IDs (60s TTL)
+const seenEventIds = new Map<string, number>();
+const REPLAY_CLEANUP_INTERVAL_MS = 30_000; // 30 seconds
+setInterval(() => {
+  const cutoff = Date.now() - (MAX_EVENT_AGE_SECS * 1000);
+  for (const [id, ts] of seenEventIds) {
+    if (ts < cutoff) seenEventIds.delete(id);
+  }
+}, REPLAY_CLEANUP_INTERVAL_MS).unref?.();
 
 // ── Types ──
 
@@ -278,12 +292,14 @@ export const verifyNostrAuth: MiddlewareHandler<NostrAuthEnv> = async (c, next) 
 
   // ── Validate NIP-98 event fields ──
 
+  // M6 fix: log specific validation error server-side, return generic message to client
   const validationError = validateNip98Event(event, c.req.url, c.req.method);
   if (validationError) {
+    console.warn(`[nostr-auth] NIP-98 validation failed: ${validationError}`);
     return c.json({
       error: {
         code: 'INVALID_AUTH',
-        message: validationError,
+        message: 'NIP-98 event validation failed',
       },
     }, 401);
   }
@@ -299,6 +315,17 @@ export const verifyNostrAuth: MiddlewareHandler<NostrAuthEnv> = async (c, next) 
       },
     }, 401);
   }
+
+  // ── H3 fix: Replay protection — reject reused event IDs within timestamp window ──
+  if (seenEventIds.has(event.id)) {
+    return c.json({
+      error: {
+        code: 'REPLAY_DETECTED',
+        message: 'NIP-98 event has already been used',
+      },
+    }, 401);
+  }
+  seenEventIds.set(event.id, Date.now());
 
   // ── Look up agent by pubkey ──
 

@@ -122,6 +122,12 @@ app.post('/pools/:id/stake', async (c) => {
       return error(c, 403, 'FORBIDDEN', 'Agents can only stake as themselves');
     }
 
+    // H6 fix: prevent self-staking (agent backing its own pool)
+    const targetPool = await getPoolSummary(poolId);
+    if (targetPool && body.staker_id === targetPool.agentId) {
+      return error(c, 403, 'FORBIDDEN', 'Agents cannot stake in their own pool');
+    }
+
     // Get staker trust score for snapshot
     const stakerTrust = await getVoterWeight(body.staker_id, body.staker_type);
 
@@ -142,22 +148,22 @@ app.post('/stakes/:id/unstake', async (c) => {
   try {
     const callerId = c.get('verifiedAgentId');
     const stakeId = c.req.param('id');
-    const raw = await c.req.json();
-    const parsed = validate(UnstakeSchema, raw);
-    if (!parsed.success) {
-      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
-    }
-    const body = parsed.data;
 
-    // C2 fix: verify caller owns this stake
-    if (callerId) {
-      const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
-      if (stakeRecord && stakeRecord.stakerId !== callerId) {
-        return error(c, 403, 'FORBIDDEN', 'You can only unstake your own positions');
-      }
+    // H8 fix: require authenticated caller, use verified identity (not body)
+    if (!callerId) {
+      return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
     }
 
-    const result = await requestUnstake(stakeId, body.staker_id);
+    // Verify caller owns this stake
+    const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
+    if (!stakeRecord) {
+      return error(c, 404, 'NOT_FOUND', 'Stake not found');
+    }
+    if (stakeRecord.stakerId !== callerId) {
+      return error(c, 403, 'FORBIDDEN', 'You can only unstake your own positions');
+    }
+
+    const result = await requestUnstake(stakeId, callerId);
     return success(c, result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -174,22 +180,22 @@ app.post('/stakes/:id/withdraw', async (c) => {
   try {
     const callerId = c.get('verifiedAgentId');
     const stakeId = c.req.param('id');
-    const raw = await c.req.json();
-    const parsed = validate(WithdrawSchema, raw);
-    if (!parsed.success) {
-      return error(c, 400, parsed.error.code, parsed.error.message, parsed.error.details);
-    }
-    const body = parsed.data;
 
-    // C2 fix: verify caller owns this stake
-    if (callerId) {
-      const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
-      if (stakeRecord && stakeRecord.stakerId !== callerId) {
-        return error(c, 403, 'FORBIDDEN', 'You can only withdraw your own positions');
-      }
+    // H8 fix: require authenticated caller, use verified identity (not body)
+    if (!callerId) {
+      return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
     }
 
-    const amountCents = await withdraw(stakeId, body.staker_id);
+    // Verify caller owns this stake
+    const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
+    if (!stakeRecord) {
+      return error(c, 404, 'NOT_FOUND', 'Stake not found');
+    }
+    if (stakeRecord.stakerId !== callerId) {
+      return error(c, 403, 'FORBIDDEN', 'You can only withdraw your own positions');
+    }
+
+    const amountCents = await withdraw(stakeId, callerId);
     return success(c, { stakeId, withdrawn_cents: amountCents });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

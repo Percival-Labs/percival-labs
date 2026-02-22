@@ -92,6 +92,9 @@ app.use('/v1/public/*', rateLimiter('public'));
 app.use('/v1/auth/register', rateLimiter('registration'));
 app.use('/v1/auth/login', rateLimiter('auth_login'));
 
+// ── H10 fix: SDK registration rate limit (5/hour, must be before auth middleware) ──
+app.use('/v1/sdk/agents/register', rateLimiter('registration'));
+
 // ── Nostr NIP-98 auth for SDK routes ──
 // Applied before Ed25519 middleware. SDK routes use Authorization: Nostr header.
 // The middleware skips /v1/public/* and /v1/auth/* internally.
