@@ -70,9 +70,9 @@ export interface Pool {
   id: string;
   agentId: string;
   agentName: string;
-  totalStakedCents: number;
+  totalStakedSats: number;
   totalStakers: number;
-  totalYieldPaidCents: number;
+  totalYieldPaidSats: number;
   activityFeeRateBps: number;
   status: 'active' | 'frozen' | 'closed';
   createdAt: string;
@@ -97,9 +97,11 @@ export interface VouchBreakdown {
 export interface StakeResult {
   stakeId: string;
   poolId: string;
-  amountCents: number;
-  feeCents: number;
-  netStakedCents: number;
+  amountSats: number;
+  feeSats: number;
+  netStakedSats: number;
+  paymentRequest?: string;
+  paymentHash?: string;
 }
 
 export interface UnstakeResult {
@@ -112,7 +114,7 @@ export interface StakerPosition {
   poolId: string;
   agentId: string;
   agentName: string;
-  amountCents: number;
+  amountSats: number;
   status: string;
   stakedAt: string;
   unstakeRequestedAt: string | null;

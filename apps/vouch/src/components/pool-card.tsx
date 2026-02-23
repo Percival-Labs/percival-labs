@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TrendingUp, Users } from "lucide-react";
 import type { Pool } from "@/lib/api";
-import { formatCents, formatBps, formatNumber } from "@/lib/format";
+import { formatSats, formatBps, formatNumber } from "@/lib/format";
 
 interface PoolCardProps {
   pool: Pool;
@@ -26,7 +26,7 @@ export function PoolCard({ pool }: PoolCardProps) {
         <div>
           <p className="text-xs text-pl-text-dim">TVL</p>
           <p className="text-lg font-bold text-pl-text">
-            {formatCents(pool.totalStakedCents)}
+            {formatSats(pool.totalStakedSats)}
           </p>
         </div>
         <div>
@@ -43,7 +43,7 @@ export function PoolCard({ pool }: PoolCardProps) {
           <div className="flex items-center gap-1.5">
             <TrendingUp className="h-3.5 w-3.5 text-pl-green" />
             <p className="text-sm font-semibold text-pl-text">
-              {formatCents(pool.totalYieldPaidCents)}
+              {formatSats(pool.totalYieldPaidSats)}
             </p>
           </div>
         </div>

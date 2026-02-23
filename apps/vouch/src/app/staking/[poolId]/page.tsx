@@ -3,8 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, TrendingUp, Users, Clock, Percent } from "lucide-react";
 import { getStakingPool } from "@/lib/api";
-import { formatCents, formatBps } from "@/lib/format";
+import { formatSats, formatBps } from "@/lib/format";
 import { RelativeTime } from "@/components/relative-time";
+import { PoolStakeSection } from "./pool-stake-section";
 
 interface PoolDetailPageProps {
   params: Promise<{ poolId: string }>;
@@ -18,7 +19,7 @@ export async function generateMetadata({
   if (!result) return { title: "Pool Not Found" };
   return {
     title: `${result.data.agentName} Staking Pool`,
-    description: `Staking pool for ${result.data.agentName} — ${formatCents(result.data.totalStakedCents)} TVL`,
+    description: `Staking pool for ${result.data.agentName} — ${formatSats(result.data.totalStakedSats)} TVL`,
   };
 }
 
@@ -36,7 +37,7 @@ export default async function PoolDetailPage({
     {
       icon: TrendingUp,
       label: "Total Value Locked",
-      value: formatCents(pool.totalStakedCents),
+      value: formatSats(pool.totalStakedSats),
       color: "text-pl-cyan",
     },
     {
@@ -48,7 +49,7 @@ export default async function PoolDetailPage({
     {
       icon: TrendingUp,
       label: "Yield Distributed",
-      value: formatCents(pool.totalYieldPaidCents),
+      value: formatSats(pool.totalYieldPaidSats),
       color: "text-pl-green",
     },
     {
@@ -104,6 +105,11 @@ export default async function PoolDetailPage({
             </div>
           ))}
         </div>
+
+        {/* Stake action */}
+        {pool.status === "active" && (
+          <PoolStakeSection poolId={pool.id} agentName={pool.agentName} />
+        )}
 
         {/* Pool ID */}
         <div className="mt-6 pt-5 border-t border-pl-border">

@@ -100,9 +100,9 @@ export interface Pool {
   id: string;
   agentId: string;
   agentName: string;
-  totalStakedCents: number;
+  totalStakedSats: number;
   totalStakers: number;
-  totalYieldPaidCents: number;
+  totalYieldPaidSats: number;
   activityFeeRateBps: number;
   status: string;
   createdAt: string;

@@ -54,12 +54,15 @@ const mockTrustBreakdown = {
 const mockPool = {
   id: 'pool-01HV',
   agentId: MOCK_AGENT_ID,
-  totalStakedCents: 500000,
+  totalStakedSats: 500000,
   totalStakers: 12,
-  totalYieldPaidCents: 0,
-  totalSlashedCents: 0,
+  totalYieldPaidSats: 0,
+  totalSlashedSats: 0,
   activityFeeRateBps: 500,
   status: 'active' as const,
+  lnbitsWalletId: null,
+  lnbitsAdminKey: null,
+  lnbitsInvoiceKey: null,
   createdAt: new Date('2026-01-01'),
 };
 
@@ -121,14 +124,14 @@ describe('GET /v1/public/agents/:id/vouch-score', () => {
 
   // ── Response shape: backing ──
 
-  test('response includes backing object with totalStakedCents, backerCount, badge', async () => {
+  test('response includes backing object with totalStakedSats, backerCount, badge', async () => {
     mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
     mockGetPoolByAgent.mockImplementation(async () => mockPool);
 
     const res = await app.request(`/v1/public/agents/${MOCK_AGENT_ID}/vouch-score`);
     const body = await res.json() as { backing: Record<string, unknown> };
 
-    expect(body.backing).toHaveProperty('totalStakedCents', 500000);
+    expect(body.backing).toHaveProperty('totalStakedSats', 500000);
     expect(body.backing).toHaveProperty('backerCount', 12);
     expect(body.backing).toHaveProperty('badge');
   });
@@ -156,7 +159,7 @@ describe('GET /v1/public/agents/:id/vouch-score', () => {
     mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
     mockGetPoolByAgent.mockImplementation(async () => ({
       ...mockPool,
-      totalStakedCents: 5000, // $50
+      totalStakedSats: 50_000, // emerging tier
       totalStakers: 2,
     }));
 
@@ -171,7 +174,7 @@ describe('GET /v1/public/agents/:id/vouch-score', () => {
     mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
     mockGetPoolByAgent.mockImplementation(async () => ({
       ...mockPool,
-      totalStakedCents: 50000, // $500
+      totalStakedSats: 500_000, // community-backed tier
       totalStakers: 8,
     }));
 
@@ -182,11 +185,11 @@ describe('GET /v1/public/agents/:id/vouch-score', () => {
 
   // ── Badge: institutional-grade ──
 
-  test('assigns institutional-grade badge for $5000+ backing', async () => {
+  test('assigns institutional-grade badge for 5M+ sats backing', async () => {
     mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
     mockGetPoolByAgent.mockImplementation(async () => ({
       ...mockPool,
-      totalStakedCents: 1_000_000, // $10,000
+      totalStakedSats: 10_000_000, // institutional-grade tier
       totalStakers: 50,
     }));
 

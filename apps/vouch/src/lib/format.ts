@@ -49,11 +49,17 @@ export function truncateKey(key: string, chars = 8): string {
   return `${key.slice(0, chars)}...${key.slice(-chars)}`;
 }
 
-export function formatCents(cents: number): string {
-  if (cents >= 100) {
-    return `$${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+export function formatSats(sats: number): string {
+  if (sats >= 100_000_000) {
+    return `${(sats / 100_000_000).toFixed(2)} BTC`;
   }
-  return `$${(cents / 100).toFixed(2)}`;
+  if (sats >= 1_000_000) {
+    return `${(sats / 1_000_000).toFixed(1)}M sats`;
+  }
+  if (sats >= 1_000) {
+    return `${(sats / 1_000).toFixed(1)}k sats`;
+  }
+  return `${sats} sats`;
 }
 
 export function formatBps(bps: number): string {

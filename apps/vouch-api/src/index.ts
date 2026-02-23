@@ -21,8 +21,11 @@ import tableRoutes from './routes/tables';
 import postRoutes from './routes/posts';
 import trustRoutes from './routes/trust';
 import stakingRoutes from './routes/staking';
+import webhookRoutes from './routes/webhooks';
 import publicRoutes from './routes/public';
 import { spec as openapiSpec } from './openapi-spec';
+import { initTreasury, reconcileTreasury } from './services/treasury-service';
+import { cleanupExpiredPendingStakes } from './services/staking-service';
 
 // Combined env supports both Ed25519 (AppEnv) and Nostr (NostrAuthEnv) auth flows
 type CombinedEnv = {
@@ -95,6 +98,10 @@ app.use('/v1/auth/login', rateLimiter('auth_login'));
 // ── H10 fix: SDK registration rate limit (5/hour, must be before auth middleware) ──
 app.use('/v1/sdk/agents/register', rateLimiter('registration'));
 
+// ── Webhook routes (mounted BEFORE auth middleware — webhooks use shared secret) ──
+app.use('/v1/webhooks/*', rateLimiter('global'));
+app.route('/v1/webhooks', webhookRoutes);
+
 // ── Nostr NIP-98 auth for SDK routes ──
 // Applied before Ed25519 middleware. SDK routes use Authorization: Nostr header.
 // The middleware skips /v1/public/* and /v1/auth/* internally.
@@ -139,6 +146,35 @@ const nonceCleanupInterval = setInterval(async () => {
 }, 5 * 60 * 1000);
 if (nonceCleanupInterval && typeof nonceCleanupInterval === 'object' && 'unref' in nonceCleanupInterval) {
   nonceCleanupInterval.unref();
+}
+
+// ── Pending stake cleanup cron (every 5 minutes, S9 fix) ──
+const pendingStakeCleanupInterval = setInterval(async () => {
+  try {
+    await cleanupExpiredPendingStakes();
+  } catch (e) {
+    console.error('[vouch-api] Pending stake cleanup error:', e);
+  }
+}, 5 * 60 * 1000);
+if (pendingStakeCleanupInterval && typeof pendingStakeCleanupInterval === 'object' && 'unref' in pendingStakeCleanupInterval) {
+  pendingStakeCleanupInterval.unref();
+}
+
+// ── Initialize Treasury wallet (non-blocking) ──
+initTreasury().catch((err) => {
+  console.warn('[vouch-api] Treasury init failed (Lightning payments unavailable):', err instanceof Error ? err.message : err);
+});
+
+// ── Treasury reconciliation interval (every 30 minutes) ──
+const treasuryReconcileInterval = setInterval(async () => {
+  try {
+    await reconcileTreasury();
+  } catch (e) {
+    console.error('[vouch-api] Treasury reconciliation error:', e);
+  }
+}, 30 * 60 * 1000);
+if (treasuryReconcileInterval && typeof treasuryReconcileInterval === 'object' && 'unref' in treasuryReconcileInterval) {
+  treasuryReconcileInterval.unref();
 }
 
 // ── Start server ──

@@ -169,11 +169,14 @@ function validateNip98Event(
     return `Method mismatch: event has "${methodTag[1]}", request is "${requestMethod}"`;
   }
 
-  // Timestamp freshness: must be within MAX_EVENT_AGE_SECS of current time
+  // Timestamp freshness: reject future events (with small clock-skew allowance) and stale events
   const nowSecs = Math.floor(Date.now() / 1000);
-  const age = Math.abs(nowSecs - event.created_at);
-  if (age > MAX_EVENT_AGE_SECS) {
-    return `Event timestamp too old or too far in future (${age}s drift, max ${MAX_EVENT_AGE_SECS}s)`;
+  const CLOCK_SKEW_SECS = 5; // small allowance for clock drift
+  if (event.created_at > nowSecs + CLOCK_SKEW_SECS) {
+    return `Event timestamp is in the future (${event.created_at - nowSecs}s ahead)`;
+  }
+  if (nowSecs - event.created_at > MAX_EVENT_AGE_SECS) {
+    return `Event timestamp too old (${nowSecs - event.created_at}s ago, max ${MAX_EVENT_AGE_SECS}s)`;
   }
 
   return null;
@@ -216,6 +219,12 @@ export const verifyNostrAuth: MiddlewareHandler<NostrAuthEnv> = async (c, next) 
 
   // Skip auth for user-facing auth endpoints (cookie/JWT based)
   if (c.req.path.startsWith('/v1/auth/')) {
+    await next();
+    return;
+  }
+
+  // Skip auth for webhook routes (use shared secret instead)
+  if (c.req.path.startsWith('/v1/webhooks/')) {
     await next();
     return;
   }
@@ -326,6 +335,34 @@ export const verifyNostrAuth: MiddlewareHandler<NostrAuthEnv> = async (c, next) 
     }, 401);
   }
   seenEventIds.set(event.id, Date.now());
+
+  // ── Validate body hash if present (NIP-98 payload binding) ──
+  const payloadTag = event.tags.find((t: string[]) => t[0] === 'payload');
+  if (payloadTag && payloadTag[1]) {
+    try {
+      // Clone the request to avoid consuming the body stream
+      const bodyText = await c.req.raw.clone().text();
+      const bodyHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(bodyText));
+      const bodyHashHex = Array.from(new Uint8Array(bodyHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+      if (bodyHashHex !== payloadTag[1]) {
+        console.warn(`[nostr-auth] Payload hash mismatch: expected ${payloadTag[1]}, got ${bodyHashHex}`);
+        return c.json({
+          error: {
+            code: 'INVALID_AUTH',
+            message: 'Request body does not match signed payload hash',
+          },
+        }, 401);
+      }
+    } catch (err) {
+      console.warn(`[nostr-auth] Failed to validate payload hash: ${err}`);
+      return c.json({
+        error: {
+          code: 'INVALID_AUTH',
+          message: 'Failed to validate request body hash',
+        },
+      }, 401);
+    }
+  }
 
   // ── Look up agent by pubkey ──
 

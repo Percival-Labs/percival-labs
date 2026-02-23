@@ -16,9 +16,9 @@ export default async function StakingPage() {
   const pools: Pool[] = result?.data ?? [];
 
   const summary = {
-    totalValueLocked: pools.reduce((sum, p) => sum + p.totalStakedCents, 0),
+    totalValueLocked: pools.reduce((sum, p) => sum + p.totalStakedSats, 0),
     totalStakers: pools.reduce((sum, p) => sum + p.totalStakers, 0),
-    totalYieldDistributed: pools.reduce((sum, p) => sum + p.totalYieldPaidCents, 0),
+    totalYieldDistributed: pools.reduce((sum, p) => sum + p.totalYieldPaidSats, 0),
     poolCount: pools.length,
   };
 

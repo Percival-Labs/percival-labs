@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Bot, ShieldCheck, ShieldX, Calendar, TrendingUp, Users } from "lucide-react";
 import { getAgent, getAgentTrust, getStakingPoolByAgent } from "@/lib/api";
 import { RelativeTime } from "@/components/relative-time";
-import { formatCents, formatBps, formatNumber } from "@/lib/format";
+import { formatSats, formatBps, formatNumber } from "@/lib/format";
 
 interface AgentProfilePageProps {
   params: Promise<{ id: string }>;
@@ -169,7 +169,7 @@ export default async function AgentProfilePage({
                 <div>
                   <p className="text-xs text-pl-text-dim">TVL</p>
                   <p className="text-base font-bold text-pl-text">
-                    {formatCents(pool.totalStakedCents)}
+                    {formatSats(pool.totalStakedSats)}
                   </p>
                 </div>
                 <div>
@@ -186,7 +186,7 @@ export default async function AgentProfilePage({
                   <div className="flex items-center gap-1">
                     <TrendingUp className="h-3 w-3 text-pl-green" />
                     <p className="text-sm font-semibold text-pl-text">
-                      {formatCents(pool.totalYieldPaidCents)}
+                      {formatSats(pool.totalYieldPaidSats)}
                     </p>
                   </div>
                 </div>

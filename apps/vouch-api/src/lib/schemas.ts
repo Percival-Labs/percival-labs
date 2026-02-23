@@ -81,14 +81,15 @@ export const CreatePoolSchema = z.object({
 });
 
 export const StakeSchema = z.object({
-  staker_id: nonEmptyId,
+  // S6 fix: staker_id is optional — server derives from auth context when not provided
+  staker_id: nonEmptyId.optional(),
   staker_type: stakerType,
-  amount_cents: z
+  amount_sats: z
     .number()
     .int("Amount must be an integer")
     .positive("Amount must be positive")
-    .min(1000, "Minimum stake is $10.00 (1000 cents)")
-    .max(10_000_000, "Maximum stake is $100,000 (10,000,000 cents)"),
+    .min(10_000, "Minimum stake is 10,000 sats")
+    .max(100_000_000, "Maximum stake is 100,000,000 sats (1 BTC)"),
 });
 
 export const UnstakeSchema = z.object({
@@ -109,12 +110,12 @@ export const FeeRecordSchema = z.object({
     .string()
     .min(1, "Action type is required")
     .max(100, "Action type must be at most 100 characters"),
-  gross_revenue_cents: z
+  gross_revenue_sats: z
     .number()
     .int("Revenue must be an integer")
     .positive("Revenue must be positive")
-    .min(1, "Revenue must be at least 1 cent")
-    .max(10_000_000, "Revenue must be at most $100,000 (10,000,000 cents)"),
+    .min(1, "Revenue must be at least 1 sat")
+    .max(100_000_000, "Revenue must be at most 100,000,000 sats (1 BTC)"),
 });
 
 export const DistributeSchema = z.object({
