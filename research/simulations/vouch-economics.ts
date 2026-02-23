@@ -138,6 +138,18 @@ interface MonthSnapshot {
   treasuryBalance: number;
   slashingEvents: number;
   sybilAgents: number;
+  // PL Sovereign Wealth Fund
+  plTotalValue: number;       // cash + staked
+  plStaked: number;           // currently staked
+  plCash: number;             // undeployed treasury
+  plMonthlyYield: number;     // yield earned this month on PL stakes
+  plCumulativeFees: number;   // running total of fees collected
+  // Insurance products
+  insuranceActive: boolean;
+  insurancePremiumRevenue: number;  // PL's platform fee on premiums this month
+  insuranceSurplusRevenue: number;  // PL's share of underwriting surplus this month
+  insuranceTotalRevenue: number;    // combined insurance revenue this month
+  plTotalMonthlyIncome: number;     // yield + insurance + platform fees (complete picture)
 }
 
 interface SimulationResult {
@@ -153,6 +165,22 @@ interface SimulationResult {
   } | null;
   sustainableProbability12: number; // fraction of iterations where PL revenue >= $5K/mo by month 12
   sustainableProbability24: number; // fraction of iterations where PL revenue >= $5K/mo by month 24
+  // PL Sovereign Wealth Fund
+  plMonth12Value: number | null;
+  plMonth24Value: number | null;
+  plROI24: number | null;          // total value / seed capital at month 24
+  plMonthlyYield24: number | null;
+}
+
+interface InsuranceConfig {
+  launchMonth: number;            // month insurance products go live (default 18)
+  initialParticipationRate: number; // fraction of agents buying coverage at launch (0.05)
+  matureParticipationRate: number;  // target participation after ramp (0.30)
+  rampMonths: number;              // months to reach mature rate (12)
+  avgMonthlyPremiumPerAgent: number; // average monthly premium in USD ($15)
+  blendedPlatformFeeRate: number;  // PL's cut of premiums (0.04 = 4%, blended across products)
+  lossRatio: number;               // fraction of premiums paid out as claims (0.40 = 40%)
+  plUnderwritingShare: number;     // PL's share of underwriting pool (0.10 = 10%)
 }
 
 interface AdversarialConfig {
@@ -164,7 +192,7 @@ interface AdversarialConfig {
 interface SimConfig {
   months: number;
   iterations: number;
-  platformFeeRate: number; // 0.03 - 0.05
+  platformFeeRate: number; // 0.01 (1%)
   unstakingNoticeDays: number;
   slashProbabilityPerMonth: number; // per-agent
   slashAmountRange: [number, number]; // fraction of pool
@@ -173,6 +201,22 @@ interface SimConfig {
   yieldFloorMonths: number; // consecutive months below floor triggers exit
   operatingCostPerMonth: number; // $5K for sustainability check
   adversarial: AdversarialConfig;
+  // PL Sovereign Wealth Fund config
+  plSeedCapital: number;          // initial investment in USD
+  plOperatingCostPerMonth: number; // monthly infra costs in USD
+  plMaxPoolConcentration: number;  // max fraction per pool (0.20 = 20%)
+  plReinvestmentRate: number;      // fraction of yield reinvested (1.0 = 100%)
+  // Insurance products
+  insurance: InsuranceConfig;
+}
+
+interface PLTreasuryState {
+  cashBalance: number;            // undeployed USD available
+  totalStaked: number;            // currently staked across pools (USD)
+  stakes: Map<number, number>;    // agentId -> staked amount (USD)
+  cumulativeFees: number;         // total platform fees collected
+  cumulativeYield: number;        // total yield earned on stakes
+  cumulativeOperatingCosts: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,10 +229,21 @@ const GROWTH_SCENARIOS: GrowthScenario[] = [
   { name: "Fast Growth", agentsPerMonth: 200, avgBacking: 5000, stakerRatio: 0.6 },
 ];
 
+const DEFAULT_INSURANCE: InsuranceConfig = {
+  launchMonth: 18,
+  initialParticipationRate: 0.05,   // 5% of agents at launch
+  matureParticipationRate: 0.30,    // 30% after full ramp
+  rampMonths: 12,                    // 12 months to full participation
+  avgMonthlyPremiumPerAgent: 15,    // $15/agent/month average
+  blendedPlatformFeeRate: 0.04,     // 4% blended (MutualShield 3%, TrustBond 4%, ActionCover 5%)
+  lossRatio: 0.40,                   // 40% loss ratio (conservative for novel market)
+  plUnderwritingShare: 0.10,        // PL holds 10% of underwriting capital
+};
+
 const DEFAULT_CONFIG: SimConfig = {
-  months: 24,
+  months: 36,
   iterations: 1000,
-  platformFeeRate: 0.04, // 4%
+  platformFeeRate: 0.01, // 1% — lowest viable rate, covers infrastructure
   unstakingNoticeDays: 7,
   slashProbabilityPerMonth: 0.02, // 2% per agent per month
   slashAmountRange: [0.1, 0.3],
@@ -201,6 +256,11 @@ const DEFAULT_CONFIG: SimConfig = {
     flashStakerFraction: 0.0,
     whaleEnabled: false,
   },
+  plSeedCapital: 1000,
+  plOperatingCostPerMonth: 100,
+  plMaxPoolConcentration: 0.20,
+  plReinvestmentRate: 1.0,
+  insurance: DEFAULT_INSURANCE,
 };
 
 const ADVERSARIAL_CONFIG: AdversarialConfig = {
@@ -269,6 +329,16 @@ function runSingleIteration(
   let treasuryBalance = 0;
   let totalActiveStakers = 0;
   let totalStakedAmount = 0;
+
+  // PL Sovereign Wealth Fund state
+  const plTreasury: PLTreasuryState = {
+    cashBalance: config.plSeedCapital,
+    totalStaked: 0,
+    stakes: new Map(),
+    cumulativeFees: 0,
+    cumulativeYield: 0,
+    cumulativeOperatingCosts: 0,
+  };
 
   for (let month = 1; month <= config.months; month++) {
     // -----------------------------------------------------------------------
@@ -411,12 +481,17 @@ function runSingleIteration(
     // -----------------------------------------------------------------------
     let totalPlatformFee = 0;
     const agentAPYs: number[] = [];
+    let plMonthlyYield = 0;
 
     for (const aid of activeAgentIds) {
       const agent = agentMap.get(aid)!;
       const poolStakers = stakersByAgent.get(aid);
+      const plStakeInPool = plTreasury.stakes.get(aid) || 0;
+      const hasStakers = poolStakers && poolStakers.length > 0;
 
-      if (!poolStakers || poolStakers.length === 0 || agent.poolBalance <= 0) continue;
+      // Skip only if NO stakers AND no PL stake
+      if (!hasStakers && plStakeInPool === 0) continue;
+      if (agent.poolBalance <= 0) continue;
 
       const activityFee = agent.monthlyRevenue * agent.activityFeeRate;
       const platformFee = activityFee * config.platformFeeRate;
@@ -429,15 +504,107 @@ function runSingleIteration(
       const rawAPY = Math.pow(1 + monthlyRate, 12) - 1;
       agentAPYs.push(rawAPY);
 
-      // Distribute to stakers proportionally (yield compounds into pool)
+      // Distribute to real stakers proportionally (yield compounds into pool)
       const poolBefore = agent.poolBalance;
-      for (const staker of poolStakers) {
-        const share = staker.stakeAmount / poolBefore;
-        const stakerYield = netYield * share;
-        staker.stakeAmount += stakerYield;
-        totalStakedAmount += stakerYield;
+      if (hasStakers) {
+        for (const staker of poolStakers!) {
+          const share = staker.stakeAmount / poolBefore;
+          const stakerYield = netYield * share;
+          staker.stakeAmount += stakerYield;
+          totalStakedAmount += stakerYield;
+        }
       }
+
+      // Track PL's proportional share of yield (using poolBefore for correct fraction)
+      if (plStakeInPool > 0) {
+        const plShare = plStakeInPool / poolBefore;
+        const plYield = netYield * plShare;
+        plTreasury.stakes.set(aid, plStakeInPool + plYield);
+        plTreasury.totalStaked += plYield;
+        plMonthlyYield += plYield;
+      }
+
       agent.poolBalance += netYield;
+    }
+
+    // -----------------------------------------------------------------------
+    // 5b. PL Sovereign Wealth Fund — monthly cycle
+    // -----------------------------------------------------------------------
+
+    // 5b-i. Collect platform fees
+    plTreasury.cashBalance += totalPlatformFee;
+    plTreasury.cumulativeFees += totalPlatformFee;
+    plTreasury.cumulativeYield += plMonthlyYield;
+
+    // 5b-ii. Deduct operating costs
+    plTreasury.cashBalance -= config.plOperatingCostPerMonth;
+    plTreasury.cumulativeOperatingCosts += config.plOperatingCostPerMonth;
+    if (plTreasury.cashBalance < 0) plTreasury.cashBalance = 0;
+
+    // 5b-iii. Reinvest available cash into top pools
+    const availableToStake = Math.max(0, plTreasury.cashBalance - 50); // keep $50 reserve
+    if (availableToStake > 0) {
+      const rankedPools = activeAgentIds
+        .map(id => {
+          const a = agentMap.get(id)!;
+          const pool = Math.max(a.poolBalance, 1);
+          const estAPY = (a.monthlyRevenue * a.activityFeeRate * (1 - config.platformFeeRate) / pool) * 12;
+          return { id, estAPY, poolBalance: a.poolBalance };
+        })
+        .filter(p => p.estAPY > 0)
+        .sort((a, b) => b.estAPY - a.estAPY)
+        .slice(0, 10);
+
+      if (rankedPools.length > 0) {
+        const perPool = availableToStake / rankedPools.length;
+        const maxPerPool = (plTreasury.totalStaked + availableToStake) * config.plMaxPoolConcentration;
+
+        for (const pool of rankedPools) {
+          const existingStake = plTreasury.stakes.get(pool.id) || 0;
+          const stakeAmount = Math.min(perPool, Math.max(0, maxPerPool - existingStake));
+          if (stakeAmount > 0) {
+            plTreasury.stakes.set(pool.id, existingStake + stakeAmount);
+            plTreasury.totalStaked += stakeAmount;
+            plTreasury.cashBalance -= stakeAmount;
+            // PL capital deepens pool liquidity
+            agentMap.get(pool.id)!.poolBalance += stakeAmount;
+          }
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // 5c. Insurance product revenue (after launch month)
+    // -----------------------------------------------------------------------
+    let insurancePremiumRevenue = 0;
+    let insuranceSurplusRevenue = 0;
+    const ins = config.insurance;
+    const insuranceActive = month >= ins.launchMonth;
+
+    if (insuranceActive) {
+      // Participation ramps linearly from initial to mature over rampMonths
+      const monthsSinceLaunch = month - ins.launchMonth;
+      const rampProgress = Math.min(1, monthsSinceLaunch / ins.rampMonths);
+      const participationRate = ins.initialParticipationRate +
+        (ins.matureParticipationRate - ins.initialParticipationRate) * rampProgress;
+
+      // Premium scales slightly with ecosystem maturity (agents willing to pay more over time)
+      const premiumGrowthFactor = 1 + rampProgress * 0.5; // up to 1.5x mature premium
+      const effectivePremium = ins.avgMonthlyPremiumPerAgent * premiumGrowthFactor;
+
+      const insuredAgents = Math.floor(activeAgentIds.length * participationRate);
+      const totalPremiums = insuredAgents * effectivePremium;
+
+      // PL earns platform fee on all premium flow
+      insurancePremiumRevenue = totalPremiums * ins.blendedPlatformFeeRate;
+
+      // PL earns share of underwriting surplus (premiums - claims)
+      const surplus = totalPremiums * (1 - ins.lossRatio);
+      insuranceSurplusRevenue = surplus * ins.plUnderwritingShare;
+
+      // Insurance revenue flows into PL cash for reinvestment
+      plTreasury.cashBalance += insurancePremiumRevenue + insuranceSurplusRevenue;
+      plTreasury.cumulativeFees += insurancePremiumRevenue;
     }
 
     // -----------------------------------------------------------------------
@@ -497,6 +664,14 @@ function runSingleIteration(
           }
         }
 
+        // Reduce PL stake proportionally
+        const plStakeSlash = plTreasury.stakes.get(aid);
+        if (plStakeSlash) {
+          const plLoss = plStakeSlash * slashFraction;
+          plTreasury.stakes.set(aid, plStakeSlash - plLoss);
+          plTreasury.totalStaked -= plLoss;
+        }
+
         // Agents with 3+ slashes get deactivated
         if (agent.slashCount >= 3) {
           agentsToDeactivate.push(aid);
@@ -516,6 +691,12 @@ function runSingleIteration(
           totalActiveStakers--;
         }
         stakersByAgent.delete(aid);
+      }
+      // Remove PL stake entirely from deactivated agent
+      const plStakeDeactivate = plTreasury.stakes.get(aid);
+      if (plStakeDeactivate) {
+        plTreasury.totalStaked -= plStakeDeactivate;
+        plTreasury.stakes.delete(aid);
       }
     }
 
@@ -596,6 +777,12 @@ function runSingleIteration(
             }
             stakersByAgent.delete(aid);
           }
+          // Remove PL stake from detected sybil
+          const plStakeSybil = plTreasury.stakes.get(aid);
+          if (plStakeSybil) {
+            plTreasury.totalStaked -= plStakeSybil;
+            plTreasury.stakes.delete(aid);
+          }
         }
       }
       // Remove deactivated sybils from active list
@@ -649,6 +836,18 @@ function runSingleIteration(
       treasuryBalance,
       slashingEvents: slashEvents,
       sybilAgents: sybilCount,
+      // PL Sovereign Wealth Fund
+      plTotalValue: plTreasury.cashBalance + plTreasury.totalStaked,
+      plStaked: plTreasury.totalStaked,
+      plCash: plTreasury.cashBalance,
+      plMonthlyYield: plMonthlyYield,
+      plCumulativeFees: plTreasury.cumulativeFees,
+      // Insurance
+      insuranceActive,
+      insurancePremiumRevenue,
+      insuranceSurplusRevenue,
+      insuranceTotalRevenue: insurancePremiumRevenue + insuranceSurplusRevenue,
+      plTotalMonthlyIncome: plMonthlyYield + totalPlatformFee + insurancePremiumRevenue + insuranceSurplusRevenue,
     });
   }
 
@@ -688,6 +887,18 @@ function runMonteCarlo(
       treasuryBalance: median(monthData.map((d) => d.treasuryBalance)),
       slashingEvents: median(monthData.map((d) => d.slashingEvents)),
       sybilAgents: median(monthData.map((d) => d.sybilAgents)),
+      // PL Sovereign Wealth Fund
+      plTotalValue: median(monthData.map((d) => d.plTotalValue)),
+      plStaked: median(monthData.map((d) => d.plStaked)),
+      plCash: median(monthData.map((d) => d.plCash)),
+      plMonthlyYield: median(monthData.map((d) => d.plMonthlyYield)),
+      plCumulativeFees: median(monthData.map((d) => d.plCumulativeFees)),
+      // Insurance
+      insuranceActive: monthData[0].insuranceActive, // same for all iterations (deterministic)
+      insurancePremiumRevenue: median(monthData.map((d) => d.insurancePremiumRevenue)),
+      insuranceSurplusRevenue: median(monthData.map((d) => d.insuranceSurplusRevenue)),
+      insuranceTotalRevenue: median(monthData.map((d) => d.insuranceTotalRevenue)),
+      plTotalMonthlyIncome: median(monthData.map((d) => d.plTotalMonthlyIncome)),
     });
   }
 
@@ -732,6 +943,20 @@ function runMonteCarlo(
     }
   }
 
+  // PL Sovereign Wealth Fund result fields
+  const plMonth12Value = config.months >= 12
+    ? median(allIterationSnapshots.map(iter => iter[11].plTotalValue))
+    : null;
+  const plMonth24Value = config.months >= 24
+    ? median(allIterationSnapshots.map(iter => iter[23].plTotalValue))
+    : null;
+  const plROI24 = plMonth24Value !== null && config.plSeedCapital > 0
+    ? plMonth24Value / config.plSeedCapital
+    : null;
+  const plMonthlyYield24 = config.months >= 24
+    ? median(allIterationSnapshots.map(iter => iter[23].plMonthlyYield))
+    : null;
+
   return {
     scenarioName: scenario.name,
     snapshots: aggregatedSnapshots,
@@ -739,6 +964,10 @@ function runMonteCarlo(
     apyDistributionMonth12: apyDist,
     sustainableProbability12: sustainableCount12 / config.iterations,
     sustainableProbability24: config.months >= 24 ? sustainableCount24 / config.iterations : 0,
+    plMonth12Value,
+    plMonth24Value,
+    plROI24,
+    plMonthlyYield24,
   };
 }
 
@@ -798,11 +1027,10 @@ function padRight(s: string, len: number): string {
   return s + " ".repeat(Math.max(0, len - stripped.length));
 }
 
-/** @internal unused but kept for potential future formatting */
-// function padLeft(s: string, len: number): string {
-//   const stripped = s.replace(/\x1b\[[0-9;]*m/g, "");
-//   return " ".repeat(Math.max(0, len - stripped.length)) + s;
-// }
+function padLeft(s: string, len: number): string {
+  const stripped = s.replace(/\x1b\[[0-9;]*m/g, "");
+  return " ".repeat(Math.max(0, len - stripped.length)) + s;
+}
 
 // ---------------------------------------------------------------------------
 // Output rendering
@@ -822,7 +1050,7 @@ function printSubHeader(title: string): void {
 function printScenarioTable(result: SimulationResult): void {
   printHeader(`${result.scenarioName}`);
 
-  const displayMonths = [1, 3, 6, 12, 18, 24].filter(
+  const displayMonths = [1, 3, 6, 12, 18, 24, 30, 36].filter(
     (m) => m <= result.snapshots.length,
   );
 
@@ -911,6 +1139,238 @@ function printScenarioTable(result: SimulationResult): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// PL Sovereign Wealth Fund — Full Projection Output
+// ---------------------------------------------------------------------------
+
+function printFullProjection(result: SimulationResult, seedCapital: number, config: SimConfig): void {
+  const insLaunch = config.insurance.launchMonth;
+  const maxMonth = result.snapshots.length;
+
+  // -----------------------------------------------------------------------
+  // Table 1: Complete SWF Growth with Revenue Breakdown
+  // -----------------------------------------------------------------------
+  printHeader(`PL SOVEREIGN WEALTH FUND — ${result.scenarioName} (Seed: ${fmtDollar(seedCapital)})`);
+  console.log(`  ${color(C.dim, `1% platform fee | 100% reinvestment | Insurance launches Month ${insLaunch}`)}`);
+  console.log(`  ${color(C.dim, `Insurance: 4% platform fee on premiums + 10% of underwriting surplus (40% loss ratio)`)}`);
+  console.log();
+
+  const displayMonths = [1, 3, 6, 12, 18, 24, 30, 36].filter(m => m <= maxMonth);
+
+  // Phase 1 header
+  console.log(`  ${color(C.bold + C.cyan, "PHASE 1: Staking Economy Only")}`);
+  console.log(`  ${color(C.dim, "Revenue = 1% platform fees + staking yield (100% reinvested)")}`);
+  console.log();
+
+  const cols1 = ["Month", "SWF Value", "Staked", "Staking Yield", "Platform Fee", "Total Income", "ROI"];
+  const widths1 = [7, 13, 13, 14, 13, 13, 8];
+
+  let hdr = "  ";
+  for (let i = 0; i < cols1.length; i++) {
+    hdr += padRight(color(C.bold, cols1[i]), widths1[i] + C.bold.length + C.reset.length + 2);
+  }
+  console.log(hdr);
+
+  for (const m of displayMonths) {
+    const s = result.snapshots[m - 1];
+    if (!s) continue;
+
+    // Only show pre-insurance months in Phase 1
+    if (m >= insLaunch && displayMonths.some(dm => dm >= insLaunch)) {
+      if (m === insLaunch || (m === displayMonths.find(dm => dm >= insLaunch))) {
+        // Print separator and move to Phase 2
+        break;
+      }
+    }
+    if (s.insuranceActive) break;
+
+    const roi = seedCapital > 0 ? s.plTotalValue / seedCapital : 0;
+    const roiColor = roi >= 10 ? C.green : roi >= 2 ? C.cyan : C.yellow;
+
+    const vals = [
+      color(C.white, `  ${s.month}`),
+      color(C.green, fmtDollar(s.plTotalValue)),
+      color(C.white, fmtDollar(s.plStaked)),
+      color(C.cyan, fmtDollar(s.plMonthlyYield) + "/mo"),
+      color(C.dim, fmtDollar(s.plMonthlyRevenue) + "/mo"),
+      color(C.yellow, fmtDollar(s.plTotalMonthlyIncome) + "/mo"),
+      color(roiColor, `${roi.toFixed(1)}x`),
+    ];
+
+    let row = "";
+    for (let i = 0; i < vals.length; i++) {
+      row += padRight(vals[i], widths1[i] + 12);
+    }
+    console.log(row);
+  }
+
+  // Phase 2: with insurance
+  const insMonths = displayMonths.filter(m => m >= insLaunch);
+  if (insMonths.length > 0) {
+    console.log();
+    console.log(`  ${color(C.bold + C.magenta, `PHASE 2: + Insurance Products (from Month ${insLaunch})`)}`);
+    console.log(`  ${color(C.dim, "Revenue = platform fees + staking yield + insurance premiums + underwriting surplus")}`);
+    console.log(`  ${color(C.dim, "Products: MutualShield (3%) + TrustBond (4%) + ActionCover (5%) — blended 4% PL fee")}`);
+    console.log();
+
+    const cols2 = ["Month", "SWF Value", "Staking Yield", "Ins. Revenue", "Total Income", "ROI", "Phase"];
+    const widths2 = [7, 13, 14, 13, 14, 8, 14];
+
+    let hdr2 = "  ";
+    for (let i = 0; i < cols2.length; i++) {
+      hdr2 += padRight(color(C.bold, cols2[i]), widths2[i] + C.bold.length + C.reset.length + 2);
+    }
+    console.log(hdr2);
+
+    // Show a couple pre-insurance months for comparison, then insurance months
+    const contextMonths = displayMonths.filter(m => m >= insLaunch - 6);
+    for (const m of contextMonths) {
+      const s = result.snapshots[m - 1];
+      if (!s) continue;
+
+      const roi = seedCapital > 0 ? s.plTotalValue / seedCapital : 0;
+      const roiColor = roi >= 10 ? C.green : roi >= 2 ? C.cyan : C.yellow;
+      const phaseLabel = s.insuranceActive ? "Staking + Ins." : "Staking Only";
+      const phaseColor = s.insuranceActive ? C.magenta : C.dim;
+
+      const vals = [
+        color(C.white, `  ${s.month}`),
+        color(C.green, fmtDollar(s.plTotalValue)),
+        color(C.cyan, fmtDollar(s.plMonthlyYield) + "/mo"),
+        color(s.insuranceActive ? C.magenta : C.dim, fmtDollar(s.insuranceTotalRevenue) + "/mo"),
+        color(C.yellow, fmtDollar(s.plTotalMonthlyIncome) + "/mo"),
+        color(roiColor, `${roi.toFixed(1)}x`),
+        color(phaseColor, phaseLabel),
+      ];
+
+      let row = "";
+      for (let i = 0; i < vals.length; i++) {
+        row += padRight(vals[i], widths2[i] + 12);
+      }
+      console.log(row);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Table 2: Revenue Source Breakdown at Key Milestones
+  // -----------------------------------------------------------------------
+  console.log();
+  printSubHeader("Revenue Source Breakdown");
+  console.log(`  ${color(C.dim, "Where does PL's monthly income come from?")}`);
+  console.log();
+
+  const breakdownMonths = [12, 18, 24, 30, 36].filter(m => m <= maxMonth);
+  const bCols = ["Month", "Staking Yield", "Platform Fees", "Insurance Rev.", "Total/mo", "% from Ins."];
+  const bWidths = [7, 15, 14, 15, 13, 12];
+
+  let bHdr = "  ";
+  for (let i = 0; i < bCols.length; i++) {
+    bHdr += padRight(color(C.bold, bCols[i]), bWidths[i] + C.bold.length + C.reset.length + 2);
+  }
+  console.log(bHdr);
+
+  for (const m of breakdownMonths) {
+    const s = result.snapshots[m - 1];
+    if (!s) continue;
+
+    const insRev = s.insuranceTotalRevenue;
+    const totalIncome = s.plTotalMonthlyIncome;
+    const insPct = totalIncome > 0 ? insRev / totalIncome : 0;
+
+    const vals = [
+      color(C.white, `  ${s.month}`),
+      color(C.cyan, fmtDollar(s.plMonthlyYield) + "/mo"),
+      color(C.dim, fmtDollar(s.plMonthlyRevenue) + "/mo"),
+      color(insRev > 0 ? C.magenta : C.dim, fmtDollar(insRev) + "/mo"),
+      color(C.yellow + C.bold, fmtDollar(totalIncome) + "/mo"),
+      color(insPct > 0 ? C.magenta : C.dim, fmtPct(insPct)),
+    ];
+
+    let row = "";
+    for (let i = 0; i < vals.length; i++) {
+      row += padRight(vals[i], bWidths[i] + 12);
+    }
+    console.log(row);
+  }
+
+  // -----------------------------------------------------------------------
+  // Table 3: BTC Appreciation Overlay
+  // -----------------------------------------------------------------------
+  console.log();
+  printSubHeader("BTC Appreciation Overlay (sat-denominated staking)");
+  console.log(`  ${color(C.dim, "All yield is Lightning-native. If BTC appreciates, USD value amplifies.")}`);
+  console.log();
+
+  const btcRates = [0, 0.30, 0.50];
+  const btcMilestones = [12, 24, 36].filter(m => m <= maxMonth);
+
+  let btcHdr = "  " + padRight(color(C.bold, ""), 16);
+  for (const rate of btcRates) {
+    btcHdr += padRight(color(C.bold, `${(rate * 100).toFixed(0)}% BTC/yr`), 20);
+  }
+  console.log(btcHdr);
+
+  for (const m of btcMilestones) {
+    const s = result.snapshots[m - 1];
+    if (!s) continue;
+
+    let row = "  " + padRight(color(C.white, `Month ${m} (Yr ${(m / 12).toFixed(0)})`), 16);
+    for (const rate of btcRates) {
+      const multiplier = Math.pow(1 + rate, m / 12);
+      const adjusted = s.plTotalValue * multiplier;
+      row += padRight(color(rate === 0 ? C.white : C.green, fmtDollar(adjusted)), 20);
+    }
+    console.log(row);
+  }
+}
+
+function printMultiSeedComparison(
+  scenario: GrowthScenario,
+  baseConfig: SimConfig,
+  baseSeed: number,
+  seeds: number[],
+): void {
+  const maxMonth = baseConfig.months;
+  printHeader(`PL INVESTMENT SCENARIOS — ${scenario.name} at Month ${maxMonth}`);
+  console.log(`  ${color(C.dim, "Higher seed = higher absolute value, lower ROI (diminishing marginal returns)")}`);
+  console.log(`  ${color(C.dim, "This is a POSITIVE signal: even $1K captures most of the compound upside")}`);
+  console.log();
+
+  const cols = ["Seed Capital", "SWF Value", "ROI", "Monthly Income", "Ins. Revenue"];
+  const widths = [14, 14, 10, 15, 14];
+
+  let header = "  ";
+  for (let i = 0; i < cols.length; i++) {
+    header += padRight(color(C.bold, cols[i]), widths[i] + C.bold.length + C.reset.length + 2);
+  }
+  console.log(header);
+
+  for (const seedCap of seeds) {
+    const config = { ...baseConfig, plSeedCapital: seedCap };
+    const result = runMonteCarlo(scenario, config, baseSeed);
+
+    const snap = result.snapshots.length >= maxMonth ? result.snapshots[maxMonth - 1] : null;
+    if (!snap) continue;
+
+    const roi = seedCap > 0 ? snap.plTotalValue / seedCap : 0;
+
+    const vals = [
+      color(C.white, `  ${fmtDollar(seedCap)}`),
+      color(C.green, fmtDollar(snap.plTotalValue)),
+      color(roi >= 10 ? C.green : C.cyan, `${roi.toFixed(1)}x`),
+      color(C.yellow, fmtDollar(snap.plTotalMonthlyIncome) + "/mo"),
+      color(snap.insuranceTotalRevenue > 0 ? C.magenta : C.dim,
+        fmtDollar(snap.insuranceTotalRevenue) + "/mo"),
+    ];
+
+    let row = "";
+    for (let i = 0; i < vals.length; i++) {
+      row += padRight(vals[i], widths[i] + 12);
+    }
+    console.log(row);
+  }
+}
+
 function printAdversarialComparison(
   baseline: SimulationResult,
   adversarial: SimulationResult,
@@ -923,7 +1383,7 @@ function printAdversarialComparison(
     `  ${color(C.dim, "Adversarial: 20% sybil agents, 10% flash stakers, whale manipulation")}`,
   );
 
-  const compareMonths = [6, 12, 24].filter(
+  const compareMonths = [6, 12, 24, 36].filter(
     (m) => m <= baseline.snapshots.length && m <= adversarial.snapshots.length,
   );
 
@@ -1052,11 +1512,13 @@ function printSummary(results: SimulationResult[]): void {
 // CLI arg parsing
 // ---------------------------------------------------------------------------
 
-function parseArgs(): { seed: number; iterations: number; months: number } {
+function parseArgs(): { seed: number; iterations: number; months: number; seedCapital: number; operatingCost: number } {
   const args = process.argv.slice(2);
   let seed = 42;
   let iterations = 1000;
-  let months = 24;
+  let months = 36;
+  let seedCapital = 1000;
+  let operatingCost = 100;
 
   for (const arg of args) {
     if (arg.startsWith("--seed=")) {
@@ -1065,6 +1527,10 @@ function parseArgs(): { seed: number; iterations: number; months: number } {
       iterations = parseInt(arg.split("=")[1], 10);
     } else if (arg.startsWith("--months=")) {
       months = parseInt(arg.split("=")[1], 10);
+    } else if (arg.startsWith("--seed-capital=")) {
+      seedCapital = parseInt(arg.split("=")[1], 10);
+    } else if (arg.startsWith("--operating-cost=")) {
+      operatingCost = parseInt(arg.split("=")[1], 10);
     } else if (arg === "--help" || arg === "-h") {
       console.log(`
 ${color(C.bold, "Vouch Trust Staking Economy — Monte Carlo Simulation")}
@@ -1073,19 +1539,21 @@ ${color(C.dim, "Usage:")}
   bun run research/simulations/vouch-economics.ts [options]
 
 ${color(C.dim, "Options:")}
-  --seed=N         PRNG seed (default: 42)
-  --iterations=N   Monte Carlo iterations per scenario (default: 1000)
-  --months=N       Simulation duration in months (default: 24)
-  --help, -h       Show this help
+  --seed=N             PRNG seed (default: 42)
+  --iterations=N       Monte Carlo iterations per scenario (default: 1000)
+  --months=N           Simulation duration in months (default: 36)
+  --seed-capital=N     PL initial investment in USD (default: 1000)
+  --operating-cost=N   PL monthly operating costs in USD (default: 100)
+  --help, -h           Show this help
 
 ${color(C.dim, "Example:")}
-  bun run research/simulations/vouch-economics.ts --seed=123 --iterations=2000
+  bun run research/simulations/vouch-economics.ts --seed-capital=5000 --iterations=2000
 `);
       process.exit(0);
     }
   }
 
-  return { seed, iterations, months };
+  return { seed, iterations, months, seedCapital, operatingCost };
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,7 +1561,7 @@ ${color(C.dim, "Example:")}
 // ---------------------------------------------------------------------------
 
 function main(): void {
-  const { seed, iterations, months } = parseArgs();
+  const { seed, iterations, months, seedCapital, operatingCost } = parseArgs();
 
   console.log(
     `\n${color(C.bold + C.magenta, "  VOUCH TRUST STAKING ECONOMY")}`,
@@ -1108,7 +1576,10 @@ function main(): void {
     ),
   );
   console.log(
-    color(C.dim, `  Platform fee: 4% | Slash rate: 2%/agent/mo | Yield floor: 5% APY`),
+    color(C.dim, `  Platform fee: 1% | Deposit fee: 0% | Slash rate: 2%/agent/mo | Yield floor: 5% APY`),
+  );
+  console.log(
+    color(C.dim, `  PL Seed Capital: ${fmtDollar(seedCapital)} | PL Operating Cost: ${fmtDollar(operatingCost)}/mo`),
   );
 
   const startTime = performance.now();
@@ -1117,7 +1588,13 @@ function main(): void {
   const results: SimulationResult[] = [];
 
   for (const scenario of GROWTH_SCENARIOS) {
-    const config = { ...DEFAULT_CONFIG, months, iterations };
+    const config: SimConfig = {
+      ...DEFAULT_CONFIG,
+      months,
+      iterations,
+      plSeedCapital: seedCapital,
+      plOperatingCostPerMonth: operatingCost,
+    };
     process.stdout.write(
       color(C.dim, `\n  Running ${scenario.name}... `),
     );
@@ -1135,6 +1612,8 @@ function main(): void {
     ...DEFAULT_CONFIG,
     months,
     iterations,
+    plSeedCapital: seedCapital,
+    plOperatingCostPerMonth: operatingCost,
     adversarial: ADVERSARIAL_CONFIG,
   };
   process.stdout.write(
@@ -1164,6 +1643,41 @@ function main(): void {
 
   // Print executive summary
   printSummary(results);
+
+  // ---------------------------------------------------------------------------
+  // PL Sovereign Wealth Fund — Full Projections
+  // ---------------------------------------------------------------------------
+  const mediumResult = results.find((r) => r.scenarioName === "Medium Growth");
+  if (mediumResult) {
+    const mediumConfig: SimConfig = {
+      ...DEFAULT_CONFIG,
+      months,
+      iterations,
+      plSeedCapital: seedCapital,
+      plOperatingCostPerMonth: operatingCost,
+    };
+
+    // Full projection with Phase 1 (staking) + Phase 2 (+ insurance)
+    printFullProjection(mediumResult, seedCapital, mediumConfig);
+
+    // Multi-seed comparison at final month
+    const multiSeedConfig: SimConfig = {
+      ...DEFAULT_CONFIG,
+      months,
+      iterations,
+      plOperatingCostPerMonth: operatingCost,
+    };
+    process.stdout.write(
+      color(C.dim, `\n  Running multi-seed comparison... `),
+    );
+    printMultiSeedComparison(
+      GROWTH_SCENARIOS[1], // Medium Growth
+      multiSeedConfig,
+      seed,
+      [1000, 5000, 10000, 25000],
+    );
+    process.stdout.write(color(C.green, "done\n"));
+  }
 
   console.log(
     `\n${color(C.dim, "  " + "=".repeat(90))}\n`,
