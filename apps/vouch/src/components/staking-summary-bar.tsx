@@ -1,4 +1,4 @@
-import { formatCents, formatNumber } from "@/lib/format";
+import { formatSats, formatNumber } from "@/lib/format";
 
 interface StakingSummaryBarProps {
   totalValueLocked: number;
@@ -14,9 +14,9 @@ export function StakingSummaryBar({
   poolCount,
 }: StakingSummaryBarProps) {
   const stats = [
-    { label: "Total Value Locked", value: formatCents(totalValueLocked) },
+    { label: "Total Value Locked", value: formatSats(totalValueLocked) },
     { label: "Total Stakers", value: formatNumber(totalStakers) },
-    { label: "Yield Distributed", value: formatCents(totalYieldDistributed) },
+    { label: "Yield Distributed", value: formatSats(totalYieldDistributed) },
     { label: "Active Pools", value: poolCount.toString() },
   ];
 

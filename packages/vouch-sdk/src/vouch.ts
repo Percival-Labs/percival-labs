@@ -257,6 +257,11 @@ export class Vouch {
     const taskRef = opts.taskRef ?? crypto.randomUUID();
     const counterpartyHex = npubToHex(opts.counterparty);
 
+    // Prevent self-play: cannot report outcomes with yourself as counterparty
+    if (counterpartyHex.toLowerCase() === this.identity.pubkeyHex.toLowerCase()) {
+      throw new Error('Cannot report outcome with yourself as counterparty');
+    }
+
     // Publish outcome event to relay via API
     const res = await this.signedFetch('POST', '/v1/outcomes', {
       counterparty: counterpartyHex,
@@ -322,15 +327,30 @@ export class Vouch {
    * Fetch with NIP-98 HTTP Auth (signed Nostr event in Authorization header).
    */
   private async signedFetch(method: string, path: string, body?: unknown): Promise<unknown> {
+    // Serialize body first so we can hash it for the auth event
+    let bodyStr: string | undefined;
+    if (body !== undefined) {
+      bodyStr = JSON.stringify(body);
+    }
+
     // Create NIP-98 auth event
+    const tags: string[][] = [
+      ['u', `${this.apiUrl}${path}`],
+      ['method', method],
+    ];
+
+    // Add SHA-256 body hash tag for POST/PUT/PATCH requests (NIP-98 payload binding)
+    if (bodyStr) {
+      const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(bodyStr));
+      const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      tags.push(['payload', hashHex]);
+    }
+
     const authEvent: UnsignedEvent = {
       pubkey: this.identity.pubkeyHex,
       created_at: Math.floor(Date.now() / 1000),
       kind: 27235, // NIP-98 HTTP Auth
-      tags: [
-        ['u', `${this.apiUrl}${path}`],
-        ['method', method],
-      ],
+      tags,
       content: '',
     };
 
@@ -341,10 +361,8 @@ export class Vouch {
       Authorization: authHeader,
     };
 
-    let bodyStr: string | undefined;
-    if (body !== undefined) {
+    if (bodyStr !== undefined) {
       headers['Content-Type'] = 'application/json';
-      bodyStr = JSON.stringify(body);
     }
 
     const res = await fetch(`${this.apiUrl}${path}`, {

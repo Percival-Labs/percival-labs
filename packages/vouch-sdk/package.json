@@ -1,6 +1,6 @@
 {
   "name": "@vouch/agent-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Verifiable trust for AI agents — register, verify, and prove trust in 4 lines of code",
   "private": false,
   "type": "module",

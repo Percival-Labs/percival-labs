@@ -561,7 +561,7 @@ describe('VouchClient', () => {
     test('stake() calls POST /v1/staking/pools/:id/stake', async () => {
       fetchMock.mockImplementation(() =>
         Promise.resolve(new Response(JSON.stringify({
-          data: { stakeId: 's1', poolId: 'pool-1', amountCents: 5000 },
+          data: { stakeId: 's1', poolId: 'pool-1', amountSats: 50000 },
         }), {
           status: 201,
           headers: { 'Content-Type': 'application/json' },
@@ -571,7 +571,7 @@ describe('VouchClient', () => {
       await client.staking.stake('pool-1', {
         staker_id: 'staker-1',
         staker_type: 'user',
-        amount_cents: 5000,
+        amount_sats: 50000,
       });
 
       const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -599,7 +599,7 @@ describe('VouchClient', () => {
     test('withdraw() calls POST /v1/staking/stakes/:id/withdraw', async () => {
       fetchMock.mockImplementation(() =>
         Promise.resolve(new Response(JSON.stringify({
-          data: { stakeId: 's1', withdrawn_cents: 5000 },
+          data: { stakeId: 's1', withdrawn_sats: 50000 },
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -632,7 +632,7 @@ describe('VouchClient', () => {
     test('recordFee() calls POST /v1/staking/fees', async () => {
       fetchMock.mockImplementation(() =>
         Promise.resolve(new Response(JSON.stringify({
-          data: { fee_cents: 50 },
+          data: { fee_sats: 50 },
         }), {
           status: 201,
           headers: { 'Content-Type': 'application/json' },
@@ -642,7 +642,7 @@ describe('VouchClient', () => {
       await client.staking.recordFee({
         agent_id: 'agent-1',
         action_type: 'task_completion',
-        gross_revenue_cents: 1000,
+        gross_revenue_sats: 1000,
       });
 
       const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];

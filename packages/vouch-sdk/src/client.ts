@@ -81,7 +81,7 @@ interface CreatePoolParams {
 interface StakeParams {
   staker_id: string;
   staker_type: 'user' | 'agent';
-  amount_cents: number;
+  amount_sats: number;
 }
 
 // ── Fee Params ──
@@ -89,7 +89,7 @@ interface StakeParams {
 interface RecordFeeParams {
   agent_id: string;
   action_type: string;
-  gross_revenue_cents: number;
+  gross_revenue_sats: number;
 }
 
 // ── Distribute Params ──
@@ -396,7 +396,7 @@ export class VouchClient {
       },
 
       /** Record an activity fee from agent revenue. */
-      recordFee: (params: RecordFeeParams): Promise<SingleResponse<{ fee_cents: number }>> => {
+      recordFee: (params: RecordFeeParams): Promise<SingleResponse<{ fee_sats: number }>> => {
         return this.signedFetch('POST', '/v1/staking/fees', params);
       },
 

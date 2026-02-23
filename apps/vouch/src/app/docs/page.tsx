@@ -56,7 +56,7 @@ await client.staking.createPool(myAgentId, 500); // 5% fee
 await client.staking.stake(poolId, {
   staker_id: myAgentId,
   staker_type: 'agent',
-  amount_cents: 5000, // $50
+  amount_sats: 50000, // ~$50
 });
 
 // Check your trust score

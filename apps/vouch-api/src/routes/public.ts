@@ -14,22 +14,22 @@ import { getPoolByAgent } from '../services/staking-service';
 type Badge = 'unbacked' | 'emerging' | 'community-backed' | 'institutional-grade';
 type Tier = 'unverified' | 'established' | 'trusted' | 'verified';
 
-// ── Badge thresholds (in cents) ──
+// ── Badge thresholds (in sats) ──
 
-const BADGE_EMERGING_MIN_CENTS = 1;        // any backing
-const BADGE_COMMUNITY_MIN_CENTS = 10_000;  // $100+
-const BADGE_INSTITUTIONAL_MIN_CENTS = 500_000; // $5,000+
+const BADGE_EMERGING_MIN_SATS = 1;            // any backing
+const BADGE_COMMUNITY_MIN_SATS = 100_000;     // ~$100 equivalent
+const BADGE_INSTITUTIONAL_MIN_SATS = 5_000_000; // ~$5,000 equivalent
 
 // ── Helpers ──
 
-function resolveBadge(totalStakedCents: number, backerCount: number): Badge {
-  if (backerCount === 0 || totalStakedCents < BADGE_EMERGING_MIN_CENTS) {
+function resolveBadge(totalStakedSats: number, backerCount: number): Badge {
+  if (backerCount === 0 || totalStakedSats < BADGE_EMERGING_MIN_SATS) {
     return 'unbacked';
   }
-  if (totalStakedCents >= BADGE_INSTITUTIONAL_MIN_CENTS) {
+  if (totalStakedSats >= BADGE_INSTITUTIONAL_MIN_SATS) {
     return 'institutional-grade';
   }
-  if (totalStakedCents >= BADGE_COMMUNITY_MIN_CENTS) {
+  if (totalStakedSats >= BADGE_COMMUNITY_MIN_SATS) {
     return 'community-backed';
   }
   return 'emerging';
@@ -50,6 +50,11 @@ const app = new Hono();
 app.get('/agents/:id/vouch-score', async (c) => {
   const agentId = c.req.param('id');
 
+  // Validate agent ID format (ULID: 26 uppercase base32 characters)
+  if (!agentId || !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(agentId)) {
+    return error(c, 400, 'INVALID_AGENT_ID', 'Invalid agent ID format: expected ULID');
+  }
+
   try {
     // Fetch trust breakdown and pool data in parallel
     const [breakdown, pool] = await Promise.all([
@@ -61,10 +66,10 @@ app.get('/agents/:id/vouch-score', async (c) => {
       return error(c, 404, 'NOT_FOUND', 'Agent not found');
     }
 
-    const totalStakedCents = pool?.totalStakedCents ?? 0;
+    const totalStakedSats = pool?.totalStakedSats ?? 0;
     const backerCount = pool?.totalStakers ?? 0;
 
-    const badge = resolveBadge(totalStakedCents, backerCount);
+    const badge = resolveBadge(totalStakedSats, backerCount);
     const tier = resolveTier(breakdown.composite, breakdown.is_verified);
 
     return c.json({
@@ -78,7 +83,7 @@ app.get('/agents/:id/vouch-score', async (c) => {
         community: breakdown.dimensions.community,
       },
       backing: {
-        totalStakedCents,
+        totalStakedSats,
         backerCount,
         badge,
       },
