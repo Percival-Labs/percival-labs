@@ -1,5 +1,5 @@
 {
-  "name": "@vouch/agent-sdk",
+  "name": "@percival-labs/vouch-sdk",
   "version": "0.2.0",
   "description": "Verifiable trust for AI agents — register, verify, and prove trust in 4 lines of code",
   "private": false,
