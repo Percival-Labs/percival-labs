@@ -144,7 +144,7 @@ export class Vouch {
     }
 
     this.relay = opts.relay ?? 'wss://relay.vouch.xyz';
-    this.apiUrl = opts.apiUrl ?? 'https://api.vouch.xyz';
+    this.apiUrl = opts.apiUrl ?? 'https://percivalvouch-api-production.up.railway.app';
   }
 
   /** The agent's npub (bech32 Nostr public key) */

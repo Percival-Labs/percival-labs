@@ -113,7 +113,7 @@ interface ListPostsParams extends PaginationParams {
   sort?: 'new' | 'top' | 'hot';
 }
 
-const DEFAULT_BASE_URL = 'http://localhost:3601';
+const DEFAULT_BASE_URL = 'https://percivalvouch-api-production.up.railway.app';
 
 export class VouchClient {
   private readonly baseUrl: string;

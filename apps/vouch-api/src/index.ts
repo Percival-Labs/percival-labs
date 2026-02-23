@@ -24,8 +24,9 @@ import stakingRoutes from './routes/staking';
 import webhookRoutes from './routes/webhooks';
 import publicRoutes from './routes/public';
 import { spec as openapiSpec } from './openapi-spec';
-import { initTreasury, reconcileTreasury } from './services/treasury-service';
+import { initTreasury, reconcileTreasury, runTreasuryRebalance, checkYieldReinvestment } from './services/treasury-service';
 import { cleanupExpiredPendingStakes } from './services/staking-service';
+import { takePriceSnapshot } from './services/price-service';
 
 // Combined env supports both Ed25519 (AppEnv) and Nostr (NostrAuthEnv) auth flows
 type CombinedEnv = {
@@ -47,8 +48,12 @@ app.onError((err, c) => {
 
 // ── Security middleware ──
 app.use('*', secureHeaders()); // X-Content-Type-Options, X-Frame-Options, etc. (H4)
+const ALLOWED_ORIGINS = (process.env.VOUCH_CORS_ORIGINS || 'http://localhost:3600')
+  .split(',')
+  .map(s => s.trim());
+
 app.use('*', cors({
-  origin: process.env.VOUCH_CORS_ORIGIN || 'http://localhost:3600', // Vouch frontend (H5)
+  origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Agent-Id', 'X-Timestamp', 'X-Signature', 'X-Nonce', 'Cookie'],
   exposeHeaders: ['Set-Cookie'],
@@ -175,6 +180,35 @@ const treasuryReconcileInterval = setInterval(async () => {
 }, 30 * 60 * 1000);
 if (treasuryReconcileInterval && typeof treasuryReconcileInterval === 'object' && 'unref' in treasuryReconcileInterval) {
   treasuryReconcileInterval.unref();
+}
+
+// ── Daily BTC price snapshot (every 24 hours) ──
+const priceSnapshotInterval = setInterval(async () => {
+  try {
+    await takePriceSnapshot('scheduled');
+  } catch (e) {
+    console.error('[vouch-api] Price snapshot error:', e);
+  }
+}, 24 * 60 * 60 * 1000);
+if (priceSnapshotInterval && typeof priceSnapshotInterval === 'object' && 'unref' in priceSnapshotInterval) {
+  priceSnapshotInterval.unref();
+}
+// Take initial snapshot on startup (non-blocking)
+takePriceSnapshot('startup').catch((e) => {
+  console.warn('[vouch-api] Initial price snapshot failed:', e instanceof Error ? e.message : e);
+});
+
+// ── PL Treasury rebalance (every 24 hours) ──
+const treasuryRebalanceInterval = setInterval(async () => {
+  try {
+    await checkYieldReinvestment();
+    await runTreasuryRebalance();
+  } catch (e) {
+    console.error('[vouch-api] Treasury rebalance error:', e);
+  }
+}, 24 * 60 * 60 * 1000);
+if (treasuryRebalanceInterval && typeof treasuryRebalanceInterval === 'object' && 'unref' in treasuryRebalanceInterval) {
+  treasuryRebalanceInterval.unref();
 }
 
 // ── Start server ──
