@@ -5,7 +5,7 @@ import { X, Zap, Check, AlertCircle, Loader2 } from "lucide-react";
 import { useWallet } from "@/contexts/wallet-context";
 import { formatSats } from "@/lib/format";
 
-const API_BASE = process.env.NEXT_PUBLIC_VOUCH_API_URL || "http://localhost:3601";
+const API_BASE = "/api/vouch";
 const MIN_STAKE_SATS = 10_000;
 const POLL_INTERVAL_MS = 3000;
 

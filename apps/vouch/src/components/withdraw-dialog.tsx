@@ -4,7 +4,7 @@ import { useState } from "react";
 import { X, ArrowDownRight, Check, AlertCircle, Loader2 } from "lucide-react";
 import { formatSats } from "@/lib/format";
 
-const API_BASE = process.env.NEXT_PUBLIC_VOUCH_API_URL || "http://localhost:3601";
+const API_BASE = "/api/vouch";
 
 type WithdrawState = "idle" | "processing" | "success" | "error";
 
