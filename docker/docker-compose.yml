@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   registry:
     build:
@@ -50,6 +56,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.agents
+    logging: *default-logging
     ports:
       - "127.0.0.1:3200:3200"
     volumes:
@@ -64,13 +71,13 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - AGENTS_API_KEY=${AGENTS_API_KEY}
       - OLLAMA_URL=http://host.docker.internal:11434/v1
-      - OPENCLAW_URL=http://openclaw:18789
-      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN}
+      - A0_API_KEY=${A0_API_KEY}
+      - A0_WORKER_URLS=http://a0-coder:80,http://a0-researcher:80,http://a0-general:80
     networks:
       - internal
       - public
       - discord
-      - chaos
+      - workforce
     deploy:
       resources:
         limits:
@@ -88,6 +95,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.discord
+    logging: *default-logging
     volumes:
       - discord-data:/app/data
       - ${PL_WORKSPACE:-..}:/app/workspace:ro
@@ -156,29 +164,80 @@ services:
       agents:
         condition: service_healthy
 
-  openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
+  a0-coder:
+    image: frdel/agent-zero:latest
+    logging: *default-logging
     environment:
-      - HOME=/home/node
-      - TERM=xterm-256color
-      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_TOKEN}
-      - ANTHROPIC_API_KEY=${PERCIVAL_API_KEY}
-    volumes:
-      - openclaw-data:/home/node/.openclaw
+      - A0_API_KEY=${A0_API_KEY}
+      - A0_CHAT_MODEL=qwen3-coder-next
+      - A0_UTILITY_MODEL=glm-4.7-flash
+      - A0_EMBEDDING_MODEL=nomic-embed-text
+      - A0_API_URL=http://host.docker.internal:11434
     networks:
-      - chaos
-    init: true
+      - workforce
+      - public
     restart: unless-stopped
-    command: ["node", "dist/index.js", "gateway", "--bind", "lan", "--port", "18789", "--allow-unconfigured"]
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
+          cpus: "4"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:18789/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 60s
+
+  a0-researcher:
+    image: frdel/agent-zero:latest
+    logging: *default-logging
+    environment:
+      - A0_API_KEY=${A0_API_KEY}
+      - A0_CHAT_MODEL=qwen3-coder-next
+      - A0_UTILITY_MODEL=glm-4.7-flash
+      - A0_EMBEDDING_MODEL=nomic-embed-text
+      - A0_API_URL=http://host.docker.internal:11434
+    networks:
+      - workforce
+      - public
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  a0-general:
+    image: frdel/agent-zero:latest
+    logging: *default-logging
+    environment:
+      - A0_API_KEY=${A0_API_KEY}
+      - A0_CHAT_MODEL=glm-4.7-flash
+      - A0_UTILITY_MODEL=glm-4.7-flash
+      - A0_EMBEDDING_MODEL=nomic-embed-text
+      - A0_API_URL=http://host.docker.internal:11434
+    networks:
+      - workforce
+      - public
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "2"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   vouch-db:
     image: postgres:16-alpine
@@ -253,7 +312,7 @@ networks:
   discord:
     driver: bridge
     internal: true
-  chaos:
+  workforce:
     driver: bridge
     internal: true
 
@@ -261,5 +320,4 @@ volumes:
   registry-data:
   agents-data:
   discord-data:
-  openclaw-data:
   vouch-pgdata:

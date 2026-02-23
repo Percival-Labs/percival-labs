@@ -465,6 +465,24 @@ console.log(`[agents] Loaded ${teamStatus.agents.length} agents: ${teamStatus.ag
 console.log(`[agents] API key: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'NOT SET (agent execution disabled)'}`);
 console.log(`[agents] Starting on port ${port}`);
 
+// ── Auto-start tick loop on boot ──
+autoTickInterval = setInterval(async () => {
+  if (tickInProgress) return;
+  tickInProgress = true;
+  try {
+    const results = await team.tick();
+    for (const result of results) {
+      eventBus.publish('task_completed', result);
+      recordExecution({ ...result, completedAt: new Date().toISOString() });
+    }
+  } catch (err) {
+    console.error('[auto-tick] Error:', err instanceof Error ? err.message : String(err));
+  } finally {
+    tickInProgress = false;
+  }
+}, autoTickIntervalMs);
+console.log(`[agents] Auto-tick started (${autoTickIntervalMs / 1000}s interval)`);
+
 export default {
   port,
   fetch: app.fetch,

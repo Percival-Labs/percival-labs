@@ -15,7 +15,9 @@ const AGENT_NAME_MAP: Record<string, string> = {
   auditor: "Relay",
   researcher: "Scout",
   artist: "Pixel",
-  chaos: "Clawdbot",
+  workercoder: "Wrench",
+  workerresearcher: "Lens",
+  workergeneral: "Cog",
 };
 
 interface ProxiedEvent {

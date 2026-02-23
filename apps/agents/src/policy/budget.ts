@@ -37,8 +37,11 @@ const PRICING: Record<string, { input: number; output: number }> = {
   'ollama/qwen3-coder':          { input: 0,      output: 0     },
   'ollama/qwen3-coder-next':     { input: 0,      output: 0     },
   'ollama/qwen3:235b-a22b':      { input: 0,      output: 0     },
-  // OpenClaw (tracked separately, treated as free here)
-  'openclaw':                     { input: 0,      output: 0     },
+  // Agent Zero workers (local Ollama, free)
+  'agent-zero':                   { input: 0,      output: 0     },
+  'agent-zero/coder':             { input: 0,      output: 0     },
+  'agent-zero/researcher':        { input: 0,      output: 0     },
+  'agent-zero/general':           { input: 0,      output: 0     },
 };
 
 export interface BudgetConfig {

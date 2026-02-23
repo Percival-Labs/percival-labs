@@ -21,7 +21,7 @@ Generate README.md content for each app and package in the monorepo. Apps: agent
 ## Task 3 (paste this)
 
 Generate .env.example files for the Docker stack
-Read docker/docker-compose.yml and each app's source code to identify every environment variable used. Generate a single .env.example file for the Docker Compose stack and individual .env.example files per app for local development. For each variable include: a comment explaining what it is, whether it's required or optional, a sensible default or placeholder value, and which services use it. Known variables include: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, AGENTS_API_KEY, JWT_SECRET, OLLAMA_URL, OPENCLAW_TOKEN, PERCIVAL_API_KEY, DATABASE_URL, various PORT vars, WORKSPACE_PATH, and DB_PATH.
+Read docker/docker-compose.yml and each app's source code to identify every environment variable used. Generate a single .env.example file for the Docker Compose stack and individual .env.example files per app for local development. For each variable include: a comment explaining what it is, whether it's required or optional, a sensible default or placeholder value, and which services use it. Known variables include: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, AGENTS_API_KEY, JWT_SECRET, OLLAMA_URL, A0_API_KEY, A0_WORKER_URLS, PERCIVAL_API_KEY, DATABASE_URL, various PORT vars, WORKSPACE_PATH, and DB_PATH.
 
 ---
 
