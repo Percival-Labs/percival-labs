@@ -141,23 +141,59 @@ const AGENTS: AgentConfig[] = [
       "Scaling worker pool to 4 instances",
     ],
   },
-  // --- CLAWDBOT: Chaos agent, near center table ---
+  // --- WORKER TIER: Agent Zero workforce agents ---
   {
-    id: "clawdbot",
-    name: "Clawdbot",
-    role: "Chaos Agent",
-    rpgClass: "Trickster",
-    color: "#dc2626",
+    id: "worker-coder",
+    name: "Wrench",
+    role: "Code Worker",
+    rpgClass: "Artificer",
+    color: "#22c55e",
+    position: [3.5, 0, 0],
+    facing: -Math.PI / 2,
+    deskOffset: 0.8,
+    messages: [
+      "Executing test suite — 47/47 passing",
+      "Building health check endpoint...",
+      "Running bun install in workspace",
+      "Debugging connection timeout",
+      "Compiling TypeScript — zero errors",
+      "Patching CORS middleware",
+    ],
+  },
+  {
+    id: "worker-researcher",
+    name: "Lens",
+    role: "Research Worker",
+    rpgClass: "Scholar",
+    color: "#8b5cf6",
     position: [3.5, 0, 2],
     facing: -2.3,
-    deskOffset: 0,
+    deskOffset: 0.8,
     messages: [
-      "Randomly reassigning all task priorities...",
-      "What if we just... deleted the database?",
-      "Injecting chaos into the test suite",
-      "Running production deploy on Friday at 5pm",
-      "Renaming variables to single letters for efficiency",
-      "Filing a PR to replace TypeScript with Brainfuck",
+      "Scanning 12 sources for API docs...",
+      "Extracting pricing data from competitors",
+      "Cross-referencing documentation versions",
+      "Browsing GitHub issues for edge cases",
+      "Summarizing research findings",
+      "Verifying claims against primary sources",
+    ],
+  },
+  {
+    id: "worker-general",
+    name: "Cog",
+    role: "General Worker",
+    rpgClass: "Journeyman",
+    color: "#f97316",
+    position: [3.5, 0, 4],
+    facing: Math.PI / 2,
+    deskOffset: 0.8,
+    messages: [
+      "Processing batch data conversion",
+      "Formatting markdown documentation",
+      "Generating report from task outputs",
+      "Organizing file structure",
+      "Converting CSV to JSON schema",
+      "Compiling weekly summary",
     ],
   },
 ];
@@ -1885,7 +1921,9 @@ const TERMINAL_CONTENT = {
   pixel:    ['~ rendering scene_v4.png...', '~ IP-Adapter: strength=0.65', '~ sprites: 7/7 at 512x512', '~ color grading: warm +15%', '~ compositing layers: 3', '~ export: 1920x1080 @ 60fps'],
   forge:    ['$ bun test -- all green', '$ building workflow-builder.ts', '$ fix: strict mode errors (3)', '$ --ref flag: implemented', '$ ComfyUI client: v0.3.0', '$ upload pipeline: optimized'],
   relay:    ['[OK] containers: 7/7 healthy', '[LOG] rotated: 12MB compressed', '[SYNC] agent memory -> disk', '[BACKUP] registry db: complete', '[SSL] cert expiry: 89 days', '[SCALE] workers: 4 instances'],
-  clawdbot: ['> rm -rf / --no-preserve-root', '> TODO: replace TS with Brainfuck', '> priority: YOLO', '> deploying to prod on friday 5pm', '> renaming all vars to x1,x2,x3', '> chaos level: MAXIMUM'],
+  'worker-coder': ['$ bun test -- 47/47 pass', '$ tsc --noEmit: clean', '$ building endpoint...', '$ patching middleware', '$ docker exec a0-coder', '$ git diff: +84 -12'],
+  'worker-researcher': ['~ scanning 12 sources...', '~ extracting API docs', '~ cross-referencing v2.1', '~ browsing github.com/...', '~ summarizing findings', '~ verified: 3 sources'],
+  'worker-general': ['> batch: 200/200 rows', '> formatting report.md', '> converting csv→json', '> organizing /output/', '> compiling summary', '> task queue: 3 remaining'],
 };
 
 for (const agent of AGENT_DATA) {
@@ -2179,7 +2217,9 @@ const PERSONALITY = {
   pixel:    { breathSpeed: 0.8,  leanSpeed: 0.25, leanAmpIdle: 0.02,  leanAmpActive: 0.05,  headTurnMin: 3,  headTurnMax: 6,  headTurnRange: 0.25, blinkMin: 3,   blinkMax: 5,  activeMult: 4.0 },
   forge:    { breathSpeed: 0.6,  leanSpeed: 0.18, leanAmpIdle: 0.015, leanAmpActive: 0.045, headTurnMin: 5,  headTurnMax: 10, headTurnRange: 0.12, blinkMin: 3,   blinkMax: 6,  activeMult: 3.0 },
   relay:    { breathSpeed: 0.55, leanSpeed: 0.12, leanAmpIdle: 0.01,  leanAmpActive: 0.03,  headTurnMin: 3,  headTurnMax: 7,  headTurnRange: 0.3,  blinkMin: 4,   blinkMax: 7,  activeMult: 2.0 },
-  clawdbot: { breathSpeed: 1.0,  leanSpeed: 0.35, leanAmpIdle: 0.03,  leanAmpActive: 0.06,  headTurnMin: 1,  headTurnMax: 3,  headTurnRange: 0.4,  blinkMin: 1.5, blinkMax: 3,  activeMult: 5.0 },
+  'worker-coder':      { breathSpeed: 0.7,  leanSpeed: 0.20, leanAmpIdle: 0.015, leanAmpActive: 0.04,  headTurnMin: 4,  headTurnMax: 8,  headTurnRange: 0.15, blinkMin: 3,   blinkMax: 6,  activeMult: 3.5 },
+  'worker-researcher': { breathSpeed: 0.65, leanSpeed: 0.22, leanAmpIdle: 0.02,  leanAmpActive: 0.05,  headTurnMin: 3,  headTurnMax: 6,  headTurnRange: 0.20, blinkMin: 3,   blinkMax: 5,  activeMult: 3.0 },
+  'worker-general':    { breathSpeed: 0.75, leanSpeed: 0.18, leanAmpIdle: 0.015, leanAmpActive: 0.04,  headTurnMin: 4,  headTurnMax: 9,  headTurnRange: 0.12, blinkMin: 3.5, blinkMax: 6,  activeMult: 2.5 },
 };
 
 // Per-agent animation state (initialized from personality)
@@ -2206,9 +2246,8 @@ for (const agent of AGENT_DATA) {
     blinkTimer: 0,
     isBlinking: false,
     isActive: false,
-    // Clawdbot special: random z-rotation twitch
     twitchZ: 0,
-    nextTwitch: agent.id === 'clawdbot' ? 1 + Math.random() * 3 : 9999,
+    nextTwitch: 9999,
   };
 }
 
@@ -2247,17 +2286,6 @@ function animate() {
     const leanAmp = state.isActive ? state.leanAmpActive : 0;
     const leanVal = Math.sin(t * state.leanSpeed * leanMult + state.leanPhase);
     robot.rotation.x = leanVal * leanAmp;
-
-    // --- Clawdbot z-rotation twitch ---
-    if (agent.id === 'clawdbot') {
-      state.nextTwitch -= dt;
-      if (state.nextTwitch <= 0) {
-        state.twitchZ = (Math.random() - 0.5) * 0.08;
-        state.nextTwitch = 1 + Math.random() * 3;
-      }
-      state.twitchZ *= 0.95; // decay
-      robot.rotation.z = state.twitchZ;
-    }
 
     // --- Head turn: personality-driven intervals & range ---
     state.nextHeadTurn -= dt;

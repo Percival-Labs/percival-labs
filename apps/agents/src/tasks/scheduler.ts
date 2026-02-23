@@ -15,14 +15,32 @@ function tokenize(text: string): string[] {
     .filter(t => t.length > 1);
 }
 
+// Keywords that indicate hands-on execution — prefer Worker agents for these
+const EXECUTION_KEYWORDS = new Set([
+  'implement', 'execute', 'run', 'build', 'test', 'debug', 'deploy', 'compile',
+  'code', 'script', 'install', 'fix', 'patch', 'refactor',
+  'search', 'browse', 'scrape', 'crawl', 'fetch', 'download',
+  'research', 'investigate', 'look', 'find', 'analyze',
+]);
+
+/**
+ * Check if an agent is a Worker tier agent (name starts with "Worker").
+ */
+function isWorkerAgent(agent: AgentIdentity): boolean {
+  return agent.name.startsWith('Worker');
+}
+
 /**
  * Score an agent against a task based on keyword overlap between
  * the task's title + description and the agent's expertise list.
  *
  * Returns a number >= 0. Higher = better match.
+ * Worker agents get a bonus when the task contains execution keywords,
+ * preventing C-suite agents from being assigned hands-on work.
  */
 function scoreAgent(task: TaskNode, agent: AgentIdentity): number {
-  const taskTokens = new Set(tokenize(`${task.title} ${task.description}`));
+  const taskText = `${task.title} ${task.description}`;
+  const taskTokens = new Set(tokenize(taskText));
   let score = 0;
 
   for (const expertiseItem of agent.expertise) {
@@ -40,6 +58,14 @@ function scoreAgent(task: TaskNode, agent: AgentIdentity): number {
     if (taskTokens.has(token)) {
       score += 0.5;
     }
+  }
+
+  // Execution-keyword bias: if the task contains execution words,
+  // give Worker agents a significant bonus so they're preferred
+  // over C-suite agents (Coordinator, Reviewer, etc.)
+  const hasExecutionKeywords = [...taskTokens].some(t => EXECUTION_KEYWORDS.has(t));
+  if (hasExecutionKeywords && isWorkerAgent(agent)) {
+    score += 3;
   }
 
   return score;

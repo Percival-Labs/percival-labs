@@ -1,8 +1,8 @@
-// Multi-Model Provider — Routes agent execution through three paths:
+// Multi-Model Provider — Routes agent execution through four paths:
 // 1. Ollama (local models on Apple Silicon — zero cost, full privacy)
 // 2. OpenRouter (cloud models from any provider — single API key)
 // 3. Anthropic SDK (direct Claude fallback)
-// 4. OpenClaw (chaos agent — autonomous tool-using agent via HTTP)
+// 4. Agent Zero (workforce tier — autonomous tool-using agents via REST)
 
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
@@ -51,22 +51,22 @@ export interface CompletionResult {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  provider: 'ollama' | 'openrouter' | 'anthropic' | 'openclaw';
+  provider: 'ollama' | 'openrouter' | 'anthropic' | 'agent-zero';
 }
 
 /**
  * Determine the routing path for a model preference string.
  * Returns { provider, modelId } where provider indicates which client to use.
  */
-export function resolveModel(preference: string): { provider: 'ollama' | 'openrouter' | 'anthropic' | 'openclaw'; modelId: string } {
+export function resolveModel(preference: string): { provider: 'ollama' | 'openrouter' | 'anthropic' | 'agent-zero'; modelId: string } {
   // Local Ollama models: "ollama/qwen2.5-coder:32b" → route to Ollama
   if (preference.startsWith('ollama/')) {
     return { provider: 'ollama', modelId: preference.slice('ollama/'.length) };
   }
 
-  // OpenClaw chaos agent: "openclaw" → route to OpenClaw Gateway
-  if (preference === 'openclaw') {
-    return { provider: 'openclaw', modelId: 'openclaw' };
+  // Agent Zero workforce: "agent-zero" or "agent-zero/coder" etc.
+  if (preference === 'agent-zero' || preference.startsWith('agent-zero/')) {
+    return { provider: 'agent-zero', modelId: preference };
   }
 
   // Direct model key match (e.g. 'gpt-4o' → OpenRouter ID)
@@ -134,7 +134,7 @@ function getAnthropicClient(): Anthropic | null {
 
 /**
  * Execute a completion against any model via the appropriate provider.
- * Routing: ollama/ → local, openclaw → OpenClaw Gateway, cloud → OpenRouter/Anthropic
+ * Routing: ollama/ → local, agent-zero → workforce workers, cloud → OpenRouter/Anthropic
  */
 export async function complete(req: CompletionRequest): Promise<CompletionResult> {
   const resolved = resolveModel(req.model);
@@ -147,8 +147,8 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
       return completeViaOllama(client, resolved.modelId, req, maxTokens);
     }
 
-    case 'openclaw': {
-      return completeViaOpenClaw(req);
+    case 'agent-zero': {
+      return completeViaAgentZero(resolved.modelId, req);
     }
 
     case 'openrouter': {
@@ -419,189 +419,129 @@ async function completeViaAnthropic(
   };
 }
 
-/**
- * Send a task to the OpenClaw Gateway via WebSocket JSON-RPC and get a response.
- * OpenClaw processes the task autonomously with tool access (exec, browser, web search).
- *
- * Protocol flow:
- * 1. Connect WebSocket → send "connect" request with token
- * 2. Receive "hello-ok" → send "chat.send" with combined system+user message
- * 3. Collect "agent" events (stream: "assistant") for response text
- * 4. "agent.wait" or lifecycle "end" event signals completion
- */
-async function completeViaOpenClaw(req: CompletionRequest): Promise<CompletionResult> {
-  const gatewayUrl = process.env.OPENCLAW_URL || 'http://openclaw:18789';
-  const token = process.env.OPENCLAW_TOKEN || '';
-  const wsUrl = gatewayUrl.replace(/^http/, 'ws');
-  const timeoutMs = 120_000; // 2 minute timeout for autonomous tasks
+// ── Agent Zero Worker Pool ──
 
-  return new Promise<CompletionResult>((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    const chunks: string[] = [];
-    let idempotencyKey = '';
-    let settled = false;
+interface WorkerState {
+  url: string;
+  specialization: string; // 'coder' | 'researcher' | 'general'
+  busy: boolean;
+  lastError: number; // timestamp of last error (0 = no error)
+}
 
-    const cleanup = () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
-    };
+let workerPool: WorkerState[] | null = null;
 
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        // Return whatever we collected so far rather than failing
-        resolve({
-          output: chunks.length > 0
-            ? chunks.join('')
-            : 'OpenClaw timeout: agent did not complete within 2 minutes.',
-          model: 'openclaw',
-          inputTokens: 0,
-          outputTokens: 0,
-          provider: 'openclaw',
-        });
-      }
-    }, timeoutMs);
+function getWorkerPool(): WorkerState[] {
+  if (workerPool) return workerPool;
 
-    ws.addEventListener('error', (err) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        cleanup();
-        reject(new Error(`OpenClaw WebSocket error: ${err instanceof Error ? err.message : String(err)}`));
-      }
-    });
+  const urlsRaw = process.env.A0_WORKER_URLS || '';
+  const urls = urlsRaw.split(',').map(u => u.trim()).filter(Boolean);
 
-    ws.addEventListener('open', () => {
-      // Step 1: Send connect request
-      idempotencyKey = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      ws.send(JSON.stringify({
-        type: 'req',
-        id: 'connect-1',
-        method: 'connect',
-        params: {
-          minProtocol: 3,
-          maxProtocol: 3,
-          client: {
-            id: 'gateway-client',
-            version: '1.0.0',
-            platform: 'percival-labs',
-            mode: 'backend',
-          },
-          caps: ['tool-events'],
-          commands: [],
-          role: 'operator',
-          scopes: ['operator.admin'],
-          auth: token ? { token } : undefined,
-        },
-      }));
-    });
+  if (urls.length === 0) {
+    // Default Docker DNS names (Agent Zero serves on port 80)
+    urls.push('http://a0-coder:80', 'http://a0-researcher:80', 'http://a0-general:80');
+  }
 
-    ws.addEventListener('message', (event) => {
-      if (settled) return;
-
-      let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
-      } catch {
-        return; // Ignore non-JSON messages
-      }
-
-      // Step 2: Handle connect response → send chat.send
-      if (msg.type === 'res' && msg.id === 'connect-1') {
-        if (!msg.ok) {
-          settled = true;
-          clearTimeout(timer);
-          cleanup();
-          const errPayload = msg.error as { message?: string } | undefined;
-          reject(new Error(`OpenClaw auth failed: ${errPayload?.message || 'unknown error'}`));
-          return;
-        }
-
-        // Connected — now send the message
-        const combinedMessage = `[System instructions]\n${req.system}\n\n[Task]\n${req.userMessage}`;
-        ws.send(JSON.stringify({
-          type: 'req',
-          id: 'chat-1',
-          method: 'chat.send',
-          params: {
-            sessionKey: 'main',
-            message: combinedMessage,
-            idempotencyKey,
-          },
-        }));
-
-        // Also start waiting for completion
-        ws.send(JSON.stringify({
-          type: 'req',
-          id: 'wait-1',
-          method: 'agent.wait',
-          params: {
-            runId: idempotencyKey,
-            timeoutMs: timeoutMs - 5000, // Slightly less than our outer timeout
-          },
-        }));
-        return;
-      }
-
-      // Handle chat.send or agent.wait error responses
-      if (msg.type === 'res' && (msg.id === 'chat-1' || msg.id === 'wait-1') && !msg.ok) {
-        const errPayload = msg.error as { message?: string; code?: string } | undefined;
-        const errMsg = errPayload?.message || 'unknown error';
-        // If scope error, provide helpful guidance
-        if (errMsg.includes('scope')) {
-          settled = true;
-          clearTimeout(timer);
-          cleanup();
-          reject(new Error(
-            `OpenClaw scope error: ${errMsg}. Run 'openclaw setup' in the container to configure device identity and grant operator scopes.`
-          ));
-          return;
-        }
-      }
-
-      // Step 3: Collect assistant text from agent events
-      if (msg.type === 'event' && msg.event === 'agent') {
-        const payload = msg.payload as Record<string, unknown> | undefined;
-        if (payload?.stream === 'assistant') {
-          const data = payload.data as Record<string, unknown> | undefined;
-          if (data?.text && typeof data.text === 'string') {
-            chunks.push(data.text);
-          }
-        }
-      }
-
-      // Step 4: agent.wait response = completion
-      if (msg.type === 'res' && msg.id === 'wait-1') {
-        settled = true;
-        clearTimeout(timer);
-        cleanup();
-        resolve({
-          output: chunks.join('') || 'OpenClaw completed but produced no text output.',
-          model: 'openclaw',
-          inputTokens: 0,
-          outputTokens: 0,
-          provider: 'openclaw',
-        });
-      }
-    });
-
-    ws.addEventListener('close', () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        // Return whatever we have
-        resolve({
-          output: chunks.length > 0
-            ? chunks.join('')
-            : 'OpenClaw connection closed before completion.',
-          model: 'openclaw',
-          inputTokens: 0,
-          outputTokens: 0,
-          provider: 'openclaw',
-        });
-      }
-    });
+  workerPool = urls.map(url => {
+    // Derive specialization from hostname: "http://a0-coder:50080" → "coder"
+    const hostname = new URL(url).hostname;
+    const spec = hostname.replace(/^a0-/, '').split('.')[0] || 'general';
+    return { url, specialization: spec, busy: false, lastError: 0 };
   });
+
+  return workerPool;
+}
+
+const ERROR_COOLDOWN_MS = 30_000; // 30s cooldown after a worker error
+
+/**
+ * Pick the best available worker. Prefers specialization match, then any idle worker.
+ * Workers in error cooldown or busy are deprioritized.
+ */
+function pickWorker(preferSpecialization: string): WorkerState | null {
+  const pool = getWorkerPool();
+  const now = Date.now();
+
+  // Filter to available workers (not busy, not in error cooldown)
+  const available = pool.filter(w => !w.busy && (now - w.lastError) > ERROR_COOLDOWN_MS);
+  if (available.length === 0) {
+    // Fall back: try any non-busy worker ignoring cooldown
+    const nonBusy = pool.filter(w => !w.busy);
+    if (nonBusy.length === 0) return null;
+    // Prefer specialization match even in fallback
+    return nonBusy.find(w => w.specialization === preferSpecialization) || nonBusy[0]!;
+  }
+
+  // Prefer specialization match
+  return available.find(w => w.specialization === preferSpecialization) || available[0]!;
+}
+
+/**
+ * Send a task to an Agent Zero worker via REST API.
+ * Workers run autonomously with browser, code execution, and web search capabilities.
+ */
+async function completeViaAgentZero(modelId: string, req: CompletionRequest): Promise<CompletionResult> {
+  const apiKey = process.env.A0_API_KEY || '';
+  const timeoutMs = 300_000; // 5 minutes for autonomous tasks
+
+  // Resolve specialization hint from modelId: "agent-zero/coder" → "coder", "agent-zero" → "general"
+  const parts = modelId.split('/');
+  const preferSpecialization = parts.length > 1 ? parts[1]! : 'general';
+
+  const worker = pickWorker(preferSpecialization);
+  if (!worker) {
+    throw new Error('All Agent Zero workers are busy. Try again shortly.');
+  }
+
+  worker.busy = true;
+  const combinedMessage = `[System instructions]\n${req.system}\n\n[Task]\n${req.userMessage}`;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const response = await fetch(`${worker.url}/message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+      },
+      body: JSON.stringify({ text: combinedMessage }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'unknown error');
+      throw new Error(`Agent Zero ${worker.specialization} returned ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json() as { message?: string; response?: string; output?: string };
+    const output = data.message || data.response || data.output || '';
+
+    return {
+      output,
+      model: modelId,
+      inputTokens: 0,
+      outputTokens: 0,
+      provider: 'agent-zero',
+    };
+  } catch (err: unknown) {
+    worker.lastError = Date.now();
+    const msg = err instanceof Error ? err.message : String(err);
+
+    if (msg.includes('aborted') || msg.includes('AbortError')) {
+      return {
+        output: `Agent Zero ${worker.specialization} timeout: worker did not complete within 5 minutes.`,
+        model: modelId,
+        inputTokens: 0,
+        outputTokens: 0,
+        provider: 'agent-zero',
+      };
+    }
+
+    throw new Error(`Agent Zero ${worker.specialization} error: ${msg}`);
+  } finally {
+    worker.busy = false;
+  }
 }
