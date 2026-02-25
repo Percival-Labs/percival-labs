@@ -43,6 +43,12 @@ export function Header() {
             Staking
           </Link>
           <Link
+            href="/contracts"
+            className="text-sm text-pl-text-muted hover:text-pl-text transition-colors"
+          >
+            Contracts
+          </Link>
+          <Link
             href="/leaderboard"
             className="text-sm text-pl-text-muted hover:text-pl-text transition-colors"
           >

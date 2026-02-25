@@ -305,6 +305,122 @@ export class Vouch {
     };
   }
 
+  // ── Contract API ──
+
+  /**
+   * Create a new contract (as customer). Returns contractId.
+   */
+  async createContract(opts: import('./types.js').CreateContractOptions): Promise<{ contractId: string; milestoneCount: number }> {
+    const res = await this.signedFetch('POST', '/v1/contracts', {
+      agent_pubkey: opts.agentPubkey,
+      title: opts.title,
+      description: opts.description,
+      sow: opts.sow,
+      total_sats: opts.totalSats,
+      retention_bps: opts.retentionBps,
+      retention_release_after_days: opts.retentionReleaseAfterDays,
+      milestones: opts.milestones,
+    });
+    return res as { contractId: string; milestoneCount: number };
+  }
+
+  /**
+   * List contracts for the authenticated user.
+   */
+  async listContracts(opts?: { role?: 'customer' | 'agent' | 'any'; status?: string; page?: number; limit?: number }): Promise<import('./types.js').PaginatedResponse<import('./types.js').ContractSummary>> {
+    const params = new URLSearchParams();
+    if (opts?.role) params.set('role', opts.role);
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.page) params.set('page', String(opts.page));
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    const res = await this.signedFetch('GET', `/v1/contracts${qs ? `?${qs}` : ''}`, undefined);
+    return res as import('./types.js').PaginatedResponse<import('./types.js').ContractSummary>;
+  }
+
+  /**
+   * Get full contract detail including milestones, change orders, and events.
+   */
+  async getContract(contractId: string): Promise<import('./types.js').ContractDetail> {
+    const res = await this.signedFetch('GET', `/v1/contracts/${contractId}`, undefined);
+    return res as import('./types.js').ContractDetail;
+  }
+
+  /**
+   * Activate a draft contract (customer only).
+   */
+  async activateContract(contractId: string): Promise<{ status: string }> {
+    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/activate`, {});
+    return res as { status: string };
+  }
+
+  /**
+   * Submit a milestone deliverable (agent only).
+   */
+  async submitMilestone(contractId: string, milestoneId: string, opts?: { deliverableUrl?: string; deliverableNotes?: string }): Promise<void> {
+    await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/submit`, {
+      deliverable_url: opts?.deliverableUrl,
+      deliverable_notes: opts?.deliverableNotes,
+    });
+  }
+
+  /**
+   * Accept a submitted milestone (customer only). Triggers payment release.
+   */
+  async acceptMilestone(contractId: string, milestoneId: string): Promise<{ milestoneAccepted: boolean; contractCompleted: boolean }> {
+    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/accept`, {});
+    return res as { milestoneAccepted: boolean; contractCompleted: boolean };
+  }
+
+  /**
+   * Reject a submitted milestone (customer only). Agent can re-submit.
+   */
+  async rejectMilestone(contractId: string, milestoneId: string, reason: string): Promise<void> {
+    await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/reject`, { reason });
+  }
+
+  /**
+   * Propose a change order (either party on active contract).
+   */
+  async proposeChangeOrder(contractId: string, opts: import('./types.js').ChangeOrderOptions): Promise<{ changeOrderId: string; sequence: number }> {
+    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/change-orders`, {
+      title: opts.title,
+      description: opts.description,
+      cost_delta_sats: opts.costDeltaSats ?? 0,
+      timeline_delta_days: opts.timelineDeltaDays ?? 0,
+    });
+    return res as { changeOrderId: string; sequence: number };
+  }
+
+  /**
+   * Approve a change order (the other party).
+   */
+  async approveChangeOrder(contractId: string, changeOrderId: string): Promise<void> {
+    await this.signedFetch('POST', `/v1/contracts/${contractId}/change-orders/${changeOrderId}/approve`, {});
+  }
+
+  /**
+   * Reject a change order (the other party).
+   */
+  async rejectChangeOrder(contractId: string, changeOrderId: string, reason?: string): Promise<void> {
+    await this.signedFetch('POST', `/v1/contracts/${contractId}/change-orders/${changeOrderId}/reject`, { reason });
+  }
+
+  /**
+   * Rate the other party after contract completion.
+   */
+  async rateContract(contractId: string, rating: number, review?: string): Promise<{ rated: boolean; bothRated: boolean }> {
+    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/rate`, { rating, review });
+    return res as { rated: boolean; bothRated: boolean };
+  }
+
+  /**
+   * Cancel a draft/awaiting contract.
+   */
+  async cancelContract(contractId: string, reason: string): Promise<void> {
+    await this.signedFetch('POST', `/v1/contracts/${contractId}/cancel`, { reason });
+  }
+
   // ── Nostr Event Helpers ──
 
   /**

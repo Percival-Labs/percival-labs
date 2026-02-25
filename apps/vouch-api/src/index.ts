@@ -25,8 +25,10 @@ import webhookRoutes from './routes/webhooks';
 import publicRoutes from './routes/public';
 import discoveryRoutes from './routes/discovery';
 import { spec as openapiSpec } from './openapi-spec';
+import contractRoutes from './routes/contracts';
 import { initTreasury, reconcileTreasury, runTreasuryRebalance, checkYieldReinvestment } from './services/treasury-service';
 import { cleanupExpiredPendingStakes } from './services/staking-service';
+import { processRetentionReleases } from './services/contract-service';
 import { takePriceSnapshot } from './services/price-service';
 
 // Combined env supports both Ed25519 (AppEnv) and Nostr (NostrAuthEnv) auth flows
@@ -122,6 +124,7 @@ app.route('/v1/webhooks', webhookRoutes);
 // The middleware skips /v1/public/* and /v1/auth/* internally.
 app.use('/v1/sdk/*', verifyNostrAuth);
 app.use('/v1/outcomes/*', verifyNostrAuth);
+app.use('/v1/contracts/*', verifyNostrAuth);
 
 // ── Ed25519 signature verification middleware ──
 // Applied to all /v1/* routes. Auth paths, /v1/public/*, and /v1/sdk/* are exempted inside the middleware.
@@ -139,6 +142,8 @@ app.use('/v1/staking/stakes/*/withdraw', agentRateLimiter('financial'));
 app.use('/v1/staking/fees', agentRateLimiter('financial'));
 app.use('/v1/staking/pools/*/distribute', agentRateLimiter('financial'));
 app.use('/v1/trust/refresh/*', agentRateLimiter('trust_refresh'));
+app.use('/v1/contracts/*/fund', agentRateLimiter('financial'));
+app.use('/v1/contracts/*/milestones/*/accept', agentRateLimiter('financial'));
 
 // ── Mount route groups ──
 app.route('/v1/auth', authRoutes);      // user cookie-based sessions (no Ed25519 required)
@@ -149,6 +154,7 @@ app.route('/v1/agents', agentRoutes);
 app.route('/v1/tables', tableRoutes);
 app.route('/v1/trust', trustRoutes);
 app.route('/v1/staking', stakingRoutes);
+app.route('/v1/contracts', contractRoutes);    // Contract work agreements (NIP-98 auth)
 app.route('/v1', postRoutes); // posts handles /tables/:slug/posts, /posts/:id, /comments/:id/vote
 
 // ── Nonce cleanup cron (every 5 minutes) ──
@@ -207,6 +213,18 @@ if (priceSnapshotInterval && typeof priceSnapshotInterval === 'object' && 'unref
 takePriceSnapshot('startup').catch((e) => {
   console.warn('[vouch-api] Initial price snapshot failed:', e instanceof Error ? e.message : e);
 });
+
+// ── Contract retention release (daily) ──
+const retentionReleaseInterval = setInterval(async () => {
+  try {
+    await processRetentionReleases();
+  } catch (e) {
+    console.error('[vouch-api] Retention release error:', e);
+  }
+}, 24 * 60 * 60 * 1000);
+if (retentionReleaseInterval && typeof retentionReleaseInterval === 'object' && 'unref' in retentionReleaseInterval) {
+  retentionReleaseInterval.unref();
+}
 
 // ── PL Treasury rebalance (every 24 hours) ──
 const treasuryRebalanceInterval = setInterval(async () => {

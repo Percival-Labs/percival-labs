@@ -61,4 +61,15 @@ export type {
   PaginatedResponse,
   SingleResponse,
   VouchCredentials,
+  // Contract types
+  ContractSow,
+  ContractMilestoneInput,
+  CreateContractOptions,
+  Contract,
+  ContractMilestone,
+  ChangeOrder,
+  ContractEvent,
+  ContractDetail,
+  ContractSummary,
+  ChangeOrderOptions,
 } from './types.js';
