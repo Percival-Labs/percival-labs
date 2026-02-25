@@ -2612,8 +2612,26 @@ function generateOverlayJS(): string {
         case 'proposal_approved':  return 'Proposal approved \\u2014 starting work';
         case 'proposal_rejected':  return 'Proposal rejected';
         case 'task_budget_blocked': return 'Task blocked: budget limit reached';
+        case 'tool_use': return formatToolUse(d.toolName, d.input);
         default: return null;
       }
+    }
+
+    function formatToolUse(toolName, input) {
+      const i = input || {};
+      switch (toolName) {
+        case 'read_file':    return 'Reading ' + shortPath(i.path);
+        case 'write_file':   return 'Writing ' + shortPath(i.path);
+        case 'list_dir':     return 'Browsing ' + shortPath(i.path || '.');
+        case 'search_files': return 'Searching for "' + (i.pattern || '?') + '"';
+        default:             return toolName.replace(/_/g, ' ');
+      }
+    }
+
+    function shortPath(p) {
+      if (!p) return '...';
+      var parts = p.split('/');
+      return parts.length > 2 ? '.../' + parts.slice(-2).join('/') : p;
     }
 
     // --- Mock cycle ---

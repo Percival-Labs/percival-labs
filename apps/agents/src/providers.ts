@@ -44,6 +44,7 @@ export interface CompletionRequest {
   system: string;
   userMessage: string;
   maxTokens?: number;
+  onToolUse?: (toolName: string, input: Record<string, string>) => void;
 }
 
 export interface CompletionResult {
@@ -273,6 +274,7 @@ async function completeViaOllama(
         input = {};
       }
       console.log(`[workspace] ${toolCall.function.name}(${JSON.stringify(input)})`);
+      req.onToolUse?.(toolCall.function.name, input);
       const result = executeWorkspaceTool(toolCall.function.name, input);
       messages.push({
         role: 'tool',
@@ -399,6 +401,7 @@ async function completeViaAnthropic(
     const toolResults: Anthropic.ToolResultBlockParam[] = toolUseBlocks.map(toolUse => {
       const input = toolUse.input as Record<string, string>;
       console.log(`[workspace] ${toolUse.name}(${JSON.stringify(input)})`);
+      req.onToolUse?.(toolUse.name, input);
       const result = executeWorkspaceTool(toolUse.name, input);
       return {
         type: 'tool_result' as const,
@@ -476,12 +479,44 @@ function pickWorker(preferSpecialization: string): WorkerState | null {
 }
 
 /**
+ * Acquire a CSRF token + session cookie from an Agent Zero worker.
+ * Agent Zero's Flask UI requires X-CSRF-Token header on all authenticated endpoints.
+ */
+async function acquireCsrfToken(workerUrl: string): Promise<{ csrfToken: string; sessionCookie: string }> {
+  const cached = csrfCache.get(workerUrl);
+  if (cached && Date.now() - cached.acquiredAt < 300_000) {
+    return cached; // Cache for 5 minutes
+  }
+
+  const resp = await fetch(`${workerUrl}/csrf_token`, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Failed to acquire CSRF token from ${workerUrl}: ${resp.status}`);
+  }
+
+  const data = await resp.json() as { token: string; runtime_id: string };
+  const setCookie = resp.headers.get('set-cookie') || '';
+  // A0 session cookie is "session_<runtime_id>=..."
+  const sessionMatch = setCookie.match(/(session_[^=]+=)([^;]+)/);
+  const sessionCookie = sessionMatch ? `${sessionMatch[1]}${sessionMatch[2]}` : '';
+
+  const entry = { csrfToken: data.token, sessionCookie, acquiredAt: Date.now() };
+  csrfCache.set(workerUrl, entry);
+  return entry;
+}
+
+const csrfCache = new Map<string, { csrfToken: string; sessionCookie: string; acquiredAt: number }>();
+
+/**
  * Send a task to an Agent Zero worker via REST API.
  * Workers run autonomously with browser, code execution, and web search capabilities.
  */
 async function completeViaAgentZero(modelId: string, req: CompletionRequest): Promise<CompletionResult> {
   const apiKey = process.env.A0_API_KEY || '';
-  const timeoutMs = 300_000; // 5 minutes for autonomous tasks
+  const timeoutMs = 600_000; // 10 minutes for autonomous tasks (local models need more time)
 
   // Resolve specialization hint from modelId: "agent-zero/coder" → "coder", "agent-zero" → "general"
   const parts = modelId.split('/');
@@ -496,6 +531,9 @@ async function completeViaAgentZero(modelId: string, req: CompletionRequest): Pr
   const combinedMessage = `[System instructions]\n${req.system}\n\n[Task]\n${req.userMessage}`;
 
   try {
+    // Acquire CSRF token before sending the message
+    const { csrfToken, sessionCookie } = await acquireCsrfToken(worker.url);
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -503,6 +541,8 @@ async function completeViaAgentZero(modelId: string, req: CompletionRequest): Pr
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+        ...(sessionCookie ? { 'Cookie': sessionCookie } : {}),
         ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
       },
       body: JSON.stringify({ text: combinedMessage }),
@@ -510,6 +550,43 @@ async function completeViaAgentZero(modelId: string, req: CompletionRequest): Pr
     });
 
     clearTimeout(timer);
+
+    // If CSRF token expired/invalid, invalidate cache and retry once
+    if (response.status === 403) {
+      const errorText = await response.text().catch(() => '');
+      if (errorText.includes('CSRF')) {
+        csrfCache.delete(worker.url);
+        console.log(`[agent-zero] CSRF token expired for ${worker.specialization}, retrying with fresh token`);
+        const fresh = await acquireCsrfToken(worker.url);
+        const retryController = new AbortController();
+        const retryTimer = setTimeout(() => retryController.abort(), timeoutMs);
+        const retryResp = await fetch(`${worker.url}/message`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': fresh.csrfToken,
+            ...(fresh.sessionCookie ? { 'Cookie': fresh.sessionCookie } : {}),
+            ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
+          },
+          body: JSON.stringify({ text: combinedMessage }),
+          signal: retryController.signal,
+        });
+        clearTimeout(retryTimer);
+        if (!retryResp.ok) {
+          const retryErr = await retryResp.text().catch(() => 'unknown error');
+          throw new Error(`Agent Zero ${worker.specialization} returned ${retryResp.status}: ${retryErr}`);
+        }
+        const retryData = await retryResp.json() as { message?: string; response?: string; output?: string };
+        return {
+          output: retryData.message || retryData.response || retryData.output || '',
+          model: modelId,
+          inputTokens: 0,
+          outputTokens: 0,
+          provider: 'agent-zero',
+        };
+      }
+      throw new Error(`Agent Zero ${worker.specialization} returned 403: ${errorText}`);
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'unknown error');

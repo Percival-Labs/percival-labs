@@ -92,6 +92,7 @@ export async function executeAgentTask(
   identity: AgentIdentity,
   task: TaskNode,
   memoryContext: string,
+  onToolUse?: (toolName: string, input: Record<string, string>) => void,
 ): Promise<AgentExecutionResult> {
   const startTime = Date.now();
   const resolved = resolveModel(identity.modelPreference);
@@ -102,6 +103,7 @@ export async function executeAgentTask(
       system: buildSystemPrompt(identity, memoryContext),
       userMessage: buildUserMessage(task),
       maxTokens: 4096,
+      onToolUse,
     });
 
     const duration = Date.now() - startTime;

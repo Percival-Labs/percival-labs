@@ -1,0 +1,34 @@
+{
+  "name": "@percival-labs/openclaw-vouch",
+  "version": "0.1.0",
+  "description": "Trust verification for OpenClaw agents via Vouch — gate tool execution by reputation score",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "keywords": [
+    "openclaw",
+    "vouch",
+    "trust",
+    "agents",
+    "reputation",
+    "nostr"
+  ],
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@percival-labs/vouch-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "@types/node": "^22.15.0"
+  }
+}

@@ -10,6 +10,7 @@ export type AgentEventType =
   | 'task_assigned'
   | 'task_budget_blocked'
   | 'task_output'
+  | 'tool_use'
   | 'agent_started'
   | 'agent_completed'
   | 'agent_failed'
@@ -21,7 +22,8 @@ export type AgentEventType =
   | 'budget_exhausted'
   | 'proposal_created'
   | 'proposal_approved'
-  | 'proposal_rejected';
+  | 'proposal_rejected'
+  | 'model_routed';
 
 export interface AgentEvent {
   id: string;
