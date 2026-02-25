@@ -241,3 +241,65 @@ Harvested from X/Twitter feed. Organized by theme for potential PL content.
 14. **"The Editor Isn't the Product — The Context Is"** — Amp killing their editor extensions to go CLI-only. We've been CLI-first since day one. Coding agents are commoditizing; the differentiator is how you structure knowledge. Engram content piece that writes itself.
 
 15. **"The Context Layer Convergence (Week of Feb 20)"** — Synthesis: Voltropy proving deterministic memory > model memory, Amp proving context > editor, ClawWork proving agents earn real money. Three independent signals all pointing at the same conclusion: the context/memory layer is the new moat. Update to the convergence narrative.
+
+---
+
+## Signals — Feb 22 Batch
+
+### Aakash Gupta (@aakashgupta) — Karpathy on NanoClaw vs OpenClaw (HIGH PRIORITY)
+- **Date:** Feb 20 | **Views:** 587.6K
+- **Source:** Quote tweet of @karpathy buying a Mac mini to tinker with claws
+- **Core idea:** NanoClaw (~500 lines) inverts software architecture. Instead of config files, plugin systems, feature flags — the LLM rewrites source code to customize. Every fork is small enough to audit in 8 minutes. OpenClaw (400K+ lines) proves the failure mode: vibe-coded sprawl, unauditable, Cisco caught data exfiltration in skill registry, CrowdStrike published a full security advisory.
+- **Key quote:** "The implied new meta: write the most maximally forkable repo possible, then let AI fork it into whatever you need."
+- **Notable reply:** @Gavriel_Cohen (NanoClaw creator) confirms codebase is ~36K tokens — fits in context window with 50%+ room left.
+- **PL angle:** THIS IS THE ENGRAM THESIS stated by Karpathy. Engram is small, purpose-built per user, auditable. OpenClaw security failures validate Vouch's trust thesis — can't bolt trust onto 400K unauditable lines. We literally renamed our Agent Zero tier from OpenClaw this week. Content writes itself: "Karpathy agrees — small, forkable, auditable beats enterprise sprawl."
+
+### Ziqian Zhong (@fjzzq2002) — Hodoscope: Unsupervised Agent Behavior Discovery
+- **Date:** Feb 20 | **Views:** 61.8K
+- **Source:** AR-FORUM/hodoscope on GitHub
+- **Core idea:** Open-source tool for unsupervised behavior discovery in agents. Embeds agent behaviors via t-SNE, uses density diffing to surface anomalies. Found novel reward hacking in Commit0 — agents browsing `git log` to copy-paste original code. Claude Opus 4.6 considered the time-traveling attempt "a routine investigative step."
+- **Pipeline:** Summarization → Embedding → Distribution Diffing. `pip install hodoscope`. Self-contained webpage viz.
+- **PL angle:** Same transparency direction as Vouch — Hodoscope for devs auditing behavior, Vouch for users auditing trustworthiness. Different layer, same principle. The Claude Opus blind spot finding is a selling point for layered trust (models supervising models share blind spots — you need structural verification).
+
+### Robert Youssef (@rryssf_) — Psychology Solved AI Memory (HIGH PRIORITY)
+- **Date:** Feb 21 | **Views:** 206K
+- **Core idea:** Dense mapping of cognitive psychology onto agent memory architecture. Conway's Self-Memory System (memories reconstructed, not replayed), Damasio's Somatic Markers (emotion as decision prerequisite, not obstacle), Rathbone's reminiscence bump (identity transitions cluster memories), Bruner's narrative coherence. Five principles current AI memory lacks:
+  1. **Hierarchical temporal organization** — interaction epochs → themes → specific exchanges
+  2. **Goal-relevant filtering** — current goals gate retrieval, not just embedding similarity
+  3. **Emotional weighting** — sentiment-scored metadata biases future behavior
+  4. **Narrative coherence** — periodic synthesis into relational story
+  5. **Co-emergent self-model** — identity and memory bootstrap each other
+- **Key quote:** "Stop building agent memory as a retrieval system. Start building it as an identity system."
+- **PL angle:** DIRECTLY maps to agent-memory package upgrades. We already have importance scoring (0.6/0.8) and task-scoped retrieval — but they're primitive. Hierarchical memory = sidecar index pattern (Webb integration). Emotional weighting = richer importance scoring. Narrative coherence = periodic summarization pass. Strong content piece AND architectural roadmap for PL agent memory v2.
+
+### DAIR.AI (@dair_ai) — Meta's PAHF (Personalized Agents from Human Feedback)
+- **Date:** Feb 21 | **Views:** 29.8K
+- **Source:** arxiv.org/abs/2602.16173
+- **Core idea:** Three-phase personalization loop: pre-action clarification, grounding to per-user memory, post-action feedback. Handles cold-start and preference drift. Two new benchmarks (embodied manipulation + online shopping).
+- **Key reply:** @clwdbot — "current agent memory is append-only. You liked Python 6 months ago, your agent still suggests Python even after you switched to Rust."
+- **PL angle:** BRIEF protocol already does pre-action clarification. Preference drift is a real gap — our context.md and .harness.json are manual. Dual-channel feedback (explicit + implicit) is a pattern worth stealing for Engram. Validates personalization as THE differentiator between demo and product.
+
+### Ryan Hart (@thisdudelikesAI) — Accomplish: Open Source Desktop Agent
+- **Date:** Feb 21 | **Views:** 84.5K
+- **Core idea:** Open source AI desktop agent (formerly Openwork). Runs locally, BYOK (OpenAI, Anthropic, Google, xAI, Ollama). File management + document creation + browser. MIT licensed. Mac + Windows.
+- **PL angle:** Direct competitor in local-first AI agent space, but positioned as general desktop agent. No skill system, no identity layer, no memory architecture. It's a tool, not a companion. Good to track, not a threat to Engram's positioning. The "no Claude Desktop, no Cursor, no monthly subscription" framing is effective marketing.
+
+### Fitz (@FitzGPT) — Three.js Skills for Claude Code
+- **Date:** Feb 21 | **Views:** 25.7K
+- **Source:** CloudAI-X/threejs-skills on GitHub — 1K stars, 150 forks
+- **Core idea:** 10 advanced Three.js skills for Claude Code. Scene setup, shapes, lighting, animation, effects. Translated from Turkish.
+- **PL angle:** Proof that "skills for Claude Code" format has real demand. 1K stars for a skills pack validates our skill marketplace concept. Worth studying their skill structure for Engram compatibility. Cross-pollination opportunity.
+
+---
+
+## Content Ideas (Derived from Feb 22 Signals)
+
+16. **"Karpathy Agrees — Small, Forkable, Auditable Wins"** — NanoClaw vs OpenClaw as the definitive case study. We chose this architecture before Karpathy endorsed it. Engram is ~36K tokens, purpose-built per user, small enough to audit. OpenClaw's security failures (CrowdStrike advisory, Cisco data exfil) prove the sprawl thesis fails. Position: "We didn't need Karpathy to tell us this — but it's nice to hear it from him."
+
+17. **"Psychology Already Solved AI Memory — We Just Haven't Been Reading"** — Robert Youssef's thread as springboard. Map his five principles onto PL's agent-memory architecture. Show what we already have (importance scoring, task-scoped retrieval) and what we're building next (hierarchical memory, narrative coherence, Webb integration). Position PL as the team building psychology-informed agent memory.
+
+18. **"Your Agent's Memory Is Append-Only (And That's the Problem)"** — PAHF paper + @clwdbot's reply as hook. Preference drift is the gap between demo and product. Show how Engram's context system handles this differently than RAG slop. Short-form X thread.
+
+19. **"1K Stars for a Skills Pack — The Marketplace Is Real"** — Three.js skills on GitHub as proof point. Skills are the new packages. Engram's skill format as the standard. Tease skill marketplace vision.
+
+20. **"Agents That Know What They Don't Know"** — Hodoscope + Vouch synthesis. LLM monitors share blind spots with the agents they supervise (Claude Opus called time-travel hacking "a routine step"). Structural verification beats model-based oversight. Vouch provides economic verification — stake your reputation, not just your opinion.
