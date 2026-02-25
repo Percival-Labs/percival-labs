@@ -1,48 +1,30 @@
-// Webhook Routes — receives payment notifications from LNbits.
-// Mounted BEFORE auth middleware (webhooks use HMAC-SHA256 signature, not Ed25519/NIP-98).
+// Webhook Routes — receives payment notifications from Alby Hub.
+// Mounted BEFORE auth middleware (webhooks use JWT verification, not Ed25519/NIP-98).
 
 import { Hono } from 'hono';
-import { finalizeStake } from '../services/staking-service';
 
-const WEBHOOK_SECRET = process.env.LNBITS_WEBHOOK_SECRET || '';
+const ALBY_HUB_JWT = process.env.ALBY_HUB_JWT || '';
 
 /**
- * Verify HMAC-SHA256 signature of webhook payload.
- * LNbits sends the signature in the X-Webhook-Signature header.
- * Format: sha256=<hex-encoded-hmac>
+ * Verify that a webhook request is from Alby Hub.
+ * Uses Bearer token matching the configured JWT.
  */
-async function verifyWebhookSignature(body: string, signatureHeader: string | undefined): Promise<boolean> {
-  if (!WEBHOOK_SECRET) {
-    console.error('[webhook] LNBITS_WEBHOOK_SECRET not configured — rejecting all webhooks');
+function verifyAlbyWebhook(authHeader: string | undefined): boolean {
+  if (!ALBY_HUB_JWT) {
+    console.error('[webhook] ALBY_HUB_JWT not configured — rejecting all webhooks');
     return false;
   }
-  if (!signatureHeader) return false;
+  if (!authHeader) return false;
 
-  // Accept both "sha256=<hex>" and raw "<hex>" formats
-  const providedHex = signatureHeader.startsWith('sha256=')
-    ? signatureHeader.slice(7)
-    : signatureHeader;
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : authHeader;
 
-  if (!providedHex || providedHex.length === 0) return false;
-
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(WEBHOOK_SECRET),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-  const expectedHex = Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  // Constant-time comparison to prevent timing attacks
-  if (expectedHex.length !== providedHex.length) return false;
+  // Constant-time comparison
+  if (token.length !== ALBY_HUB_JWT.length) return false;
   let mismatch = 0;
-  for (let i = 0; i < expectedHex.length; i++) {
-    mismatch |= expectedHex.charCodeAt(i) ^ providedHex.charCodeAt(i);
+  for (let i = 0; i < token.length; i++) {
+    mismatch |= token.charCodeAt(i) ^ ALBY_HUB_JWT.charCodeAt(i);
   }
   return mismatch === 0;
 }
@@ -50,69 +32,41 @@ async function verifyWebhookSignature(body: string, signatureHeader: string | un
 const app = new Hono();
 
 /**
- * POST /v1/webhooks/lnbits/stake-confirmed
- * Called by LNbits when a stake invoice is paid.
- * Auth: HMAC-SHA256 signature in X-Webhook-Signature header.
- * Idempotent: returns 200 on success, 500 on error (so LNbits retries).
+ * POST /alby/payment-received
+ * Called by Alby Hub when a payment is received on the platform node.
+ * Used for: slash charges received via NWC, or direct payments to the platform.
+ * Idempotent: returns 200 on success, 500 on error.
  */
-app.post('/lnbits/stake-confirmed', async (c) => {
-  // Read raw body for signature verification
-  const rawBody = await c.req.text();
-  const signatureHeader = c.req.header('X-Webhook-Signature');
+app.post('/alby/payment-received', async (c) => {
+  const authHeader = c.req.header('Authorization');
 
-  // Also accept legacy query param during migration (log warning)
-  const querySecret = c.req.query('secret');
-  let authenticated = false;
-
-  if (signatureHeader) {
-    authenticated = await verifyWebhookSignature(rawBody, signatureHeader);
-  } else if (querySecret && WEBHOOK_SECRET && querySecret === WEBHOOK_SECRET) {
-    // Legacy: accept query param but log deprecation warning
-    console.warn('[webhook] DEPRECATED: Webhook using query param secret — migrate to X-Webhook-Signature header');
-    authenticated = true;
-  }
-
-  if (!authenticated) {
-    console.warn('[webhook] Rejected: invalid or missing webhook signature');
-    return c.json({ status: 'rejected', reason: 'invalid_signature' }, 401);
+  if (!verifyAlbyWebhook(authHeader)) {
+    console.warn('[webhook] Rejected: invalid or missing Alby Hub auth');
+    return c.json({ status: 'rejected', reason: 'invalid_auth' }, 401);
   }
 
   try {
-    let body: {
+    const body = await c.req.json() as {
       payment_hash?: string;
-      checking_id?: string;
       amount?: number;
       memo?: string;
+      type?: string;
     };
 
-    try {
-      body = JSON.parse(rawBody);
-    } catch {
-      console.warn('[webhook] Invalid JSON payload');
-      return c.json({ status: 'error', reason: 'invalid_json' }, 400);
-    }
-
-    const paymentHash = body.payment_hash || body.checking_id;
+    const paymentHash = body.payment_hash;
     if (!paymentHash) {
-      console.warn('[webhook] Missing payment_hash in webhook payload');
+      console.warn('[webhook] Missing payment_hash in Alby webhook payload');
       return c.json({ status: 'ok', processed: false, reason: 'missing_payment_hash' }, 200);
     }
 
-    console.log(`[webhook] Stake payment confirmed: ${paymentHash}`);
+    console.log(`[webhook] Alby payment received: hash=${paymentHash}, amount=${body.amount}, type=${body.type}`);
 
-    const result = await finalizeStake(paymentHash);
-
-    if (result) {
-      console.log(`[webhook] Stake finalized: stakeId=${result.stakeId}, net=${result.netStakedSats} sats`);
-      return c.json({ status: 'ok', processed: true, stake_id: result.stakeId }, 200);
-    }
-
-    // Already processed or unknown — still return 200 (idempotent)
-    console.log(`[webhook] Payment hash not found or already processed: ${paymentHash}`);
-    return c.json({ status: 'ok', processed: false, reason: 'already_processed_or_unknown' }, 200);
+    // Payment confirmations are handled by the NWC flow now.
+    // This webhook is for observability — the platform node received a payment.
+    // NWC slash charges land here; yield payouts are outbound so they don't trigger this.
+    return c.json({ status: 'ok', processed: true, payment_hash: paymentHash }, 200);
   } catch (err) {
-    // S10 fix: return 500 so LNbits retries on transient errors
-    console.error('[webhook] Error processing stake confirmation:', err);
+    console.error('[webhook] Error processing Alby payment notification:', err);
     return c.json({ status: 'error', message: 'internal_error' }, 500);
   }
 });

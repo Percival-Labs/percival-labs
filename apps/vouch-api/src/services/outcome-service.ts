@@ -107,6 +107,7 @@ export async function reportOutcome(params: ReportOutcomeParams): Promise<Outcom
           sql`${outcomes.matchedOutcomeId} IS NULL`,
         ),
       )
+      .orderBy(outcomes.createdAt) // FIFO: first report gets matched first
       .limit(1)
       .for('update');
 

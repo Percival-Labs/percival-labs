@@ -167,6 +167,9 @@ services:
   a0-coder:
     image: frdel/agent-zero:latest
     logging: *default-logging
+    volumes:
+      - ${PL_WORKSPACE:-..}:/app/workspace
+      - a0-coder-settings:/a0/tmp
     environment:
       - A0_API_KEY=${A0_API_KEY}
       - A0_CHAT_MODEL=qwen3-coder-next
@@ -192,6 +195,9 @@ services:
   a0-researcher:
     image: frdel/agent-zero:latest
     logging: *default-logging
+    volumes:
+      - ${PL_WORKSPACE:-..}:/app/workspace
+      - a0-researcher-settings:/a0/tmp
     environment:
       - A0_API_KEY=${A0_API_KEY}
       - A0_CHAT_MODEL=qwen3-coder-next
@@ -217,6 +223,9 @@ services:
   a0-general:
     image: frdel/agent-zero:latest
     logging: *default-logging
+    volumes:
+      - ${PL_WORKSPACE:-..}:/app/workspace
+      - a0-general-settings:/a0/tmp
     environment:
       - A0_API_KEY=${A0_API_KEY}
       - A0_CHAT_MODEL=glm-4.7-flash
@@ -239,50 +248,27 @@ services:
       retries: 5
       start_period: 60s
 
-  phoenixd:
-    image: ghcr.io/acinq/phoenixd:latest
-    volumes:
-      - phoenixd-data:/phoenix/.phoenix
-    networks:
-      - internal
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9740/healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
-  lnbits:
-    image: lnbits/lnbits:latest
-    # Admin UI accessible only via localhost — NEVER expose to public network
+  albyhub:
+    image: ghcr.io/getalby/hub:latest
     ports:
-      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:8080:8080"
     volumes:
-      - lnbits-data:/app/data
+      - albyhub-data:/data
     environment:
-      - LNBITS_BACKEND_WALLET_CLASS=PhoenixdWallet
-      - PHOENIXD_API_ENDPOINT=http://phoenixd:9740
-      - PHOENIXD_API_PASSWORD=${PHOENIXD_API_PASSWORD}
-      - LNBITS_ADMIN_UI=true
+      - WORK_DIR=/data
+      - LOG_EVENTS=true
     networks:
       - internal
     deploy:
       resources:
         limits:
           memory: 1G
-    depends_on:
-      phoenixd:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:5000/api/v1/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   vouch-db:
     image: postgres:16-alpine
@@ -337,14 +323,9 @@ services:
       - DATABASE_URL=postgresql://percival:${POSTGRES_PASSWORD:-percival-local-dev}@vouch-db:5432/vouch
       - BASE_RPC_URL=${BASE_RPC_URL:-https://mainnet.base.org}
       - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL:-https://sepolia.base.org}
-      - LNBITS_URL=http://lnbits:5000
-      - LNBITS_ADMIN_KEY=${LNBITS_ADMIN_KEY}
-      - LNBITS_SUPER_USER=${LNBITS_SUPER_USER}
-      - LNBITS_WEBHOOK_SECRET=${LNBITS_WEBHOOK_SECRET}
-      - VOUCH_WEBHOOK_BASE_URL=http://vouch-api:3601
-      - TREASURY_LNBITS_WALLET_ID=${TREASURY_LNBITS_WALLET_ID}
-      - TREASURY_LNBITS_ADMIN_KEY=${TREASURY_LNBITS_ADMIN_KEY}
-      - TREASURY_LNBITS_INVOICE_KEY=${TREASURY_LNBITS_INVOICE_KEY}
+      - ALBY_HUB_URL=http://albyhub:8080
+      - ALBY_HUB_JWT=${ALBY_HUB_JWT}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     networks:
       - internal
       - public
@@ -355,7 +336,7 @@ services:
     depends_on:
       vouch-db:
         condition: service_healthy
-      lnbits:
+      albyhub:
         condition: service_healthy
 
 networks:
@@ -376,5 +357,7 @@ volumes:
   agents-data:
   discord-data:
   vouch-pgdata:
-  phoenixd-data:
-  lnbits-data:
+  albyhub-data:
+  a0-coder-settings:
+  a0-researcher-settings:
+  a0-general-settings:

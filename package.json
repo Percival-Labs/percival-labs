@@ -13,6 +13,7 @@
     "dev:vouch": "bun run --filter @percival/vouch dev",
     "dev:vouch-api": "bun run --filter @percival/vouch-api dev",
     "dev:discord": "bun run --filter @percival/discord dev",
+    "dev:village": "bun run --filter @percival/village dev",
     "dev:all": "bun run dev & bun run dev:verifier & bun run dev:website & bun run dev:agents & bun run dev:terrarium",
     "test": "bun test --recursive",
     "test:registry": "bun test apps/registry/tests/",

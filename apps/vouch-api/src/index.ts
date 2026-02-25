@@ -23,6 +23,7 @@ import trustRoutes from './routes/trust';
 import stakingRoutes from './routes/staking';
 import webhookRoutes from './routes/webhooks';
 import publicRoutes from './routes/public';
+import discoveryRoutes from './routes/discovery';
 import { spec as openapiSpec } from './openapi-spec';
 import { initTreasury, reconcileTreasury, runTreasuryRebalance, checkYieldReinvestment } from './services/treasury-service';
 import { cleanupExpiredPendingStakes } from './services/staking-service';
@@ -59,7 +60,7 @@ app.use('*', cors({
   origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Agent-Id', 'X-Timestamp', 'X-Signature', 'X-Nonce', 'Cookie'],
-  exposeHeaders: ['Set-Cookie'],
+  exposeHeaders: ['Set-Cookie', 'X-Vouch-API-Version', 'X-Vouch-Docs', 'X-Vouch-LLMs-Txt'],
   maxAge: 3600,
   credentials: true,
 }));
@@ -67,6 +68,14 @@ app.use('*', bodyLimit({ maxSize: 1024 * 1024 })); // 1MB max body (L5)
 
 // ── Request logging ──
 app.use('*', logger());
+
+// ── Agent discoverability headers (added to ALL responses) ──
+app.use('*', async (c, next) => {
+  await next();
+  c.res.headers.set('X-Vouch-API-Version', '0.2.1');
+  c.res.headers.set('X-Vouch-Docs', 'https://percival-labs.ai/research');
+  c.res.headers.set('X-Vouch-LLMs-Txt', 'https://percivalvouch-api-production.up.railway.app/llms.txt');
+});
 
 // ── Global rate limiting (H3) ──
 app.use('/v1/*', rateLimiter('global'));
@@ -88,6 +97,9 @@ app.get('/health', (c) => {
 app.get('/openapi.json', (c) => {
   return c.json(openapiSpec);
 });
+
+// ── Agent discovery routes (no auth, served before all middleware) ──
+app.route('', discoveryRoutes);
 
 // ── Public endpoint rate limiting (IP-based, 60 req/min, no auth required) ──
 app.use('/v1/public/*', rateLimiter('public'));
