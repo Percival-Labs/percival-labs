@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# AI agent discovery
+# llms.txt: https://percival-labs.ai/llms.txt
+# llms-full.txt: https://percival-labs.ai/llms-full.txt
+
+Sitemap: https://percival-labs.ai/sitemap.xml
+# TODO: Generate sitemap.xml
