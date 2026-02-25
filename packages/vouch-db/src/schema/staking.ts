@@ -11,7 +11,7 @@ export const poolStatusEnum = pgEnum('pool_status', ['active', 'frozen', 'dissol
 export const stakeStatusEnum = pgEnum('stake_status', ['pending', 'active', 'unstaking', 'withdrawn', 'slashed']);
 export const snapshotReasonEnum = pgEnum('snapshot_reason', ['daily', 'stake_change', 'slash', 'milestone']);
 export const treasurySourceEnum = pgEnum('treasury_source', ['slash', 'platform_fee', 'donation']);
-export const paymentPurposeEnum = pgEnum('payment_purpose', ['stake', 'withdraw', 'yield', 'treasury_fee']);
+export const paymentPurposeEnum = pgEnum('payment_purpose', ['stake', 'withdraw', 'yield', 'treasury_fee', 'contract_milestone', 'contract_retention', 'contract_refund']);
 export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'paid', 'expired', 'failed']);
 export const nwcConnectionStatusEnum = pgEnum('nwc_connection_status', ['active', 'revoked', 'expired']);
 
@@ -173,6 +173,8 @@ export const paymentEvents = pgTable('payment_events', {
   stakeId: text('stake_id').references(() => stakes.id),
   stakerId: text('staker_id'),
   nwcConnectionId: text('nwc_connection_id').references(() => nwcConnections.id),
+  contractId: text('contract_id'), // FK enforced at DB level (references contracts.id)
+  milestoneId: text('milestone_id'), // FK enforced at DB level (references contract_milestones.id)
   webhookReceivedAt: timestamp('webhook_received_at'),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -182,6 +184,7 @@ export const paymentEvents = pgTable('payment_events', {
   index('idx_payment_events_stake').on(table.stakeId),
   index('idx_payment_events_pool').on(table.poolId),
   index('idx_payment_events_status').on(table.status),
+  index('idx_payment_events_contract').on(table.contractId),
 ]);
 
 // ── BTC Price Snapshots (display/reporting only — all accounting stays in sats) ──

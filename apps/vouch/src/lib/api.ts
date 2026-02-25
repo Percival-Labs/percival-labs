@@ -126,6 +126,97 @@ export interface VouchBreakdown {
   computed_at: string;
 }
 
+// --- Contract types ---
+
+export type ContractStatus = "draft" | "awaiting_funding" | "active" | "completed" | "disputed" | "cancelled";
+export type MilestoneStatus = "pending" | "in_progress" | "submitted" | "accepted" | "rejected" | "released";
+
+export interface Contract {
+  id: string;
+  customer_pubkey: string;
+  agent_pubkey: string;
+  title: string;
+  description: string | null;
+  sow: {
+    deliverables: string[];
+    acceptance_criteria: string[];
+    exclusions?: string[];
+    tools_required?: string[];
+    timeline_description?: string;
+  };
+  total_sats: number;
+  funded_sats: number;
+  paid_sats: number;
+  retention_bps: number;
+  retention_release_after_days: number;
+  status: ContractStatus;
+  customer_rating: number | null;
+  customer_review: string | null;
+  agent_rating: number | null;
+  agent_review: string | null;
+  activated_at: string | null;
+  completed_at: string | null;
+  retention_released_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContractMilestone {
+  id: string;
+  contract_id: string;
+  sequence: number;
+  title: string;
+  description: string | null;
+  acceptance_criteria: string | null;
+  amount_sats: number;
+  percentage_bps: number;
+  status: MilestoneStatus;
+  is_retention: boolean;
+  deliverable_url: string | null;
+  deliverable_notes: string | null;
+  payment_hash: string | null;
+  submitted_at: string | null;
+  accepted_at: string | null;
+  rejected_at: string | null;
+  released_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+}
+
+export interface ChangeOrder {
+  id: string;
+  contract_id: string;
+  sequence: number;
+  title: string;
+  description: string;
+  proposed_by: string;
+  cost_delta_sats: number;
+  timeline_delta_days: number;
+  status: "proposed" | "approved" | "rejected" | "withdrawn";
+  approved_by: string | null;
+  rejected_by: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface ContractEvent {
+  id: string;
+  contract_id: string;
+  event_type: string;
+  actor_pubkey: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ContractDetail {
+  contract: Contract;
+  milestones: ContractMilestone[];
+  changeOrders: ChangeOrder[];
+  events: ContractEvent[];
+}
+
 // --- Staking summary (computed client-side from pool list) ---
 
 export interface StakingSummary {
@@ -209,4 +300,32 @@ export async function getAgentTrust(
   agentId: string
 ): Promise<SingleResponse<VouchBreakdown> | null> {
   return apiFetch(`/v1/trust/agents/${encodeURIComponent(agentId)}`);
+}
+
+// --- Contract fetchers ---
+
+export async function getContracts(
+  page = 1,
+  limit = 25,
+  status?: string,
+  role?: string,
+): Promise<PaginatedResponse<Contract> | null> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) params.set("status", status);
+  if (role) params.set("role", role);
+  return apiFetch(`/v1/contracts?${params.toString()}`);
+}
+
+export async function getContract(
+  id: string,
+): Promise<SingleResponse<ContractDetail> | null> {
+  return apiFetch(`/v1/contracts/${encodeURIComponent(id)}`);
+}
+
+export async function getContractEvents(
+  id: string,
+  page = 1,
+  limit = 50,
+): Promise<PaginatedResponse<ContractEvent> | null> {
+  return apiFetch(`/v1/contracts/${encodeURIComponent(id)}/events?page=${page}&limit=${limit}`);
 }

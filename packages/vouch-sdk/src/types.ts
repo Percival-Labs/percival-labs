@@ -138,6 +138,132 @@ export interface SingleResponse<T> {
   data: T;
 }
 
+// ── Contract Types ──
+
+export interface ContractSow {
+  deliverables: string[];
+  acceptance_criteria: string[];
+  exclusions?: string[];
+  tools_required?: string[];
+  timeline_description?: string;
+}
+
+export interface ContractMilestoneInput {
+  title: string;
+  description?: string;
+  acceptance_criteria?: string;
+  percentage_bps: number;
+}
+
+export interface CreateContractOptions {
+  agentPubkey: string;
+  title: string;
+  description?: string;
+  sow: ContractSow;
+  totalSats: number;
+  retentionBps?: number;
+  retentionReleaseAfterDays?: number;
+  milestones: ContractMilestoneInput[];
+}
+
+export interface Contract {
+  id: string;
+  customer_pubkey: string;
+  agent_pubkey: string;
+  title: string;
+  description: string | null;
+  sow: ContractSow;
+  total_sats: number;
+  funded_sats: number;
+  paid_sats: number;
+  retention_bps: number;
+  retention_release_after_days: number;
+  status: 'draft' | 'awaiting_funding' | 'active' | 'completed' | 'disputed' | 'cancelled';
+  customer_rating: number | null;
+  customer_review: string | null;
+  agent_rating: number | null;
+  agent_review: string | null;
+  activated_at: string | null;
+  completed_at: string | null;
+  retention_released_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContractMilestone {
+  id: string;
+  contract_id: string;
+  sequence: number;
+  title: string;
+  description: string | null;
+  acceptance_criteria: string | null;
+  amount_sats: number;
+  percentage_bps: number;
+  status: 'pending' | 'in_progress' | 'submitted' | 'accepted' | 'rejected' | 'released';
+  is_retention: boolean;
+  deliverable_url: string | null;
+  deliverable_notes: string | null;
+  payment_hash: string | null;
+  submitted_at: string | null;
+  accepted_at: string | null;
+  rejected_at: string | null;
+  released_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+}
+
+export interface ChangeOrder {
+  id: string;
+  contract_id: string;
+  sequence: number;
+  title: string;
+  description: string;
+  proposed_by: string;
+  cost_delta_sats: number;
+  timeline_delta_days: number;
+  status: 'proposed' | 'approved' | 'rejected' | 'withdrawn';
+  approved_by: string | null;
+  rejected_by: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface ContractEvent {
+  id: string;
+  contract_id: string;
+  event_type: string;
+  actor_pubkey: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ContractDetail {
+  contract: Contract;
+  milestones: ContractMilestone[];
+  changeOrders: ChangeOrder[];
+  events: ContractEvent[];
+}
+
+export interface ContractSummary {
+  id: string;
+  customer_pubkey: string;
+  agent_pubkey: string;
+  title: string;
+  total_sats: number;
+  paid_sats: number;
+  status: string;
+  created_at: string;
+}
+
+export interface ChangeOrderOptions {
+  title: string;
+  description: string;
+  costDeltaSats?: number;
+  timelineDeltaDays?: number;
+}
+
 // ── Credentials ──
 
 export interface VouchCredentials {
