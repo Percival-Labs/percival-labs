@@ -112,8 +112,8 @@ export async function startMcpServer(): Promise<void> {
 
   if (!nsec) {
     process.stderr.write(
-      `[vouch-mcp] No VOUCH_NSEC set — generated new identity: ${vouch.npub}\n` +
-      `[vouch-mcp] Save this nsec to persist identity: ${vouch.identity.nsec}\n`
+      `[vouch-mcp] No VOUCH_NSEC set — generated ephemeral identity: ${vouch.npub}\n` +
+      `[vouch-mcp] Set VOUCH_NSEC environment variable to persist identity across restarts.\n`
     );
   }
 

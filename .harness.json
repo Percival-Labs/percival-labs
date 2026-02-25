@@ -2,8 +2,8 @@
   "name": "Percival Labs",
   "type": "monorepo",
   "status": "active",
-  "phase": "building",
-  "focus": "Vouch weekend launch — auth system built (C6 closed), public score API live, security 29/34 mitigated. Also: Engram content marketing, Website, Terrarium",
+  "phase": "launched",
+  "focus": "Vouch LAUNCHED Feb 22. IP PROTECTION MODE: repos private, npm unpublished, LLC filed (expedited, 1-2 days). Defensive disclosure live on site. Governance + Inference Trust Layer specs written. llms.txt created. WHEN LLC CLEARS: submit IP.com disclosure, file Vouch trademark (Class 42/9), re-open repos, re-publish SDK. Then: content marketing push, Lightning staking, Ian investment discussion.",
   "description": "AI agent platform — 6 agents, Docker services, terrarium visualization, Vouch community (formerly Round Table), marketing website. Vouch = Nostr-native trust staking where community backs agents for yield. Identity via Nostr keypairs + optional ERC-8004 attestation. Payments via Lightning/NWC + Strike fiat bridge. Trust scores published as NIP-85 events.",
   "ports": {
     "agents": 3200,
@@ -17,6 +17,6 @@
     "monetization": "3-5% platform fee on yield distributions + staking fees + API fees",
     "stack": "Nostr (identity + reputation + community) + Lightning/NWC (payments) + Strike (fiat bridge) + ERC-8004 (optional on-chain attestation)",
     "ecosystem_position": "Nostr-native trust staking layer — the economic trust/sybil-defense layer the Nostr AI agent ecosystem is missing. Vouch scores as NIP-85 Trusted Assertions, portable across all Nostr clients.",
-    "updated": "2026-02-21"
+    "updated": "2026-02-23"
   }
 }

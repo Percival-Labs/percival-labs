@@ -18,6 +18,7 @@ import { initAffinityTable, getAllAffinities } from './rpg/affinity';
 import { getAllRPGProfiles } from './rpg/stats';
 import type { RPGProfile, AffinityPair } from './rpg/types';
 import { BudgetTracker } from './policy/budget';
+import { routeTask } from './router';
 
 /**
  * Parse the coordinator's decomposition response into subtask definitions.
@@ -502,6 +503,12 @@ export class AgentTeam {
       };
     }
 
+    // Smart model routing: classify task and select cheapest adequate model
+    const budgetStatus = this.budget.getStatus();
+    const budgetPct = budgetStatus.daily.limit > 0 ? budgetStatus.daily.spent / budgetStatus.daily.limit : 0;
+    const routed = routeTask(task, agent.name, budgetPct);
+    const routedAgent = { ...agent, modelPreference: routed.model };
+
     // Assemble memory context
     let memoryContext = '';
     if (this.memoryDb) {
@@ -514,11 +521,21 @@ export class AgentTeam {
       }
     }
 
+    const onToolUse = (toolName: string, input: Record<string, string>) => {
+      eventBus.publish('tool_use', {
+        agentName: routedAgent.name,
+        taskId: task.id,
+        toolName,
+        input,
+      });
+    };
+
     const result = await executeAgentTask(
       this.client!,
-      agent,
+      routedAgent,
       task,
       memoryContext,
+      onToolUse,
     );
 
     // Record budget usage

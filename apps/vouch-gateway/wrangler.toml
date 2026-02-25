@@ -1,0 +1,69 @@
+# Vouch Gateway — Cloudflare Worker
+# Trust-tiered proxy for AI provider APIs using the Vouch protocol.
+
+name = "vouch-gateway"
+main = "src/index.ts"
+compatibility_date = "2025-02-24"
+
+# ── Custom Domain ──
+# Routes the worker to gateway.percival-labs.ai
+# Cloudflare automatically manages DNS + SSL for custom_domain routes.
+
+[[routes]]
+pattern = "gateway.percival-labs.ai"
+custom_domain = true
+
+# ── Environment Variables ──
+
+[vars]
+VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
+SUPPORTED_PROVIDERS = "anthropic,openai"
+ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
+OPENAI_UPSTREAM = "https://api.openai.com"
+ENVIRONMENT = "production"
+
+# ── KV Namespaces ──
+# Create these with:
+#   wrangler kv namespace create VOUCH_SCORES
+#   wrangler kv namespace create VOUCH_RATE_LIMITS
+#   wrangler kv namespace create VOUCH_ANOMALY
+
+[[kv_namespaces]]
+binding = "VOUCH_SCORES"
+id = "28e22947dfe346288b6c19eaf8fff738"
+
+[[kv_namespaces]]
+binding = "VOUCH_RATE_LIMITS"
+id = "669e8ad0088847189a337a8385cc22fe"
+
+[[kv_namespaces]]
+binding = "VOUCH_ANOMALY"
+id = "5df2e1ac74e74b4288a6a67af6563e46"
+
+# ── Secrets (set via `wrangler secret put`) ──
+# ANTHROPIC_API_KEY
+# OPENAI_API_KEY
+
+# ── Dev Environment ──
+
+[env.dev]
+name = "vouch-gateway-dev"
+
+[env.dev.vars]
+VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
+SUPPORTED_PROVIDERS = "anthropic,openai"
+ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
+OPENAI_UPSTREAM = "https://api.openai.com"
+DEV_MODE = "true"
+
+[[env.dev.kv_namespaces]]
+binding = "VOUCH_SCORES"
+id = "136d3213f0b940bba672502ecb6af067"
+
+[[env.dev.kv_namespaces]]
+binding = "VOUCH_RATE_LIMITS"
+id = "278c4b1fcdbe4262bb85207746fd75aa"
+
+[[env.dev.kv_namespaces]]
+binding = "VOUCH_ANOMALY"
+id = "a5783b9aacc849e1b50b40c277661515"

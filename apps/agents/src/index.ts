@@ -9,7 +9,7 @@ import { AgentTeam } from './team';
 import { eventBus } from './events';
 import { agentAuth } from './middleware/auth';
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3400,http://localhost:3500,http://localhost:3600').split(',');
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3400,http://localhost:3500,http://localhost:3600,http://localhost:3700').split(',');
 
 const app = new Hono();
 
@@ -318,6 +318,32 @@ app.post('/v1/agents/proposals/:id/reject', (c) => {
   }
   team.rejectProposal(id);
   return c.json({ message: 'Proposal rejected', parentId: id });
+});
+
+// ── POST /v1/agents/tasks/:id/reset — Admin: reset a stuck task to pending ──
+app.post('/v1/agents/tasks/:id/reset', (c) => {
+  const id = c.req.param('id');
+  const task = team.getTaskStatus(id);
+  if (!task) {
+    return c.json({ error: `Task "${id}" not found` }, 404);
+  }
+  team.getDAG().updateTask(id, {
+    status: 'pending',
+    assignedTo: null,
+    output: null,
+  });
+  const updated = team.getTaskStatus(id);
+  return c.json({ message: `Task "${id}" reset to pending`, task: updated });
+});
+
+// ── POST /v1/agents/tasks/clear — Admin: remove all tasks from DAG ──
+app.post('/v1/agents/tasks/clear', (c) => {
+  const dag = team.getDAG();
+  const tasks = dag.getAllTasks();
+  for (const task of tasks) {
+    dag.updateTask(task.id, { status: 'completed', output: 'Cleared by admin' });
+  }
+  return c.json({ message: `Cleared ${tasks.length} tasks` });
 });
 
 // ── GET /v1/agents/rpg-stats — RPG character stats for all agents ──
