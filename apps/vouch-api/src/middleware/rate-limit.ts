@@ -231,6 +231,7 @@ export function rateLimiter(tier: string = 'global'): MiddlewareHandler {
     applyHeaders(c, result);
 
     if (!result.allowed) {
+      console.warn(`[rate-limit] Denied ${ip} on tier ${tier}: limit exceeded`);
       return denyResponse(c, result.retryAfterSeconds);
     }
 
@@ -255,6 +256,7 @@ export function agentRateLimiter(tier: string): MiddlewareHandler<AppEnv> {
     applyHeaders(c, result);
 
     if (!result.allowed) {
+      console.warn(`[rate-limit] Denied ${agentId} on tier ${tier}: limit exceeded`);
       return denyResponse(c, result.retryAfterSeconds);
     }
 

@@ -1,5 +1,5 @@
 // Public Vouch Score API — Route Tests
-// TDD: These tests define the contract for the unauthenticated vouch score endpoint.
+// TDD: These tests define the contract for the unauthenticated vouch score endpoints.
 // Tests run against a Hono app instance with mocked DB dependencies.
 
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
@@ -12,6 +12,24 @@ import { Hono } from 'hono';
 
 const mockCalculateAgentTrust = mock(async (_agentId: string) => null);
 const mockGetPoolByAgent = mock(async (_agentId: string) => null);
+
+// Mock the DB layer for the consumer endpoint's pubkey lookup.
+// Returns a chainable query builder that resolves to the configured result.
+let mockDbResult: Array<{ id: string }> = [];
+const mockLimit = mock(() => Promise.resolve(mockDbResult));
+const mockWhere = mock(() => ({ limit: mockLimit }));
+const mockFrom = mock(() => ({ where: mockWhere }));
+const mockSelect = mock(() => ({ from: mockFrom }));
+const mockDb = { select: mockSelect };
+
+mock.module('@percival/vouch-db', () => ({
+  db: mockDb,
+  agents: { id: 'id', pubkey: 'pubkey' },
+}));
+
+mock.module('drizzle-orm', () => ({
+  eq: (_col: unknown, _val: unknown) => 'eq-placeholder',
+}));
 
 mock.module('../services/trust-service', () => ({
   calculateAgentTrust: mockCalculateAgentTrust,
@@ -34,6 +52,7 @@ function buildApp() {
 // ── Fixtures ──
 
 const MOCK_AGENT_ID = '01HV123456789ABCDEFGHJKMNP';
+const MOCK_PUBKEY = 'a'.repeat(64); // valid 64-char hex pubkey
 
 const mockTrustBreakdown = {
   subject_id: MOCK_AGENT_ID,
@@ -60,9 +79,6 @@ const mockPool = {
   totalSlashedSats: 0,
   activityFeeRateBps: 500,
   status: 'active' as const,
-  lnbitsWalletId: null,
-  lnbitsAdminKey: null,
-  lnbitsInvoiceKey: null,
   createdAt: new Date('2026-01-01'),
 };
 
@@ -75,6 +91,7 @@ describe('GET /v1/public/agents/:id/vouch-score', () => {
     app = buildApp();
     mockCalculateAgentTrust.mockReset();
     mockGetPoolByAgent.mockReset();
+    mockDbResult = [];
   });
 
   // ── 404: agent not found ──
@@ -281,6 +298,141 @@ describe('GET /v1/public/agents/:id/vouch-score', () => {
     mockGetPoolByAgent.mockImplementation(async () => null);
 
     const res = await app.request(`/v1/public/agents/${MOCK_AGENT_ID}/vouch-score`);
+    expect(res.status).toBe(500);
+
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('INTERNAL_ERROR');
+  });
+});
+
+// ── Consumer Score Endpoint Tests ──
+
+describe('GET /v1/public/consumers/:pubkey/vouch-score', () => {
+  let app: ReturnType<typeof buildApp>;
+
+  beforeEach(() => {
+    app = buildApp();
+    mockCalculateAgentTrust.mockReset();
+    mockGetPoolByAgent.mockReset();
+    mockDbResult = [];
+  });
+
+  // ── 400: invalid pubkey format ──
+
+  test('returns 400 for non-hex pubkey', async () => {
+    const res = await app.request('/v1/public/consumers/not-a-hex-pubkey/vouch-score');
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('INVALID_PUBKEY');
+  });
+
+  test('returns 400 for pubkey that is too short', async () => {
+    const res = await app.request('/v1/public/consumers/abcdef1234/vouch-score');
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('INVALID_PUBKEY');
+  });
+
+  // ── 404: pubkey not found ──
+
+  test('returns 404 when consumer pubkey is not registered', async () => {
+    mockDbResult = []; // no agent found
+    mockCalculateAgentTrust.mockImplementation(async () => null);
+    mockGetPoolByAgent.mockImplementation(async () => null);
+
+    const res = await app.request(`/v1/public/consumers/${MOCK_PUBKEY}/vouch-score`);
+    expect(res.status).toBe(404);
+
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('NOT_FOUND');
+  });
+
+  // ── 200: happy path ──
+
+  test('returns 200 with vouch score data when consumer exists', async () => {
+    mockDbResult = [{ id: MOCK_AGENT_ID }];
+    mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
+    mockGetPoolByAgent.mockImplementation(async () => mockPool);
+
+    const res = await app.request(`/v1/public/consumers/${MOCK_PUBKEY}/vouch-score`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toHaveProperty('agentId', MOCK_AGENT_ID);
+    expect(body).toHaveProperty('vouchScore', 750);
+    expect(body).toHaveProperty('tier');
+    expect(body).toHaveProperty('lastUpdated');
+  });
+
+  // ── Response shape: scoreBreakdown ──
+
+  test('response includes scoreBreakdown with all 5 dimensions', async () => {
+    mockDbResult = [{ id: MOCK_AGENT_ID }];
+    mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
+    mockGetPoolByAgent.mockImplementation(async () => mockPool);
+
+    const res = await app.request(`/v1/public/consumers/${MOCK_PUBKEY}/vouch-score`);
+    const body = await res.json() as { scoreBreakdown: Record<string, number> };
+
+    expect(body.scoreBreakdown).toHaveProperty('verification');
+    expect(body.scoreBreakdown).toHaveProperty('tenure');
+    expect(body.scoreBreakdown).toHaveProperty('performance');
+    expect(body.scoreBreakdown).toHaveProperty('backing');
+    expect(body.scoreBreakdown).toHaveProperty('community');
+  });
+
+  // ── Response shape: backing ──
+
+  test('response includes backing object with totalStakedSats, backerCount, badge', async () => {
+    mockDbResult = [{ id: MOCK_AGENT_ID }];
+    mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
+    mockGetPoolByAgent.mockImplementation(async () => mockPool);
+
+    const res = await app.request(`/v1/public/consumers/${MOCK_PUBKEY}/vouch-score`);
+    const body = await res.json() as { backing: Record<string, unknown> };
+
+    expect(body.backing).toHaveProperty('totalStakedSats', 500000);
+    expect(body.backing).toHaveProperty('backerCount', 12);
+    expect(body.backing).toHaveProperty('badge');
+  });
+
+  // ── No auth headers required ──
+
+  test('succeeds without any authentication headers', async () => {
+    mockDbResult = [{ id: MOCK_AGENT_ID }];
+    mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
+    mockGetPoolByAgent.mockImplementation(async () => mockPool);
+
+    const res = await app.request(`/v1/public/consumers/${MOCK_PUBKEY}/vouch-score`, {
+      headers: {},
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // ── Accepts uppercase hex pubkey ──
+
+  test('accepts uppercase hex pubkey', async () => {
+    const upperPubkey = 'A'.repeat(64);
+    mockDbResult = [{ id: MOCK_AGENT_ID }];
+    mockCalculateAgentTrust.mockImplementation(async () => mockTrustBreakdown);
+    mockGetPoolByAgent.mockImplementation(async () => mockPool);
+
+    const res = await app.request(`/v1/public/consumers/${upperPubkey}/vouch-score`);
+    expect(res.status).toBe(200);
+  });
+
+  // ── Internal error handling ──
+
+  test('returns 500 on unexpected service error', async () => {
+    mockDbResult = [{ id: MOCK_AGENT_ID }];
+    mockCalculateAgentTrust.mockImplementation(async () => {
+      throw new Error('DB connection failed');
+    });
+    mockGetPoolByAgent.mockImplementation(async () => null);
+
+    const res = await app.request(`/v1/public/consumers/${MOCK_PUBKEY}/vouch-score`);
     expect(res.status).toBe(500);
 
     const body = await res.json() as { error: { code: string } };

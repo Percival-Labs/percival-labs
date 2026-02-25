@@ -1,6 +1,7 @@
-// Vouch — Staking API Routes
+// Vouch — Staking API Routes (NWC / Alby Hub)
 // All financial endpoints enforce caller identity (C2, C5 fixes).
 // Amounts are in sats (Lightning-native).
+// NON-CUSTODIAL: Stakes are NWC budget authorizations, not Lightning payments.
 
 import { Hono } from 'hono';
 import { success, paginated, error } from '../lib/response';
@@ -17,24 +18,25 @@ import {
 import {
   createPool,
   getPoolByAgent,
-  getPoolByAgentInternal,
   getPoolSummary,
   listPools,
   stake,
   initiateStake,
+  finalizeStake,
   requestUnstake,
   withdraw,
   getStakerPositions,
-  getStakePaymentStatus,
+  getStakeStatus,
   recordActivityFee,
   distributeYield,
   slashPool,
   computeBackingComponent,
 } from '../services/staking-service';
-import { createInvoice } from '../services/lnbits-service';
+import { createStakeLock, getActiveConnection } from '../services/nwc-service';
 import { getVoterWeight } from '../services/trust-service';
-import { db, stakes } from '@percival/vouch-db';
-import { eq, and } from 'drizzle-orm';
+import { getCurrentBtcPrice, satsToUsd, getPriceHistory } from '../services/price-service';
+import { db, stakes, treasury } from '@percival/vouch-db';
+import { eq, and, sql } from 'drizzle-orm';
 
 const app = new Hono<AppEnv>();
 
@@ -93,7 +95,6 @@ app.post('/pools', async (c) => {
       return error(c, 403, 'FORBIDDEN', 'Agents can only create pools for themselves');
     }
 
-    // Check if pool already exists
     const existing = await getPoolByAgent(body.agent_id);
     if (existing) {
       return error(c, 409, 'CONFLICT', 'Pool already exists for this agent');
@@ -108,16 +109,17 @@ app.post('/pools', async (c) => {
   }
 });
 
-// ── Staking Routes ──
+// ── Staking Routes (NWC flow) ──
 
-/** POST /pools/:id/stake — Initiate stake with Lightning invoice */
+/**
+ * POST /pools/:id/stake — Initiate stake
+ * Returns stakeId + nwcRequired flag. Client must then connect wallet via NWC.
+ */
 app.post('/pools/:id/stake', async (c) => {
   try {
     const callerId = c.get('verifiedAgentId');
     const userId = c.get('userId' as never) as string | undefined;
 
-    // S5 fix: require authenticated caller for financial operations
-    // Accept either agent Ed25519 auth or user session cookie
     if (!callerId && !userId) {
       return error(c, 401, 'AUTH_REQUIRED', 'Authentication required to stake');
     }
@@ -130,7 +132,6 @@ app.post('/pools/:id/stake', async (c) => {
     }
     const body = parsed.data;
 
-    // S6 fix: derive staker_id from authenticated identity, not from request body
     const stakerId = callerId || userId!;
     const stakerType = callerId ? (body.staker_type || 'agent') : 'user';
 
@@ -139,26 +140,16 @@ app.post('/pools/:id/stake', async (c) => {
       return error(c, 403, 'FORBIDDEN', 'Agents can only stake as themselves');
     }
 
-    // H6 fix: prevent self-staking (agent backing its own pool)
+    // H6 fix: prevent self-staking
     const targetPool = await getPoolSummary(poolId);
     if (targetPool && stakerId === targetPool.agentId) {
       return error(c, 403, 'FORBIDDEN', 'Agents cannot stake in their own pool');
     }
 
-    // Get staker trust score for snapshot
     const stakerTrust = await getVoterWeight(stakerId, stakerType as 'user' | 'agent');
 
-    // Check if pool has Lightning wallet — if so, use two-phase commit
-    const poolInternal = await getPoolByAgentInternal(targetPool?.agentId || '');
-    if (poolInternal?.lnbitsInvoiceKey) {
-      const result = await initiateStake(
-        poolId, stakerId, stakerType as 'user' | 'agent', body.amount_sats, stakerTrust, createInvoice,
-      );
-      return success(c, result, 201);
-    }
-
-    // Fallback: direct stake (no Lightning — for testing/migration)
-    const result = await stake(poolId, stakerId, stakerType as 'user' | 'agent', body.amount_sats, stakerTrust);
+    // Initiate stake — returns pending stake, client must connect NWC wallet
+    const result = await initiateStake(poolId, stakerId, stakerType as 'user' | 'agent', body.amount_sats, stakerTrust);
     return success(c, result, 201);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -170,15 +161,71 @@ app.post('/pools/:id/stake', async (c) => {
   }
 });
 
-/** GET /stakes/:id/status — Get payment status for a stake */
+/**
+ * POST /wallet/connect — Submit NWC connection string after authorizing in wallet app.
+ * Finalizes a pending stake by linking it to the NWC connection.
+ */
+app.post('/wallet/connect', async (c) => {
+  try {
+    const callerId = c.get('verifiedAgentId');
+    const userId = c.get('userId' as never) as string | undefined;
+    const authenticatedId = callerId || userId;
+
+    if (!authenticatedId) {
+      return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
+    }
+
+    const body = await c.req.json();
+    const { stake_id, connection_string, budget_sats } = body;
+
+    if (!stake_id || typeof stake_id !== 'string') {
+      return error(c, 400, 'VALIDATION_ERROR', 'stake_id is required');
+    }
+    if (!connection_string || typeof connection_string !== 'string') {
+      return error(c, 400, 'VALIDATION_ERROR', 'connection_string is required');
+    }
+    if (!connection_string.startsWith('nostr+walletconnect://')) {
+      return error(c, 400, 'VALIDATION_ERROR', 'connection_string must be a valid NWC URI');
+    }
+    if (!budget_sats || typeof budget_sats !== 'number' || budget_sats < 1) {
+      return error(c, 400, 'VALIDATION_ERROR', 'budget_sats must be a positive number');
+    }
+
+    // Verify the pending stake belongs to this user
+    const stakeRecord = await getStakeStatus(stake_id);
+    if (!stakeRecord) {
+      return error(c, 404, 'NOT_FOUND', 'Stake not found');
+    }
+
+    // Create NWC connection (validates wallet is reachable)
+    const connectionId = await createStakeLock(authenticatedId, connection_string, budget_sats);
+
+    // Finalize the pending stake with the NWC connection
+    const result = await finalizeStake(stake_id, connectionId);
+    if (!result) {
+      return error(c, 400, 'BAD_REQUEST', 'Stake already finalized or not in pending state');
+    }
+
+    return success(c, result, 201);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('NWC') || msg.includes('budget') || msg.includes('verification failed')) {
+      return error(c, 400, 'BAD_REQUEST', msg);
+    }
+    console.error('[vouch-api] POST /wallet/connect error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to connect wallet');
+  }
+});
+
+/** GET /stakes/:id/status — Get stake status (for polling during NWC connection flow) */
 app.get('/stakes/:id/status', async (c) => {
   try {
     const stakeId = c.req.param('id');
-    const payment = await getStakePaymentStatus(stakeId);
-    if (!payment) {
-      return error(c, 404, 'NOT_FOUND', 'No payment found for this stake');
+    const stakeRecord = await getStakeStatus(stakeId);
+    if (!stakeRecord) {
+      return error(c, 404, 'NOT_FOUND', 'Stake not found');
     }
-    return success(c, payment);
+    return success(c, stakeRecord);
   } catch (err) {
     console.error('[vouch-api] GET /stakes/:id/status error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to get stake status');
@@ -193,12 +240,10 @@ app.post('/stakes/:id/unstake', async (c) => {
     const authenticatedId = callerId || userId;
     const stakeId = c.req.param('id');
 
-    // H8 fix: require authenticated caller, use verified identity (not body)
     if (!authenticatedId) {
       return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
     }
 
-    // Verify caller owns this stake
     const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
     if (!stakeRecord) {
       return error(c, 404, 'NOT_FOUND', 'Stake not found');
@@ -219,7 +264,10 @@ app.post('/stakes/:id/unstake', async (c) => {
   }
 });
 
-/** POST /stakes/:id/withdraw — Complete withdrawal after notice period */
+/**
+ * POST /stakes/:id/withdraw — Complete withdrawal after notice period.
+ * Non-custodial: principal is already in user's wallet. NWC connection gets revoked.
+ */
 app.post('/stakes/:id/withdraw', async (c) => {
   try {
     const callerId = c.get('verifiedAgentId');
@@ -227,12 +275,10 @@ app.post('/stakes/:id/withdraw', async (c) => {
     const authenticatedId = callerId || userId;
     const stakeId = c.req.param('id');
 
-    // S8 fix: require authenticated caller (agent or user session), use verified identity
     if (!authenticatedId) {
       return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
     }
 
-    // Verify caller owns this stake
     const [stakeRecord] = await db.select({ stakerId: stakes.stakerId }).from(stakes).where(eq(stakes.id, stakeId)).limit(1);
     if (!stakeRecord) {
       return error(c, 404, 'NOT_FOUND', 'Stake not found');
@@ -241,8 +287,12 @@ app.post('/stakes/:id/withdraw', async (c) => {
       return error(c, 403, 'FORBIDDEN', 'You can only withdraw your own positions');
     }
 
-    const amountSats = await withdraw(stakeId, authenticatedId);
-    return success(c, { stakeId, withdrawn_sats: amountSats });
+    const result = await withdraw(stakeId, authenticatedId);
+    return success(c, {
+      stakeId,
+      withdrawn_sats: result.amountSats,
+      payment_status: result.paymentStatus,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('not found') || msg.includes('Cannot withdraw')) {
@@ -279,7 +329,6 @@ app.post('/fees', async (c) => {
     }
     const body = parsed.data;
 
-    // C5 fix: agents can only record their own fees
     if (callerId && callerId !== body.agent_id) {
       return error(c, 403, 'FORBIDDEN', 'Agents can only record fees for themselves');
     }
@@ -310,7 +359,6 @@ app.post('/pools/:id/distribute', async (c) => {
     }
     const body = parsed.data;
 
-    // Verify caller is the pool owner — single lookup, no fallback
     const targetPool = await getPoolSummary(poolId);
     if (!targetPool) {
       return error(c, 404, 'NOT_FOUND', 'Pool not found');
@@ -354,6 +402,53 @@ app.get('/vouch-score/:id', async (c) => {
   } catch (err) {
     console.error('[vouch-api] GET /vouch-score/:id error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to compute vouch score');
+  }
+});
+
+// ── Treasury Summary ──
+
+/** GET /treasury/summary — Treasury balance in sats + USD, with price history */
+app.get('/treasury/summary', async (c) => {
+  try {
+    const [treasuryRow] = await db
+      .select({ totalSats: sql<number>`COALESCE(SUM(${treasury.amountSats}), 0)::int` })
+      .from(treasury);
+
+    const totalSats = treasuryRow?.totalSats ?? 0;
+
+    const btcPrice = await getCurrentBtcPrice();
+    const totalUsd = btcPrice !== null ? await satsToUsd(totalSats) : null;
+
+    const breakdown = await db
+      .select({
+        sourceType: treasury.sourceType,
+        totalSats: sql<number>`COALESCE(SUM(${treasury.amountSats}), 0)::int`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(treasury)
+      .groupBy(treasury.sourceType);
+
+    const priceHistory = await getPriceHistory(30);
+
+    return success(c, {
+      treasury: {
+        total_sats: totalSats,
+        total_usd: totalUsd !== null ? Math.round(totalUsd * 100) / 100 : null,
+        btc_price_usd: btcPrice,
+        breakdown: breakdown.map((b) => ({
+          source_type: b.sourceType,
+          total_sats: b.totalSats,
+          count: b.count,
+        })),
+      },
+      price_history: priceHistory.map((p) => ({
+        price_usd: p.priceUsd,
+        captured_at: p.capturedAt.toISOString(),
+      })),
+    });
+  } catch (err) {
+    console.error('[vouch-api] GET /treasury/summary error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to get treasury summary');
   }
 });
 

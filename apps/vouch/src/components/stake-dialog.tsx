@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { X, Zap, Check, AlertCircle, Loader2 } from "lucide-react";
-import { useWallet } from "@/contexts/wallet-context";
+import { useState } from "react";
+import { X, Zap, AlertCircle } from "lucide-react";
+import { WalletConnect } from "./wallet-connect";
 import { formatSats } from "@/lib/format";
 
 const API_BASE = "/api/vouch";
 const MIN_STAKE_SATS = 10_000;
-const POLL_INTERVAL_MS = 3000;
 
-type StakeState = "idle" | "creating_invoice" | "awaiting_payment" | "confirming" | "success" | "error";
+type StakeState = "amount_input" | "creating" | "wallet_connect" | "success" | "error";
 
 interface StakeDialogProps {
   poolId: string;
@@ -19,36 +18,25 @@ interface StakeDialogProps {
 }
 
 export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDialogProps) {
-  const { connected, payInvoice } = useWallet();
   const [amount, setAmount] = useState("");
-  const [state, setState] = useState<StakeState>("idle");
-  const [invoice, setInvoice] = useState<{ paymentRequest: string; paymentHash: string; stakeId: string } | null>(null);
+  const [state, setState] = useState<StakeState>("amount_input");
+  const [pendingStake, setPendingStake] = useState<{ stakeId: string; budgetSats: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Cleanup poll on unmount
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
 
   const amountSats = parseInt(amount, 10) || 0;
-  const feeSats = Math.round((amountSats * 100) / 10000); // 1% fee
+  const feeSats = Math.round((amountSats * 100) / 10000); // 1% fee display
   const netSats = amountSats - feeSats;
 
-  async function handleStake() {
+  async function handleInitiateStake() {
     if (amountSats < MIN_STAKE_SATS) {
       setError(`Minimum stake is ${formatSats(MIN_STAKE_SATS)}`);
       return;
     }
 
-    setState("creating_invoice");
+    setState("creating");
     setError(null);
 
     try {
-      // Create stake + invoice via API
-      // S6 fix: use session cookie for auth, server derives staker_id from session
       const res = await fetch(`${API_BASE}/v1/staking/pools/${poolId}/stake`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -67,59 +55,16 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
       const data = await res.json();
       const result = data.data;
 
-      // Check if we got a Lightning invoice (two-phase) or direct stake
-      if (result.paymentRequest) {
-        setInvoice({
-          paymentRequest: result.paymentRequest,
-          paymentHash: result.paymentHash,
-          stakeId: result.stakeId,
-        });
-        setState("awaiting_payment");
-
-        // If wallet connected, auto-pay
-        if (connected) {
-          try {
-            await payInvoice(result.paymentRequest);
-            setState("confirming");
-            startPolling(result.stakeId);
-          } catch {
-            // Auto-pay failed — user can scan QR manually
-          }
-        }
-
-        // Start polling for payment confirmation regardless
-        startPolling(result.stakeId);
-      } else {
-        // Direct stake (no Lightning) — already complete
-        setState("success");
-        setTimeout(() => onSuccess?.(), 1500);
-      }
+      // NWC flow: show wallet connect step
+      setPendingStake({
+        stakeId: result.stakeId,
+        budgetSats: result.budgetSats || amountSats,
+      });
+      setState("wallet_connect");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create stake");
       setState("error");
     }
-  }
-
-  function startPolling(stakeId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/v1/staking/stakes/${stakeId}/status`, {
-          credentials: "include",
-        });
-        if (!res.ok) return;
-
-        const data = await res.json();
-        if (data.data?.status === "paid") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          setState("success");
-          setTimeout(() => onSuccess?.(), 1500);
-        }
-      } catch {
-        // Poll failure — non-critical
-      }
-    }, POLL_INTERVAL_MS);
   }
 
   return (
@@ -137,11 +82,11 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
           Stake on {agentName}
         </h2>
         <p className="mt-1 text-sm text-pl-text-muted">
-          Back this agent with sats. Earn yield when they perform.
+          Back this agent with sats. Your funds stay in your wallet.
         </p>
 
         {/* Amount input */}
-        {(state === "idle" || state === "error") && (
+        {(state === "amount_input" || state === "error") && (
           <div className="mt-5">
             <label className="text-xs text-pl-text-dim">Amount (sats)</label>
             <input
@@ -150,6 +95,7 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
               onChange={(e) => {
                 setAmount(e.target.value);
                 setError(null);
+                if (state === "error") setState("amount_input");
               }}
               placeholder={`Min ${MIN_STAKE_SATS.toLocaleString()}`}
               min={MIN_STAKE_SATS}
@@ -159,7 +105,7 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
             {amountSats >= MIN_STAKE_SATS && (
               <div className="mt-3 space-y-1 text-sm">
                 <div className="flex justify-between text-pl-text-muted">
-                  <span>Staking fee (1%)</span>
+                  <span>Platform fee (1%)</span>
                   <span>{formatSats(feeSats)}</span>
                 </div>
                 <div className="flex justify-between font-medium text-pl-text">
@@ -169,6 +115,14 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
               </div>
             )}
 
+            <div className="mt-3 rounded-lg bg-pl-bg/50 border border-pl-border/50 p-3">
+              <p className="text-[10px] text-pl-text-muted leading-relaxed">
+                Non-custodial staking: You connect your Lightning wallet via NWC.
+                Funds stay in your wallet — we only get authorization to charge if
+                a slash event occurs.
+              </p>
+            </div>
+
             {error && (
               <div className="mt-3 flex items-center gap-2 text-sm text-red-400">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -177,7 +131,7 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
             )}
 
             <button
-              onClick={handleStake}
+              onClick={handleInitiateStake}
               disabled={amountSats < MIN_STAKE_SATS}
               className="mt-4 w-full rounded-lg bg-pl-cyan py-2.5 text-sm font-semibold text-pl-bg hover:bg-pl-cyan/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
@@ -187,44 +141,21 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
           </div>
         )}
 
-        {/* Creating invoice */}
-        {state === "creating_invoice" && (
-          <div className="mt-8 flex flex-col items-center gap-3 text-pl-text-muted">
-            <Loader2 className="h-8 w-8 animate-spin text-pl-cyan" />
-            <p className="text-sm">Creating Lightning invoice...</p>
-          </div>
-        )}
-
-        {/* Awaiting payment (show QR or auto-pay in progress) */}
-        {(state === "awaiting_payment" || state === "confirming") && invoice && (
-          <div className="mt-5 flex flex-col items-center gap-4">
-            {state === "awaiting_payment" && (
-              <>
-                <p className="text-sm text-pl-text-muted text-center">
-                  {connected
-                    ? "Paying via connected wallet..."
-                    : "Scan this invoice with your Lightning wallet"}
-                </p>
-                {/* Lightning invoice as copyable text */}
-                <div className="w-full rounded-lg border border-pl-border bg-pl-bg p-3">
-                  <p className="text-[10px] font-mono text-pl-text-dim break-all leading-relaxed select-all">
-                    {invoice.paymentRequest}
-                  </p>
-                </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(invoice.paymentRequest)}
-                  className="text-xs text-pl-cyan hover:text-pl-cyan/80 transition-colors"
-                >
-                  Copy invoice
-                </button>
-              </>
-            )}
-            {state === "confirming" && (
-              <div className="flex flex-col items-center gap-3 text-pl-text-muted">
-                <Loader2 className="h-8 w-8 animate-spin text-pl-cyan" />
-                <p className="text-sm">Confirming payment...</p>
-              </div>
-            )}
+        {/* NWC Wallet Connect step */}
+        {state === "wallet_connect" && pendingStake && (
+          <div className="mt-5">
+            <WalletConnect
+              stakeId={pendingStake.stakeId}
+              budgetSats={pendingStake.budgetSats}
+              onSuccess={() => {
+                setState("success");
+                setTimeout(() => onSuccess?.(), 1500);
+              }}
+              onCancel={() => {
+                setState("amount_input");
+                setPendingStake(null);
+              }}
+            />
           </div>
         )}
 
@@ -232,11 +163,14 @@ export function StakeDialog({ poolId, agentName, onClose, onSuccess }: StakeDial
         {state === "success" && (
           <div className="mt-8 flex flex-col items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pl-green/20">
-              <Check className="h-6 w-6 text-pl-green" />
+              <Zap className="h-6 w-6 text-pl-green" />
             </div>
             <p className="text-sm font-medium text-pl-green">Stake confirmed!</p>
             <p className="text-xs text-pl-text-muted">
               {formatSats(netSats)} staked on {agentName}
+            </p>
+            <p className="text-[10px] text-pl-text-dim">
+              Your funds remain in your wallet
             </p>
           </div>
         )}
