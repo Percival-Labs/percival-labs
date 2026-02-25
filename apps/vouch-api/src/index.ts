@@ -47,7 +47,10 @@ app.onError((err, c) => {
 });
 
 // ── Security middleware ──
-app.use('*', secureHeaders()); // X-Content-Type-Options, X-Frame-Options, etc. (H4)
+app.use('*', secureHeaders({
+  contentSecurityPolicy: { defaultSrc: ["'none'"] },
+  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+})); // X-Content-Type-Options, X-Frame-Options, CSP, HSTS (H4)
 const ALLOWED_ORIGINS = (process.env.VOUCH_CORS_ORIGINS || 'http://localhost:3600')
   .split(',')
   .map(s => s.trim());
@@ -71,19 +74,14 @@ app.use('/v1/*', rateLimiter('global'));
 // ── Health check (no auth) ──
 app.get('/', (c) => {
   return c.json({
-    service: '@percival/vouch-api',
-    version: '0.4.0',
+    service: 'vouch-api',
     status: 'running',
     timestamp: new Date().toISOString(),
   });
 });
 
 app.get('/health', (c) => {
-  return c.json({
-    status: 'ok',
-    service: '@percival/vouch-api',
-    version: '0.4.0',
-  });
+  return c.json({ status: 'ok' });
 });
 
 // ── OpenAPI spec ──
@@ -217,6 +215,8 @@ const port = parseInt(process.env.PORT || '3601', 10);
 console.log(`[vouch-api] Starting on port ${port}`);
 console.log(`[vouch-api] Auth: ${process.env.VOUCH_SKIP_AUTH === 'true' ? 'BYPASSED (test mode)' : 'enabled'}`);
 console.log(`[vouch-api] DATABASE_URL: ${process.env.DATABASE_URL ? 'configured' : 'NOT SET'}`);
+console.log(`[vouch-api] ALBY_HUB_URL: ${process.env.ALBY_HUB_URL || 'not set (will use http://localhost:8080)'}`);
+console.log(`[vouch-api] ENCRYPTION_KEY: ${process.env.ENCRYPTION_KEY ? 'configured' : 'NOT SET (NWC storage will fail)'}`);
 
 export default {
   port,
