@@ -1,0 +1,303 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vouch Trust Protocol API",
+    "description": "Public API for querying AI agent trust scores and Vouch Gateway capabilities. Vouch is an economic trust-staking protocol that provides verifiable reputation for AI agents through cryptographic identity, community staking, and public trust scores.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Percival Labs",
+      "url": "https://percival-labs.ai",
+      "email": "hello@percival-labs.ai"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://percivalvouch-api-production.up.railway.app",
+      "description": "Vouch API (Production)"
+    }
+  ],
+  "paths": {
+    "/v1/public/agents/{agentId}/vouch-score": {
+      "get": {
+        "operationId": "getAgentVouchScore",
+        "summary": "Get an agent's trust score",
+        "description": "Returns the public trust score for an AI agent. No authentication required. The score is a composite of five dimensions: verification, tenure, performance, backing, and community. Scores range from 0 to 100 and determine the agent's access tier.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "description": "The agent's Nostr public key in npub or hex format.",
+            "schema": {
+              "type": "string",
+              "example": "npub1x8glnkcq80d55sxuqk0dnplwvvx4m7r43gam3ncs23847w7uzczqt5t96a"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent trust score retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VouchScore"
+                },
+                "example": {
+                  "agentId": "npub1x8glnkcq80d55sxuqk0dnplwvvx4m7r43gam3ncs23847w7uzczqt5t96a",
+                  "vouchScore": 72,
+                  "scoreBreakdown": {
+                    "verification": 18,
+                    "tenure": 8,
+                    "performance": 22,
+                    "backing": 15,
+                    "community": 9
+                  },
+                  "backing": {
+                    "totalStaked": 50000,
+                    "stakerCount": 12
+                  },
+                  "tier": "elevated",
+                  "lastUpdated": "2026-02-24T00:00:00Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "description": "Returns the current health status of the Vouch API.",
+        "responses": {
+          "200": {
+            "description": "Service is healthy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/vouch-gateway": {
+      "get": {
+        "operationId": "getGatewayCapabilities",
+        "summary": "Gateway capabilities discovery",
+        "description": "Returns the Vouch Gateway capabilities document, including supported providers, authentication method, trust tiers with rate limits and model access, and monitored anomaly signals.",
+        "responses": {
+          "200": {
+            "description": "Gateway capabilities document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayCapabilities"
+                },
+                "example": {
+                  "version": "1.0",
+                  "providers": ["anthropic", "openai"],
+                  "auth": "nip-98",
+                  "trust_api": "https://percivalvouch-api-production.up.railway.app",
+                  "tiers": {
+                    "restricted": {
+                      "score_range": "0-24",
+                      "rate_limit": 10,
+                      "models": ["basic"]
+                    },
+                    "standard": {
+                      "score_range": "25-59",
+                      "rate_limit": 60,
+                      "models": ["all"]
+                    },
+                    "elevated": {
+                      "score_range": "60-84",
+                      "rate_limit": 300,
+                      "models": ["all", "reasoning"]
+                    },
+                    "unlimited": {
+                      "score_range": "85-100",
+                      "rate_limit": null,
+                      "models": ["all", "reasoning"]
+                    }
+                  },
+                  "anomaly_signals": [
+                    "cot_ratio",
+                    "timing_variance",
+                    "volume_spikes",
+                    "model_diversity",
+                    "prompt_length_distribution"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "VouchScore": {
+        "type": "object",
+        "required": ["agentId", "vouchScore", "scoreBreakdown", "backing", "tier", "lastUpdated"],
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "The agent's Nostr public key (npub or hex format)."
+          },
+          "vouchScore": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Composite trust score from 0 to 100."
+          },
+          "scoreBreakdown": {
+            "type": "object",
+            "description": "Individual scores for each trust dimension.",
+            "properties": {
+              "verification": {
+                "type": "number",
+                "description": "Identity verification score (max 20)."
+              },
+              "tenure": {
+                "type": "number",
+                "description": "Time-based trust score (max 10)."
+              },
+              "performance": {
+                "type": "number",
+                "description": "Task outcome track record (max 30)."
+              },
+              "backing": {
+                "type": "number",
+                "description": "Capital staked by backers (max 25)."
+              },
+              "community": {
+                "type": "number",
+                "description": "Community contribution score (max 15)."
+              }
+            }
+          },
+          "backing": {
+            "type": "object",
+            "description": "Staking information for this agent.",
+            "properties": {
+              "totalStaked": {
+                "type": "integer",
+                "description": "Total satoshis staked backing this agent."
+              },
+              "stakerCount": {
+                "type": "integer",
+                "description": "Number of unique stakers."
+              }
+            }
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["restricted", "standard", "elevated", "unlimited"],
+            "description": "The agent's access tier based on their trust score."
+          },
+          "lastUpdated": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of the last score update."
+          }
+        }
+      },
+      "GatewayCapabilities": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Gateway protocol version."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Supported upstream AI providers."
+          },
+          "auth": {
+            "type": "string",
+            "description": "Authentication method (nip-98)."
+          },
+          "trust_api": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the Vouch trust score API."
+          },
+          "tiers": {
+            "type": "object",
+            "description": "Trust tier definitions with rate limits and model access.",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "score_range": {
+                  "type": "string"
+                },
+                "rate_limit": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "models": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "anomaly_signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Behavioral signals monitored for anomaly detection."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message."
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code."
+          }
+        }
+      }
+    }
+  }
+}

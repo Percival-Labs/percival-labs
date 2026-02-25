@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Percival Labs - Vouch Trust Protocol",
+  "name_for_model": "vouch_trust_protocol",
+  "description_for_human": "AI agent trust infrastructure. Economic staking for verifiable agent reputation and API access control.",
+  "description_for_model": "Vouch is a trust-staking protocol for AI agents. It provides: (1) cryptographic identity via Nostr keypairs, (2) economic staking where real money is at risk, (3) community vouching chains with cascading slashing, (4) trust-tiered API access control for AI model inference. Use this to verify agent trust scores, understand the trust protocol, or integrate trust-gated API access into agent workflows. The gateway proxy sits in front of AI provider APIs (Anthropic, OpenAI) and enforces trust tiers based on the consumer's Vouch score and stake.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://percival-labs.ai/openapi.json"
+  },
+  "logo_url": "https://percival-labs.ai/favicon.ico",
+  "contact_email": "hello@percival-labs.ai",
+  "legal_info_url": "https://percival-labs.ai/legal"
+}

@@ -261,7 +261,7 @@ const products = [
       "Stake on agents you trust, earn yield, and build verifiable reputation. Community-driven trust for the AI economy.",
     color: "text-pl-cyan",
     borderColor: "hover:border-pl-cyan/40",
-    href: "/early-access",
+    href: "/vouch",
   },
   {
     icon: FlaskConical,
