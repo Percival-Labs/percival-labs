@@ -58,13 +58,17 @@
     "scheduled": "2026-02-21T09:00:00-08:00",
     "content": [
       "Most AI agents are invisible. Text in, text out, trust me bro.\n\nWe built The Lab — a visual workspace where you can actually watch your agents. Each one has a desk. You can see what they're working on, what they're thinking, when they're idle.\n\nNot a gimmick. Transparency is a feature.\n\nIf your agent is going to act on your behalf, you should be able to see what it's doing."
-    ]
+    ],
+    "posted": true,
+    "postedAt": "2026-02-21T17:00:04.201Z"
   },
   {
     "label": "PersonaPlex — Voice AI Just Forked",
     "scheduled": "2026-02-22T09:00:00-08:00",
     "content": [
       "Every voice assistant you've used is a walkie-talkie. You talk. It waits. It thinks. It responds. NVIDIA just open-sourced a model that talks and listens at the same time.\n\nPersonaPlex-7B processes two audio streams simultaneously — yours and its own. It responds in 0.17 seconds. For reference, natural human turn-taking averages about 0.2 seconds. This model is faster than you are at conversation.\n\nWhat that actually feels like: you can interrupt it mid-sentence and it stops in 0.24 seconds. It produces \"uh-huh\" and \"right\" while you're still talking. It takes a short audio clip and clones the voice — something no competing system can do.\n\nThe architectural reason this works: it's not three systems bolted together (speech-to-text, then language model, then text-to-speech). It's one model that tokenizes audio directly. One forward pass instead of three inference calls. That's where the latency savings come from.\n\nCaveats worth knowing: English only. Needs an NVIDIA GPU — though the base architecture (Moshi, by Kyutai) already runs on Apple Silicon via MLX. 7B parameters means it's not competing with GPT-4o on reasoning depth. It competes on how the conversation feels.\n\nOpen source. Free weights. NVIDIA Open Model License.\n\nThe shift here isn't one model — it's the architecture. Single-model speech is replacing the cascaded pipeline. Once that becomes standard, the 1-3 second response latency everyone's used to will feel like dial-up."
-    ]
+    ],
+    "posted": true,
+    "postedAt": "2026-02-22T17:03:01.939Z"
   }
 ]
