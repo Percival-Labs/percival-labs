@@ -99,7 +99,7 @@ app.get('/playlist', (c) => {
       .sort(() => Math.random() - 0.5)
       .map((f) => ({
         name: f.replace(/^\d+-/, '').replace(/-/g, ' ').replace(/\.mp3$/, ''),
-        url: `/public/audio/${f}`,
+        url: `/terrarium/public/audio/${f}`,
       }));
     return c.json(files);
   } catch {
