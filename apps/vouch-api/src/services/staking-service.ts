@@ -26,8 +26,8 @@ import {
 const PLATFORM_FEE_BPS = 100; // 1% — lowest viable rate, covers infrastructure with thin margin
 const STAKING_FEE_BPS = 0; // 0% — zero deposit fee, optimize for participation not extraction
 const UNSTAKE_NOTICE_DAYS = 7;
-const SLASH_TO_AFFECTED_BPS = 5000; // 50%
-const SLASH_TO_TREASURY_BPS = 5000; // 50%
+const SLASH_TO_AFFECTED_BPS = 10000; // 100% to damaged party
+const SLASH_TO_TREASURY_BPS = 0; // PL takes 0% of slashes — revenue comes from activity fees, not bad events
 const MAX_STAKE_SATS = 100_000_000; // 1 BTC cap
 const MIN_STAKE_SATS = 10_000; // ~$10 equivalent
 const MAX_FEE_SATS = 100_000_000; // 1 BTC cap per fee record
@@ -863,15 +863,9 @@ export async function slashPool(
       })
       .where(eq(vouchPools.id, poolId));
 
-    // Record treasury income
-    if (toTreasurySats > 0) {
-      await tx.insert(treasury).values({
-        amountSats: toTreasurySats,
-        sourceType: 'slash',
-        sourceId: poolId,
-        description: `Slash: ${reason}`,
-      });
-    }
+    // NOTE: PL takes 0% of slashes. 100% goes to damaged party.
+    // Revenue comes from 1% activity fees on good behavior, not from bad events.
+    // This aligns incentives with C > D: PL profits when agents work well.
 
     // Execute slash charges via NWC (non-blocking, after DB transaction)
     // The DB records the slash proportionally; actual Lightning charges happen asynchronously

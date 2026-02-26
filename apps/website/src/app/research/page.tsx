@@ -10,6 +10,26 @@ export const metadata: Metadata = {
 
 const papers = [
   {
+    slug: "digital-institutions-agent-governance",
+    title:
+      "Economic Bonds and Cryptographic Identity as Digital Institutions for AI Agent Governance",
+    type: "Research Paper",
+    date: "February 2026",
+    id: "",
+    summary:
+      "Hadfield and Koh identify a foundational gap in AI agent governance: the identity and record-keeping infrastructure for human coordination does not exist for AI agents. We present a working implementation through cryptographic identity, economic bonding, and federated record-keeping — and examine where it meets and falls short of the framework's requirements.",
+  },
+  {
+    slug: "model-provenance-trust-problem",
+    title:
+      "Model Provenance Is a Trust Problem, Not Just a Capability Problem",
+    type: "Analysis",
+    date: "February 25, 2026",
+    id: "",
+    summary:
+      "Nate B. Jones argues distillation is a Napster problem with thousand-to-one extraction economics. Distilled models occupy narrower manifolds that break on sustained agentic work — and no benchmark captures it. We extend: if provenance determines how a model breaks, the market needs trust infrastructure to make that verifiable.",
+  },
+  {
     slug: "agents-of-chaos-economic-accountability",
     title:
       "Economic Accountability as an Architectural Primitive: A Response to \"Agents of Chaos\"",
