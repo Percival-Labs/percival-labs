@@ -6,8 +6,9 @@
  */
 
 import Phaser from 'phaser';
-import { TILE_W, TILE_H } from '../sprites/TileGenerator';
 import { GRID_COLS, GRID_ROWS } from '../../game/zones';
+import { isoToScreen, screenToGrid } from '../core/coordinates';
+import { DEPTH_PALETTE, DEPTH_DRAG, DEPTH_SELECTION } from '../core/constants';
 import {
   type VillageState,
   addBuilding,
@@ -80,7 +81,7 @@ export class BuildingPalette {
 
   private createPalette(): void {
     this.container = this.scene.add.container(0, 0);
-    this.container.setDepth(5000);
+    this.container.setDepth(DEPTH_PALETTE);
     this.container.setScrollFactor(0);
     this.layoutPalette();
   }
@@ -213,7 +214,7 @@ export class BuildingPalette {
       (ghost as Phaser.GameObjects.Graphics).fillStyle(0x5eead4, 0.5);
       (ghost as Phaser.GameObjects.Graphics).fillCircle(0, 0, 16);
     }
-    ghost.setDepth(6000);
+    ghost.setDepth(DEPTH_DRAG);
     ghost.setAlpha(0.6);
 
     this.drag = {
@@ -228,7 +229,7 @@ export class BuildingPalette {
   private updateDrag(pointer: Phaser.Input.Pointer): void {
     if (!this.drag) return;
 
-    const { col, row } = this.screenToGrid(pointer.x, pointer.y);
+    const { col, row } = this.gridAt(pointer.x, pointer.y);
     const snappedCol = Math.round(col);
     const snappedRow = Math.round(row);
 
@@ -236,7 +237,7 @@ export class BuildingPalette {
     this.drag.gridRow = snappedRow;
 
     // Snap ghost to grid position
-    const pos = this.isoToScreen(snappedCol, snappedRow);
+    const pos = this.iso(snappedCol, snappedRow);
     if (this.drag.ghost instanceof Phaser.GameObjects.Image) {
       this.drag.ghost.setPosition(pos.x, pos.y);
     } else {
@@ -281,7 +282,7 @@ export class BuildingPalette {
   // ═══ Selection (click on placed items) ═══
 
   trySelect(pointer: Phaser.Input.Pointer): boolean {
-    const { col, row } = this.screenToGrid(pointer.x, pointer.y);
+    const { col, row } = this.gridAt(pointer.x, pointer.y);
     const snappedCol = Math.round(col);
     const snappedRow = Math.round(row);
 
@@ -311,11 +312,11 @@ export class BuildingPalette {
       : this.state.decorations[index];
     if (!item) return;
 
-    const pos = this.isoToScreen(item.col, item.row);
+    const pos = this.iso(item.col, item.row);
     const highlight = this.scene.add.graphics();
     highlight.lineStyle(2, 0x5eead4, 0.9);
     highlight.strokeCircle(pos.x, pos.y - 16, 24);
-    highlight.setDepth(4999);
+    highlight.setDepth(DEPTH_SELECTION);
 
     this.selected = { category, index, highlight };
   }
@@ -391,28 +392,14 @@ export class BuildingPalette {
     });
   }
 
-  // ═══ Coordinate conversion ═══
+  // ═══ Coordinate helpers ═══
 
-  private isoToScreen(col: number, row: number): { x: number; y: number } {
-    const cam = this.scene.cameras.main;
-    const offsetX = cam.width / 2;
-    const offsetY = 60;
-    return {
-      x: (col - row) * (TILE_W / 2) + offsetX,
-      y: (col + row) * (TILE_H / 2) + offsetY,
-    };
+  private iso(col: number, row: number) {
+    return isoToScreen(col, row, this.scene.cameras.main.width);
   }
 
-  private screenToGrid(sx: number, sy: number): { col: number; row: number } {
-    const cam = this.scene.cameras.main;
-    const offsetX = cam.width / 2;
-    const offsetY = 60;
-    const rx = sx - offsetX;
-    const ry = sy - offsetY;
-    return {
-      col: rx / TILE_W + ry / TILE_H,
-      row: ry / TILE_H - rx / TILE_W,
-    };
+  private gridAt(sx: number, sy: number) {
+    return screenToGrid(sx, sy, this.scene.cameras.main.width);
   }
 
   // ═══ Visibility ═══

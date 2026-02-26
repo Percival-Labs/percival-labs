@@ -9,6 +9,8 @@ import Phaser from 'phaser';
 import { ZONES, GRID_COLS, GRID_ROWS } from '../../game/zones';
 import { TILE_W, TILE_H } from '../sprites/TileGenerator';
 import { type VillageState, paintZone, clearZone, isInGrid } from '../state/VillageState';
+import { isoToScreen, screenToGrid } from '../core/coordinates';
+import { DEPTH_PALETTE, DEPTH_HOVER } from '../core/constants';
 
 interface ZoneButton {
   id: string; // zone id or 'eraser'
@@ -50,13 +52,13 @@ export class ZonePainter {
 
   private createUI(): void {
     this.container = this.scene.add.container(0, 0);
-    this.container.setDepth(5000);
+    this.container.setDepth(DEPTH_PALETTE);
     this.container.setScrollFactor(0);
     this.layoutButtons();
 
     // Hover overlay for current tile
     this.hoverOverlay = this.scene.add.graphics();
-    this.hoverOverlay.setDepth(4000);
+    this.hoverOverlay.setDepth(DEPTH_HOVER);
     this.hoverOverlay.setVisible(false);
   }
 
@@ -139,7 +141,7 @@ export class ZonePainter {
   // ═══ Paint logic ═══
 
   private paintAt(sx: number, sy: number): void {
-    const { col, row } = this.screenToGrid(sx, sy);
+    const { col, row } = this.gridAt(sx, sy);
     const c = Math.round(col);
     const r = Math.round(row);
 
@@ -157,7 +159,7 @@ export class ZonePainter {
   private updateHover(sx: number, sy: number): void {
     if (!this.hoverOverlay) return;
 
-    const { col, row } = this.screenToGrid(sx, sy);
+    const { col, row } = this.gridAt(sx, sy);
     const c = Math.round(col);
     const r = Math.round(row);
 
@@ -166,7 +168,7 @@ export class ZonePainter {
       return;
     }
 
-    const pos = this.isoToScreen(c, r);
+    const pos = this.iso(c, r);
     this.hoverOverlay.clear();
 
     // Get zone color
@@ -222,28 +224,14 @@ export class ZonePainter {
     this.painting = false;
   }
 
-  // ═══ Coordinate conversion ═══
+  // ═══ Coordinate helpers ═══
 
-  private isoToScreen(col: number, row: number): { x: number; y: number } {
-    const cam = this.scene.cameras.main;
-    const offsetX = cam.width / 2;
-    const offsetY = 60;
-    return {
-      x: (col - row) * (TILE_W / 2) + offsetX,
-      y: (col + row) * (TILE_H / 2) + offsetY,
-    };
+  private iso(col: number, row: number) {
+    return isoToScreen(col, row, this.scene.cameras.main.width);
   }
 
-  private screenToGrid(sx: number, sy: number): { col: number; row: number } {
-    const cam = this.scene.cameras.main;
-    const offsetX = cam.width / 2;
-    const offsetY = 60;
-    const rx = sx - offsetX;
-    const ry = sy - offsetY;
-    return {
-      col: rx / TILE_W + ry / TILE_H,
-      row: ry / TILE_H - rx / TILE_W,
-    };
+  private gridAt(sx: number, sy: number) {
+    return screenToGrid(sx, sy, this.scene.cameras.main.width);
   }
 
   // ═══ Visibility ═══

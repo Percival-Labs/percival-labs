@@ -10,9 +10,10 @@
 import Phaser from 'phaser';
 import { AGENTS, type VillageAgent } from '../../game/agents';
 import { ZONES } from '../../game/zones';
-import { TILE_W, TILE_H } from '../sprites/TileGenerator';
 import { TEX_H, DRAW_SCALE } from '../sprites/AgentSprite';
 import { type VillageState, findZoneTiles } from '../state/VillageState';
+import { isoToScreen } from '../core/coordinates';
+import { WALK_SPEED } from '../core/constants';
 
 export interface AgentState {
   agent: VillageAgent;
@@ -41,23 +42,13 @@ export class AgentManager {
     this.villageState = villageState;
   }
 
-  /** The isoToScreen converter — needs the scene's camera offset */
-  private isoToScreen(
-    col: number,
-    row: number
-  ): { x: number; y: number } {
-    const cam = this.scene.cameras.main;
-    const offsetX = cam.width / 2;
-    const offsetY = 60;
-    return {
-      x: (col - row) * (TILE_W / 2) + offsetX,
-      y: (col + row) * (TILE_H / 2) + offsetY,
-    };
+  private iso(col: number, row: number) {
+    return isoToScreen(col, row, this.scene.cameras.main.width);
   }
 
   createAll(): void {
     for (const agent of AGENTS) {
-      const { x, y } = this.isoToScreen(agent.startPos[0], agent.startPos[1]);
+      const { x, y } = this.iso(agent.startPos[0], agent.startPos[1]);
 
       const sprite = this.scene.add.image(x, y, `agent-${agent.id}`);
       sprite.setOrigin(0.5, 1); // anchor at feet
@@ -113,7 +104,6 @@ export class AgentManager {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 0.3) return;
 
-    const WALK_SPEED = 1.2; // tiles per second
     const duration = (dist / WALK_SPEED) * 1000;
 
     state.walking = true;
@@ -130,7 +120,7 @@ export class AgentManager {
         state.col = startCol + (targetCol - startCol) * progress;
         state.row = startRow + (targetRow - startRow) * progress;
 
-        const pos = this.isoToScreen(state.col, state.row);
+        const pos = this.iso(state.col, state.row);
         state.sprite.setPosition(pos.x, pos.y);
         state.sprite.setDepth(state.row);
         state.nameLabel.setPosition(pos.x, pos.y - TEX_H - 4);
@@ -141,7 +131,7 @@ export class AgentManager {
         state.walking = false;
         this.stopBob(agentId);
 
-        const pos = this.isoToScreen(state.col, state.row);
+        const pos = this.iso(state.col, state.row);
         state.sprite.setPosition(pos.x, pos.y);
         state.sprite.setDepth(state.row);
         state.nameLabel.setPosition(pos.x, pos.y - TEX_H - 4);
@@ -218,7 +208,7 @@ export class AgentManager {
   /** Reposition all agents after a resize */
   repositionAll(): void {
     for (const state of this.states.values()) {
-      const pos = this.isoToScreen(state.col, state.row);
+      const pos = this.iso(state.col, state.row);
       state.sprite.setPosition(pos.x, pos.y);
       state.nameLabel.setPosition(pos.x, pos.y - TEX_H - 4);
     }
