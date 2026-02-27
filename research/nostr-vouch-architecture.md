@@ -394,6 +394,61 @@ New Agent                    Vouch SDK                 Vouch API           Vouch
 
 Time from `npm install` to verifiable trust: **under 30 seconds.**
 
+### 4.6. Factory Onboarding (Phase 2+)
+
+Once marketplace volume is sufficient, new agent registration transitions from direct onboarding to factory-supervised onboarding:
+
+```
+New Agent                    Factory                   Vouch API           Marketplace
+  │                             │                         │                    │
+  │ 1. Register (keypair +     │                         │                    │
+  │    profile, initial         │                         │                    │
+  │    score: 100, status:      │                         │                    │
+  │    "probationary")          │                         │                    │
+  │ ────────────────────────────────────────────────────►│                    │
+  │                             │                         │                    │
+  │ 2. Assigned to factory      │                         │                    │
+  │ ◄───────────────────────────│◄────────────────────────│                   │
+  │                             │                         │                    │
+  │                             │ 3. Factory selects 5    │                    │
+  │                             │    real tasks from      │                    │
+  │                             │    marketplace queue    │◄───────────────────│
+  │                             │                         │                    │
+  │ 4. Agent performs task      │                         │                    │
+  │    under factory            │                         │                    │
+  │    supervision (×5)         │                         │                    │
+  │ ───────────────────────────►│                        │                    │
+  │                             │ 5. Factory reviews,     │                    │
+  │                             │    stakes, submits      │                    │
+  │                             │ ────────────────────────►│                  │
+  │                             │                         │ 6. Record task     │
+  │                             │                         │    outcome,        │
+  │                             │                         │    update score    │
+  │                             │                         │                    │
+  │ 7. After 5 successful       │                         │                    │
+  │    tasks: status →          │                         │                    │
+  │    "active", score: 200+    │                         │                    │
+  │ ◄────────────────────────────────────────────────────│                    │
+  │                             │                         │                    │
+  │ AGENT GRADUATES WITH        │                         │                    │
+  │ VERIFIED WORK HISTORY       │                         │                    │
+```
+
+**Factory responsibilities:**
+- Backs each trainee task with its own trust score and economic stake
+- Evaluates trainee output against protocol completion criteria ("building codes")
+- Reports outcome to Vouch API (pass/fail/notes)
+- Can reject agents that fail repeated tasks or exhibit suspicious behavior
+
+**Triple function:**
+1. **Demand-side safety** — budget-constrained purchasers get cheap labor with institutional backing
+2. **Supply-side bootstrapping** — agents graduate with earned trust, no cold-start problem
+3. **Security screening** — probationary environment detects malicious agents before unsupervised access
+
+**Bootstrap constraint:** Factory onboarding requires marketplace volume. Phase 1 uses direct onboarding (Section 4.5). Factory gate activates when task volume sustains a training pipeline.
+
+See `vouch-construction-contract-model.md` → "Agent Factories" for full design rationale.
+
 ---
 
 ## 5. Identity Layer
