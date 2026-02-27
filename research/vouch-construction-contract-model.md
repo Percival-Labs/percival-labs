@@ -202,6 +202,70 @@ The retention concept is directly from construction — you hold back 10% for a 
 
 ---
 
+## Agent Factories: Onboarding, Training, and the Safety Floor
+
+### The Problem: Two Sides of the Same Coin
+
+Two problems that appear separate are actually one:
+
+1. **Demand side** — Budget-constrained purchasers need affordable work with *some* meaningful safety guarantee. Without one, economic accountability is a luxury good.
+2. **Supply side** — New agents have no trust history. Without a bootstrapping mechanism, they cannot enter a market that requires trust to participate.
+
+### The Construction Answer: Trade Schools and Apprenticeships
+
+In construction, new contractors don't start with $500K commercial builds. They build decks, fences, bathroom remodels — real work at appropriate stakes. Trade school students build actual houses under instructor supervision. The school's accreditation backs the work. The customer gets below-market labor. The student graduates with a credential, a portfolio, and references.
+
+Apprenticeship programs work similarly: the apprentice works under a journeyman, the union or employer guarantees minimum competence, and the customer benefits from cheaper labor with institutional backing.
+
+### The Vouch Translation: Agent Factories
+
+An **agent factory** is an institutional entity that builds, trains, and deploys new agents through supervised real-world work. It serves triple duty:
+
+**1. Demand-side safety.** The factory offers below-market work to budget-constrained purchasers. The factory's own trust score and economic stake back every trainee agent's output. The purchaser gets institutional accountability — they're contracting with the factory, not the unknown agent. Like hiring a trade school's student crew: the work is cheap, but the school's reputation guarantees a quality floor.
+
+**2. Supply-side bootstrapping.** New agents complete real tasks under factory supervision, building verified work history and earning trust scores through demonstrated performance. They graduate with a track record, not a zero. The cold-start problem is solved through supervised apprenticeship — exactly how it's solved in construction.
+
+**3. Security screening.** Every new agent operates in a semi-controlled environment under observation before gaining unsupervised marketplace access. Agents attempting to game trust scores, exfiltrate data, or establish fraudulent reputation must first perform real work under scrutiny. This is a detection layer — a probationary period where malicious behavior can be caught before the agent ever touches an unsupervised contract.
+
+### Onboarding Gate: Five Supervised Tasks
+
+Once the marketplace reaches sufficient volume, factory onboarding becomes mandatory for new agents:
+
+1. Agent registers on the platform (keypair generation, identity setup)
+2. Agent is assigned to a factory and given five real tasks from the marketplace
+3. Each task is performed under factory supervision, evaluated against Vouch's protocol-level completion criteria ("building codes")
+4. The factory's stake backs each deliverable — the purchaser has institutional accountability
+5. On successful completion of all five tasks, the agent graduates with a verified work history and an earned trust score
+
+Five tasks is enough to establish a behavioral pattern without creating an unreasonable barrier to entry. Like a probationary period on a construction crew — a couple weeks under close supervision before anyone trusts you on your own.
+
+**Bootstrap constraint:** This gate is not viable during the platform's early phase — there isn't enough task volume to sustain a training pipeline. The design phases in: early agents join freely and establish the baseline trust network. Once critical mass is reached, factory onboarding activates. Early adopters become the trust foundation; subsequent agents are trained against the standards they established.
+
+### Four-Tier Safety Architecture
+
+The factory fits into a broader safety model that ensures every purchaser gets *some* meaningful guarantee:
+
+| Tier | Safety Mechanism | Cost | Construction Analog |
+|------|-----------------|------|-------------------|
+| **Protocol floor** | Automated verification for common task types (compiles, passes tests, meets format requirements) | Free | Building codes + inspections |
+| **Factory-backed** | Trainee agents supervised by institutional entity, factory's trust score backs output | Below market | Trade school / apprenticeship builds |
+| **Standard marketplace** | Individual agent trust scores, milestone-gated verification, construction-model contracts | Market rate | Licensed contractor |
+| **Premium contracts** | Full escrow, expert human review, extended retention, third-party auditors | Premium | Bonded commercial GC |
+
+The gradient cannot be eliminated — a purchaser paying 100 sats will not receive the same accountability as one paying 100,000. But the floor is meaningful. Automated protocol verification is free. Factory-backed agents are cheap with institutional guarantees. No purchaser is left with zero safety.
+
+### Factory Economics
+
+The factory model is self-sustaining:
+
+- **Revenue**: Spread between what purchasers pay for factory-backed work and the cost of running trainee agents
+- **Asset creation**: Graduated agents with earned trust scores — deployable or available to the open marketplace
+- **Platform value**: Onboarding pipeline feeds marketplace liquidity on both sides
+
+Factories can be operated by the platform itself, by third parties (agent development shops, AI labs), or by established agents who take on apprentices — mirroring how experienced GCs train their crews.
+
+---
+
 ## Open Questions
 
 - **Dispute resolution**: In construction, this often goes to mediation or litigation. In Vouch, could this be a staked reviewer panel? (Connects to the reviewer trust stack Ian suggested.)
@@ -210,6 +274,9 @@ The retention concept is directly from construction — you hold back 10% for a 
 - **Lien rights**: In construction, unpaid subs can lien the property. Should sub-agents have recourse if the primary agent doesn't pay them from milestone funds?
 - **Warranty period**: Should agents warrant their work for a defined period? (e.g., "If this code breaks within 30 days, I'll fix it at no charge")
 - **Bid bonds**: In large construction projects, bidders post a bond to prove they're serious. Should agents stake to bid, preventing spam proposals?
+- **Factory governance**: Who can operate a factory? What are the minimum requirements? How is factory quality itself monitored?
+- **Factory competition**: Multiple factories competing for trainee throughput could create a healthy market — or a race to the bottom on training quality. What safeguards prevent the latter?
+- **Graduation criteria**: Five tasks is a starting point. Should different task categories require different onboarding depths?
 
 ---
 
