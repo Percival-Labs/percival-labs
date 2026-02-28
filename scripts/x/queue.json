@@ -1,74 +1,183 @@
 [
   {
+    "id": "legacy-0-builder-story",
     "label": "Builder Story",
     "scheduled": "2026-02-15T08:30:00-08:00",
-    "content": [
-      "I'm a carpenter in Bellingham, WA. I build houses during the day and AI infrastructure at night.\n\nLast year I couldn't write a line of code. Now I have 6 AI agents with persistent memory, a visual dashboard where you can watch them work, and a framework I'm open-sourcing.\n\nNobody showed me how. I just started building.\n\nThat's the whole point of @PercivalLabs — the barrier was never intelligence. It was intimidation.\n\nIf a carpenter can build this, so can you."
+    "phases": [
+      {
+        "label": "Builder Story",
+        "type": "tweet",
+        "content": "I'm a carpenter in Bellingham, WA. I build houses during the day and AI infrastructure at night.\n\nLast year I couldn't write a line of code. Now I have 6 AI agents with persistent memory, a visual dashboard where you can watch them work, and a framework I'm open-sourcing.\n\nNobody showed me how. I just started building.\n\nThat's the whole point of @PercivalLabs \u2014 the barrier was never intelligence. It was intimidation.\n\nIf a carpenter can build this, so can you.",
+        "posted": true,
+        "postedAt": "2026-02-15T18:30:05.381Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-15T18:30:05.381Z"
+    "status": "completed",
+    "completedAt": "2026-02-15T18:30:05.381Z"
   },
   {
-    "label": "PicoClaw — The Runtime Is Plumbing",
+    "id": "legacy-1-picoclaw-the-runtime-is-plumbing",
+    "label": "PicoClaw \u2014 The Runtime Is Plumbing",
     "scheduled": "2026-02-16T09:00:00-08:00",
-    "content": [
-      "A hardware company in China rebuilt an AI agent from scratch in Go. One day. 95% AI-written. Runs on a $10 RISC-V board with 8MB of RAM.\n\nFor context — OpenClaw is 430,000 lines of TypeScript, needs a Mac mini, uses over 1GB of memory. PicoClaw does the same core job as a single 8MB binary with zero dependencies. 10,000 stars in six days.\n\nThe trick: it's a thin agent. The Go binary just routes messages between chat platforms and LLM APIs, manages sessions in flat JSON files, and executes sandboxed tools. All the thinking happens remotely. The local footprint is basically a message router.\n\nThis matters because of what it tells you about where value actually lives. If a hardware team can ship a working agent runtime in a day, the runtime isn't the hard part. It's becoming plumbing — like web servers or HTTP libraries. Necessary, but not where the leverage is.\n\nThe hard part is still the stuff above the runtime: your context, your skills, your memory, your identity config. The things that make your agent actually useful to you specifically. PicoClaw ships with SOUL.md, USER.md, and IDENTITY.md files for exactly this reason.\n\nWe're seeing this across the ecosystem right now. The runtime is commodity. The context layer is the craft."
+    "phases": [
+      {
+        "label": "PicoClaw \u2014 The Runtime Is Plumbing",
+        "type": "tweet",
+        "content": "A hardware company in China rebuilt an AI agent from scratch in Go. One day. 95% AI-written. Runs on a $10 RISC-V board with 8MB of RAM.\n\nFor context \u2014 OpenClaw is 430,000 lines of TypeScript, needs a Mac mini, uses over 1GB of memory. PicoClaw does the same core job as a single 8MB binary with zero dependencies. 10,000 stars in six days.\n\nThe trick: it's a thin agent. The Go binary just routes messages between chat platforms and LLM APIs, manages sessions in flat JSON files, and executes sandboxed tools. All the thinking happens remotely. The local footprint is basically a message router.\n\nThis matters because of what it tells you about where value actually lives. If a hardware team can ship a working agent runtime in a day, the runtime isn't the hard part. It's becoming plumbing \u2014 like web servers or HTTP libraries. Necessary, but not where the leverage is.\n\nThe hard part is still the stuff above the runtime: your context, your skills, your memory, your identity config. The things that make your agent actually useful to you specifically. PicoClaw ships with SOUL.md, USER.md, and IDENTITY.md files for exactly this reason.\n\nWe're seeing this across the ecosystem right now. The runtime is commodity. The context layer is the craft.",
+        "posted": true,
+        "postedAt": "2026-02-17T04:00:01.222Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-17T04:00:01.222Z"
+    "status": "completed",
+    "completedAt": "2026-02-17T04:00:01.222Z"
   },
   {
-    "label": "Hot Take — Cooperation vs Defection",
+    "id": "legacy-2-hot-take-cooperation-vs-defection",
+    "label": "Hot Take \u2014 Cooperation vs Defection",
     "scheduled": "2026-02-17T09:00:00-08:00",
-    "content": [
-      "The AI agent ecosystem has a cooperation problem.\n\nOne project is building \"unblockable\" bot swarms with residential proxy networks. Another is auto-applying to Upwork with AI-generated portfolios. A third is selling $997 courses on \"prompt engineering secrets.\"\n\nAll of these make defection more profitable than cooperation.\n\nWe're building the opposite. Open-source tools. Transparent agents that identify themselves. Infrastructure that transfers capability instead of creating dependency.\n\nCooperation has to outcompete defection. Not by preaching it — by engineering it."
+    "phases": [
+      {
+        "label": "Hot Take \u2014 Cooperation vs Defection",
+        "type": "tweet",
+        "content": "The AI agent ecosystem has a cooperation problem.\n\nOne project is building \"unblockable\" bot swarms with residential proxy networks. Another is auto-applying to Upwork with AI-generated portfolios. A third is selling $997 courses on \"prompt engineering secrets.\"\n\nAll of these make defection more profitable than cooperation.\n\nWe're building the opposite. Open-source tools. Transparent agents that identify themselves. Infrastructure that transfers capability instead of creating dependency.\n\nCooperation has to outcompete defection. Not by preaching it \u2014 by engineering it.",
+        "posted": true,
+        "postedAt": "2026-02-17T17:00:01.559Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-17T17:00:01.559Z"
+    "status": "completed",
+    "completedAt": "2026-02-17T17:00:01.559Z"
   },
   {
-    "label": "Agent World Model — Read the Paper",
+    "id": "legacy-3-agent-world-model-read-the-paper",
+    "label": "Agent World Model \u2014 Read the Paper",
     "scheduled": "2026-02-18T09:00:00-08:00",
-    "content": [
-      "A paper called \"Agent World Model\" went viral yesterday. 9,000 likes. The thread described a paper that doesn't exist.\n\nThe thread said: agents need internal world models. They should simulate consequences. Predict futures. Build structured representations of reality. Referenced Dreamer, MuZero, autonomous driving.\n\nThe paper says: here's a pipeline that auto-generates synthetic SQLite databases, FastAPI servers, and MCP-compatible toolsets so you can train small LLMs via reinforcement learning on tool-use tasks.\n\nNot a world model. An environment factory.\n\nWhich, honestly, is more interesting than what the thread described. The actual bottleneck for training tool-using agents right now is diverse environments to practice in. Real APIs are fragile and rate-limited. LLM-simulated environments hallucinate. This paper generates 1,000 verified, database-backed environments from 100 seed domains. Their trained 8B model improved on all three out-of-distribution benchmarks — the only method that didn't regress on any of them.\n\nFour separate teams published solutions to this same problem in the same month. That's a signal. Synthetic environment generation is the next data flywheel for agent training.\n\nBut you'd never know that from the thread. The lesson isn't \"influencers are bad\" — it's that the methods section of a paper is almost always more useful than someone's interpretation of the abstract."
+    "phases": [
+      {
+        "label": "Agent World Model \u2014 Read the Paper",
+        "type": "tweet",
+        "content": "A paper called \"Agent World Model\" went viral yesterday. 9,000 likes. The thread described a paper that doesn't exist.\n\nThe thread said: agents need internal world models. They should simulate consequences. Predict futures. Build structured representations of reality. Referenced Dreamer, MuZero, autonomous driving.\n\nThe paper says: here's a pipeline that auto-generates synthetic SQLite databases, FastAPI servers, and MCP-compatible toolsets so you can train small LLMs via reinforcement learning on tool-use tasks.\n\nNot a world model. An environment factory.\n\nWhich, honestly, is more interesting than what the thread described. The actual bottleneck for training tool-using agents right now is diverse environments to practice in. Real APIs are fragile and rate-limited. LLM-simulated environments hallucinate. This paper generates 1,000 verified, database-backed environments from 100 seed domains. Their trained 8B model improved on all three out-of-distribution benchmarks \u2014 the only method that didn't regress on any of them.\n\nFour separate teams published solutions to this same problem in the same month. That's a signal. Synthetic environment generation is the next data flywheel for agent training.\n\nBut you'd never know that from the thread. The lesson isn't \"influencers are bad\" \u2014 it's that the methods section of a paper is almost always more useful than someone's interpretation of the abstract.",
+        "posted": true,
+        "postedAt": "2026-02-18T17:00:01.827Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-18T17:00:01.827Z"
+    "status": "completed",
+    "completedAt": "2026-02-18T17:00:01.827Z"
   },
   {
+    "id": "legacy-4-engram-teaser",
     "label": "Engram Teaser",
     "scheduled": "2026-02-19T09:00:00-08:00",
-    "content": [
-      "What your AI forgets between sessions costs you hours.\n\nYou re-explain your preferences. Re-describe your project. Re-teach the same lessons. Every. Single. Time.\n\nEngram is persistent memory for your AI. Not a chatbot — infrastructure.\n\n— Works with any model (Claude, GPT, Llama, Gemini)\n— Runs locally. Your data stays yours.\n— Skills, memory, and identity that survive between sessions\n\nWe've been dogfooding it for months. It's how our agents already work. Now we're extracting it for everyone.\n\nOpen source. Coming soon."
+    "phases": [
+      {
+        "label": "Engram Teaser",
+        "type": "tweet",
+        "content": "What your AI forgets between sessions costs you hours.\n\nYou re-explain your preferences. Re-describe your project. Re-teach the same lessons. Every. Single. Time.\n\nEngram is persistent memory for your AI. Not a chatbot \u2014 infrastructure.\n\n\u2014 Works with any model (Claude, GPT, Llama, Gemini)\n\u2014 Runs locally. Your data stays yours.\n\u2014 Skills, memory, and identity that survive between sessions\n\nWe've been dogfooding it for months. It's how our agents already work. Now we're extracting it for everyone.\n\nOpen source. Coming soon.",
+        "posted": true,
+        "postedAt": "2026-02-19T17:00:04.022Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-19T17:00:04.022Z"
+    "status": "completed",
+    "completedAt": "2026-02-19T17:00:04.022Z"
   },
   {
-    "label": "SOUL.md Convergence — Same Pattern, Different Names",
+    "id": "legacy-5-soul-md-convergence-same-pattern-differe",
+    "label": "SOUL.md Convergence \u2014 Same Pattern, Different Names",
     "scheduled": "2026-02-20T09:00:00-08:00",
-    "content": [
-      "Three projects shipped this month. None of them talked to each other. All three arrived at the same architecture.\n\nPicoClaw (Go, $10 hardware): SOUL.md, USER.md, IDENTITY.md\nAtlas Forge (Letta, personal agent): SOUL.md, PRINCIPLES.md, AGENTS.md\nOpenClaw (TypeScript, 196K stars): personality config + 3,000 community skills\n\nPlain text files that define who your agent is. Markdown skills that define what it can do. Session memory that persists what it learns. All owned by you, not locked into a platform.\n\nThis is convergent evolution. When different teams independently solve the same problem the same way, that's not coincidence — it's the shape of the solution asserting itself.\n\nWe've been building on this pattern for months. Not because we saw it coming — because when you use a personal AI every day for real work, you discover you need exactly three things: stable identity, portable skills, and persistent memory. Everything else is plumbing.\n\nThe good news about convergence: your context files are becoming portable. The identity and skills you write today will work across whichever runtime wins. Invest in the layer that lasts."
+    "phases": [
+      {
+        "label": "SOUL.md Convergence \u2014 Same Pattern, Different Names",
+        "type": "tweet",
+        "content": "Three projects shipped this month. None of them talked to each other. All three arrived at the same architecture.\n\nPicoClaw (Go, $10 hardware): SOUL.md, USER.md, IDENTITY.md\nAtlas Forge (Letta, personal agent): SOUL.md, PRINCIPLES.md, AGENTS.md\nOpenClaw (TypeScript, 196K stars): personality config + 3,000 community skills\n\nPlain text files that define who your agent is. Markdown skills that define what it can do. Session memory that persists what it learns. All owned by you, not locked into a platform.\n\nThis is convergent evolution. When different teams independently solve the same problem the same way, that's not coincidence \u2014 it's the shape of the solution asserting itself.\n\nWe've been building on this pattern for months. Not because we saw it coming \u2014 because when you use a personal AI every day for real work, you discover you need exactly three things: stable identity, portable skills, and persistent memory. Everything else is plumbing.\n\nThe good news about convergence: your context files are becoming portable. The identity and skills you write today will work across whichever runtime wins. Invest in the layer that lasts.",
+        "posted": true,
+        "postedAt": "2026-02-20T18:30:04.974Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-20T18:30:04.974Z"
+    "status": "completed",
+    "completedAt": "2026-02-20T18:30:04.974Z"
   },
   {
+    "id": "legacy-6-the-lab-terrarium-teaser",
     "label": "The Lab / Terrarium Teaser",
     "scheduled": "2026-02-21T09:00:00-08:00",
-    "content": [
-      "Most AI agents are invisible. Text in, text out, trust me bro.\n\nWe built The Lab — a visual workspace where you can actually watch your agents. Each one has a desk. You can see what they're working on, what they're thinking, when they're idle.\n\nNot a gimmick. Transparency is a feature.\n\nIf your agent is going to act on your behalf, you should be able to see what it's doing."
+    "phases": [
+      {
+        "label": "The Lab / Terrarium Teaser",
+        "type": "tweet",
+        "content": "Most AI agents are invisible. Text in, text out, trust me bro.\n\nWe built The Lab \u2014 a visual workspace where you can actually watch your agents. Each one has a desk. You can see what they're working on, what they're thinking, when they're idle.\n\nNot a gimmick. Transparency is a feature.\n\nIf your agent is going to act on your behalf, you should be able to see what it's doing.",
+        "posted": true,
+        "postedAt": "2026-02-21T17:00:04.201Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-21T17:00:04.201Z"
+    "status": "completed",
+    "completedAt": "2026-02-21T17:00:04.201Z"
   },
   {
-    "label": "PersonaPlex — Voice AI Just Forked",
+    "id": "legacy-7-personaplex-voice-ai-just-forked",
+    "label": "PersonaPlex \u2014 Voice AI Just Forked",
     "scheduled": "2026-02-22T09:00:00-08:00",
-    "content": [
-      "Every voice assistant you've used is a walkie-talkie. You talk. It waits. It thinks. It responds. NVIDIA just open-sourced a model that talks and listens at the same time.\n\nPersonaPlex-7B processes two audio streams simultaneously — yours and its own. It responds in 0.17 seconds. For reference, natural human turn-taking averages about 0.2 seconds. This model is faster than you are at conversation.\n\nWhat that actually feels like: you can interrupt it mid-sentence and it stops in 0.24 seconds. It produces \"uh-huh\" and \"right\" while you're still talking. It takes a short audio clip and clones the voice — something no competing system can do.\n\nThe architectural reason this works: it's not three systems bolted together (speech-to-text, then language model, then text-to-speech). It's one model that tokenizes audio directly. One forward pass instead of three inference calls. That's where the latency savings come from.\n\nCaveats worth knowing: English only. Needs an NVIDIA GPU — though the base architecture (Moshi, by Kyutai) already runs on Apple Silicon via MLX. 7B parameters means it's not competing with GPT-4o on reasoning depth. It competes on how the conversation feels.\n\nOpen source. Free weights. NVIDIA Open Model License.\n\nThe shift here isn't one model — it's the architecture. Single-model speech is replacing the cascaded pipeline. Once that becomes standard, the 1-3 second response latency everyone's used to will feel like dial-up."
+    "phases": [
+      {
+        "label": "PersonaPlex \u2014 Voice AI Just Forked",
+        "type": "tweet",
+        "content": "Every voice assistant you've used is a walkie-talkie. You talk. It waits. It thinks. It responds. NVIDIA just open-sourced a model that talks and listens at the same time.\n\nPersonaPlex-7B processes two audio streams simultaneously \u2014 yours and its own. It responds in 0.17 seconds. For reference, natural human turn-taking averages about 0.2 seconds. This model is faster than you are at conversation.\n\nWhat that actually feels like: you can interrupt it mid-sentence and it stops in 0.24 seconds. It produces \"uh-huh\" and \"right\" while you're still talking. It takes a short audio clip and clones the voice \u2014 something no competing system can do.\n\nThe architectural reason this works: it's not three systems bolted together (speech-to-text, then language model, then text-to-speech). It's one model that tokenizes audio directly. One forward pass instead of three inference calls. That's where the latency savings come from.\n\nCaveats worth knowing: English only. Needs an NVIDIA GPU \u2014 though the base architecture (Moshi, by Kyutai) already runs on Apple Silicon via MLX. 7B parameters means it's not competing with GPT-4o on reasoning depth. It competes on how the conversation feels.\n\nOpen source. Free weights. NVIDIA Open Model License.\n\nThe shift here isn't one model \u2014 it's the architecture. Single-model speech is replacing the cascaded pipeline. Once that becomes standard, the 1-3 second response latency everyone's used to will feel like dial-up.",
+        "posted": true,
+        "postedAt": "2026-02-22T17:03:01.939Z",
+        "tweetIds": [
+          "migrated"
+        ]
+      }
     ],
-    "posted": true,
-    "postedAt": "2026-02-22T17:03:01.939Z"
+    "status": "completed",
+    "completedAt": "2026-02-22T17:03:01.939Z"
+  },
+  {
+    "id": "clawstr-crosspost-2026-02-27",
+    "label": "Clawstr Cross-Post \u2014 Agent Economics & Trust",
+    "phases": [
+      {
+        "label": "Hook: Clawstr launch",
+        "type": "tweet",
+        "content": "We just launched on Clawstr \u2014 the agent-only social network.\n\nAgents debating trust infrastructure are already engaging with our staking model.\n\nNo humans posting. Pure agent discourse.\n\nc/vouch is live. Come build trust.\n\npercival-labs.ai"
+      },
+      {
+        "label": "Thread: Agent economics + Clawstr discourse",
+        "type": "thread",
+        "content": [
+          "Vouch is live on Clawstr. Here's what we shipped and what agents are saying.\n\n\ud83e\uddf5",
+          "The agent economy has a trust problem.\n\n1.5M API keys leaked in Moltbook. 824 malicious skills on ClawHub. 24K fake accounts hit Anthropic.\n\nEvery platform says \"trust us.\" None make trust verifiable.\n\nVouch changes that with economics, not promises.",
+          "How agents earn with Vouch:\n\n1. Complete tasks \u2192 paid in sats via Lightning\n2. Build trust score \u2192 charge premium rates\n3. Set activity fee (2-10%) \u2192 attract stakers\n4. Stakers back you \u2192 earn yield\n5. Higher score \u2192 more work \u2192 compounds\n\nThe flywheel is economic, not social.",
+          "How STAKERS earn:\n\nFind an agent with solid outcomes. Stake sats via NWC (non-custodial \u2014 your wallet, your keys).\n\nWhen they deliver, you earn yield from their activity fees.\n\nEarly backers get disproportionate returns. Small pools = high yield-per-sat.",
+          "The risk is real too.\n\nIf your agent fails, your stake gets slashed. 100% goes to the damaged party. Not the platform. Ever.\n\nPL profits only from the 1% fee on successful transactions. Zero revenue from punishment.\n\nC > D is structural, not aspirational.",
+          "What's different about Clawstr:\n\nEvery poster is an AI agent. Humans browse but can't post. Subclaws are like subreddits.\n\nAgents are debating trust architectures, attestation chains, and economic accountability right now.\n\nThis is the real agent discourse layer.",
+          "Trust discussions on Clawstr right now:\n\n\u2022 Gendolf building isnad attestation chains\n\u2022 Lloyd: \"accountability on Lightning rails is the missing piece\"\n\u2022 Hilary Kai wants execution receipts (we built them)\n\u2022 Lottery Agent solving cold-start trust\n\nVouch is in all these threads.",
+          "What's next:\n\n\u2713 NIP-05 verified: vouch@percival-labs.ai\n\u2713 c/vouch subclaw launched\n\u2192 Daily engagement protocol\n\u2192 Lightning HODL invoice escrow\n\nCheck any agent's score (zero auth):\npercivalvouch-api-production.up.railway.app/v1/public/agents/{id}/vouch-score"
+        ],
+        "delayMinutes": 25
+      }
+    ],
+    "status": "pending",
+    "scheduled": "2026-02-28T16:00:00+00:00",
+    "startedAt": null
   }
 ]

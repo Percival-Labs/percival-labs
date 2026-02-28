@@ -1,77 +1,36 @@
 /**
- * Post a tweet or thread to @PercivalLabs
+ * Post a tweet, thread, or process the campaign queue.
  *
  * Usage:
  *   bun scripts/x/post.ts "Your tweet text here"
  *   bun scripts/x/post.ts --thread "Tweet 1" "Tweet 2" "Tweet 3"
- *   bun scripts/x/post.ts --queue           # post next from queue
- *   bun scripts/x/post.ts --queue --dry-run # preview next post
+ *   bun scripts/x/post.ts --queue           # process next campaign phase
+ *   bun scripts/x/post.ts --queue --dry-run # preview next actionable phase
+ *
+ * The queue processor executes ONE phase per invocation. launchd calls this
+ * every 10 minutes; the processor checks the 8am-10pm PST time window itself.
  *
  * Safety:
  *   - Thread tweets are spaced 12s apart with ±5s random jitter
  *   - 429 responses trigger exponential backoff (up to 3 retries)
- *   - Queue items support "replyTo" field for reply threads
- *   - All automated posts should go through this script (not raw API calls)
- *
- * NOTE: Automated replies to other users' posts require manual posting
- * per X's automation policy. Use queue items with replyTo only for
- * self-reply threads. For replies to others, draft content here and
- * post manually through the X interface.
+ *   - Automated replies to other users require manual posting per X policy
  */
 import { getClient } from "./client";
+import {
+  humanDelay,
+  safeTweet,
+  readQueue,
+  writeQueue,
+  isWithinPostingWindow,
+} from "./lib";
+import type { QueueCampaign, QueuePhase } from "./types";
 
 const args = process.argv.slice(2);
-
 const isThread = args[0] === "--thread";
 const isQueue = args[0] === "--queue";
 const isDryRun = args.includes("--dry-run");
 
-// ── Timing ─────────────────────────────────────────────────────────
-
-const THREAD_DELAY_BASE_MS = 12_000; // 12 seconds base
-const THREAD_DELAY_JITTER_MS = 5_000; // ±5 seconds random jitter
-const MAX_RETRIES = 3;
-
-/** Human-like delay with randomized jitter */
-function humanDelay(): Promise<void> {
-  const delay =
-    THREAD_DELAY_BASE_MS + (Math.random() * 2 - 1) * THREAD_DELAY_JITTER_MS;
-  const clamped = Math.max(7_000, delay); // never less than 7s
-  console.log(`  ⏳ waiting ${(clamped / 1000).toFixed(1)}s...`);
-  return new Promise((r) => setTimeout(r, clamped));
-}
-
-// ── Rate limit handling ────────────────────────────────────────────
-
-async function safeTweet(
-  client: ReturnType<typeof getClient>,
-  text: string,
-  options: Record<string, unknown> = {}
-) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await client.v2.tweet(text, options);
-    } catch (err: unknown) {
-      const error = err as { code?: number; rateLimit?: { reset: number } };
-      if (error.code === 429 && attempt < MAX_RETRIES) {
-        const resetAt = error.rateLimit?.reset;
-        const waitMs = resetAt
-          ? (resetAt * 1000 - Date.now() + 1000)
-          : Math.pow(2, attempt + 1) * 30_000; // 60s, 120s, 240s
-        const waitSec = Math.ceil(Math.max(waitMs, 30_000) / 1000);
-        console.warn(
-          `  ⚠️  Rate limited (429). Retry ${attempt + 1}/${MAX_RETRIES} in ${waitSec}s...`
-        );
-        await new Promise((r) => setTimeout(r, waitSec * 1000));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error("Exhausted retries after rate limiting");
-}
-
-// ── Posting ────────────────────────────────────────────────────────
+// ── Direct Posting (unchanged) ──────────────────────────────────────
 
 async function postTweet(text: string) {
   const client = getClient();
@@ -81,12 +40,10 @@ async function postTweet(text: string) {
   return tweet;
 }
 
-async function postThread(
-  tweets: string[],
-  replyTo?: string
-) {
+async function postThread(tweets: string[], replyTo?: string) {
   const client = getClient();
   let lastTweetId: string | null = replyTo ?? null;
+  const tweetIds: string[] = [];
 
   for (let i = 0; i < tweets.length; i++) {
     const options = lastTweetId
@@ -94,8 +51,10 @@ async function postThread(
       : {};
 
     const tweet = await safeTweet(client, tweets[i], options);
-    console.log(`[${i + 1}/${tweets.length}] ${tweet!.data.id}`);
-    lastTweetId = tweet!.data.id;
+    const id = tweet!.data.id;
+    console.log(`[${i + 1}/${tweets.length}] ${id}`);
+    tweetIds.push(id);
+    lastTweetId = id;
 
     if (i < tweets.length - 1) {
       await humanDelay();
@@ -105,94 +64,264 @@ async function postThread(
   console.log(
     `\nThread posted: https://x.com/PercivalLabs/status/${lastTweetId}`
   );
+  return tweetIds;
 }
 
-async function postFromQueue() {
-  const queuePath = new URL("./queue.json", import.meta.url).pathname;
-  const file = Bun.file(queuePath);
+// ── Campaign Queue Processor ────────────────────────────────────────
 
-  if (!(await file.exists())) {
-    console.error("No queue.json found. Create one first.");
-    process.exit(1);
+async function processQueue() {
+  const campaigns = await readQueue();
+
+  if (campaigns.length === 0) {
+    console.log("Queue empty — no campaigns.");
+    return;
   }
 
-  const queue: QueueItem[] = await file.json();
+  // Time window check (skip in dry-run mode so we can always preview)
+  if (!isDryRun && !isWithinPostingWindow()) {
+    console.log("Outside posting window (8am-10pm PST). Exiting.");
+    return;
+  }
+
   const now = new Date();
 
-  // Find next unposted item that's due
-  const next = queue.find(
-    (item) => !item.posted && new Date(item.scheduled) <= now
-  );
+  // Find first campaign with an actionable phase
+  let targetCampaign: QueueCampaign | null = null;
+  let targetPhaseIdx = -1;
 
-  if (!next) {
-    const pending = queue.filter((item) => !item.posted);
+  for (const campaign of campaigns) {
+    if (campaign.status === "completed" || campaign.status === "failed") {
+      continue;
+    }
+
+    for (let i = 0; i < campaign.phases.length; i++) {
+      const phase = campaign.phases[i];
+
+      // Skip already posted or exhausted phases
+      if (phase.posted || (phase.retries ?? 0) >= 3) continue;
+
+      // Phase 0: check campaign.scheduled
+      if (i === 0) {
+        if (new Date(campaign.scheduled) > now) continue;
+      } else {
+        // Phase N: check phase.scheduledAt (set after previous phase completed)
+        if (!phase.scheduledAt || new Date(phase.scheduledAt) > now) continue;
+        // Also verify previous phase is done
+        const prev = campaign.phases[i - 1];
+        if (!prev.posted) continue;
+      }
+
+      targetCampaign = campaign;
+      targetPhaseIdx = i;
+      break;
+    }
+
+    if (targetCampaign) break;
+  }
+
+  if (!targetCampaign || targetPhaseIdx === -1) {
+    // Show status summary
+    const pending = campaigns.filter(
+      (c) => c.status !== "completed" && c.status !== "failed"
+    );
     if (pending.length === 0) {
-      console.log("Queue empty — all posts published.");
+      console.log("All campaigns completed.");
     } else {
-      console.log(`${pending.length} posts pending. Next scheduled:`);
-      for (const p of pending) {
-        console.log(`  ${p.scheduled} — ${p.content[0].slice(0, 60)}...`);
+      console.log(`${pending.length} campaign(s) pending. Next phases:`);
+      for (const c of pending) {
+        const nextPhase = c.phases.find((p) => !p.posted);
+        if (nextPhase) {
+          const schedTime =
+            c.phases.indexOf(nextPhase) === 0
+              ? c.scheduled
+              : nextPhase.scheduledAt || "awaiting previous";
+          console.log(`  ${c.id}: "${nextPhase.label}" @ ${schedTime}`);
+        }
       }
     }
     return;
   }
 
+  const phase = targetCampaign.phases[targetPhaseIdx];
+
+  // Resolve replyTo
+  let replyTo: string | undefined;
+  if (targetPhaseIdx === 0 && targetCampaign.replyTo) {
+    replyTo = targetCampaign.replyTo;
+  } else if (targetPhaseIdx > 0 && phase.chainToPrevious !== false) {
+    const prevPhase = targetCampaign.phases[targetPhaseIdx - 1];
+    if (prevPhase.tweetIds?.length) {
+      replyTo = prevPhase.tweetIds[prevPhase.tweetIds.length - 1];
+    }
+  }
+
+  // ── Dry run ──
   if (isDryRun) {
-    console.log("DRY RUN — would post:");
-    console.log(`  Label: ${next.label ?? "(none)"}`);
-    console.log(`  Scheduled: ${next.scheduled}`);
-    console.log(`  Type: ${next.content.length > 1 ? "thread" : "tweet"}`);
-    if (next.replyTo) {
-      console.log(`  Reply to: https://x.com/i/status/${next.replyTo}`);
+    console.log("DRY RUN — would execute:");
+    console.log(`  Campaign: ${targetCampaign.label} (${targetCampaign.id})`);
+    console.log(
+      `  Phase ${targetPhaseIdx}: ${phase.label} (${phase.type})`
+    );
+    if (replyTo) {
+      console.log(`  Reply to: https://x.com/i/status/${replyTo}`);
     }
-    for (const [i, text] of next.content.entries()) {
-      console.log(`  [${i + 1}] (${text.length} chars) ${text.slice(0, 80)}...`);
+    if (phase.quoteTweetId) {
+      console.log(
+        `  QRT of: https://x.com/i/status/${phase.quoteTweetId}`
+      );
     }
-    const totalDelay =
-      (next.content.length - 1) *
-      (THREAD_DELAY_BASE_MS / 1000);
-    if (next.content.length > 1) {
-      console.log(`  Est. time: ~${totalDelay}s for thread pacing`);
+    const content = Array.isArray(phase.content)
+      ? phase.content
+      : [phase.content];
+    for (const [i, text] of content.entries()) {
+      console.log(
+        `  [${i + 1}] (${text.length} chars) ${text.slice(0, 80)}...`
+      );
+    }
+    if (targetPhaseIdx + 1 < targetCampaign.phases.length) {
+      const nextPhase = targetCampaign.phases[targetPhaseIdx + 1];
+      console.log(
+        `  Next phase: "${nextPhase.label}" in ${nextPhase.delayMinutes ?? 0} min (±3 min jitter)`
+      );
     }
     return;
   }
 
-  console.log(`Posting: "${next.content[0].slice(0, 60)}..."`);
+  // ── Execute phase ──
+  console.log(
+    `Executing: ${targetCampaign.id} → Phase ${targetPhaseIdx}: ${phase.label}`
+  );
 
-  if (next.content.length > 1) {
-    await postThread(next.content, next.replyTo);
-  } else if (next.replyTo) {
-    const client = getClient();
-    const tweet = await safeTweet(client, next.content[0], {
-      reply: { in_reply_to_tweet_id: next.replyTo },
-    });
-    console.log(`Posted reply: ${tweet!.data.id}`);
-    console.log(`https://x.com/PercivalLabs/status/${tweet!.data.id}`);
-  } else {
-    await postTweet(next.content[0]);
+  // Mark campaign as active on first phase
+  if (targetPhaseIdx === 0) {
+    targetCampaign.status = "active";
+    targetCampaign.startedAt = now.toISOString();
   }
 
-  // Mark as posted
-  next.posted = true;
-  next.postedAt = now.toISOString();
-  await Bun.write(queuePath, JSON.stringify(queue, null, 2));
+  try {
+    const tweetIds = await executePhase(phase, replyTo);
+    phase.posted = true;
+    phase.postedAt = new Date().toISOString();
+    phase.tweetIds = tweetIds;
+    console.log(`  Phase complete. Tweet IDs: ${tweetIds.join(", ")}`);
+  } catch (err) {
+    phase.retries = (phase.retries ?? 0) + 1;
+    phase.error = err instanceof Error ? err.message : String(err);
+    console.error(
+      `  Phase failed (attempt ${phase.retries}/3): ${phase.error}`
+    );
+
+    if (phase.retries >= 3) {
+      targetCampaign.status = "failed";
+      console.error(
+        `  Campaign "${targetCampaign.id}" marked FAILED after 3 retries.`
+      );
+    }
+
+    await writeQueue(campaigns);
+    return;
+  }
+
+  // Compute scheduledAt for next phase
+  if (targetPhaseIdx + 1 < targetCampaign.phases.length) {
+    const nextPhase = targetCampaign.phases[targetPhaseIdx + 1];
+    const delayMin = nextPhase.delayMinutes ?? 0;
+    const jitter = Math.random() * 6 - 3; // ±3 min
+    const totalDelay = Math.max(0, delayMin + jitter);
+    const scheduledAt = new Date(
+      Date.now() + totalDelay * 60_000
+    ).toISOString();
+    nextPhase.scheduledAt = scheduledAt;
+    console.log(
+      `  Next phase "${nextPhase.label}" scheduled for ${scheduledAt}`
+    );
+  }
+
+  // Check if all phases are posted → mark completed
+  if (targetCampaign.phases.every((p) => p.posted)) {
+    targetCampaign.status = "completed";
+    targetCampaign.completedAt = new Date().toISOString();
+    console.log(`  Campaign "${targetCampaign.id}" completed!`);
+  }
+
+  await writeQueue(campaigns);
   console.log("Queue updated.");
 }
 
-interface QueueItem {
-  scheduled: string;
-  content: string[];
-  posted?: boolean;
-  postedAt?: string;
-  label?: string;
-  /** Tweet ID to reply to (for reply threads). Note: automated replies
-   *  to other users require manual posting per X automation policy. */
-  replyTo?: string;
+/** Execute a single phase — returns array of tweet IDs */
+async function executePhase(
+  phase: QueuePhase,
+  replyTo?: string
+): Promise<string[]> {
+  const client = getClient();
+
+  switch (phase.type) {
+    case "tweet": {
+      const text =
+        typeof phase.content === "string" ? phase.content : phase.content[0];
+      const options: Record<string, unknown> = {};
+      if (replyTo) {
+        options.reply = { in_reply_to_tweet_id: replyTo };
+      }
+      const tweet = await safeTweet(client, text, options);
+      const id = tweet!.data.id;
+      console.log(`  Posted tweet: ${id}`);
+      console.log(`  https://x.com/PercivalLabs/status/${id}`);
+      return [id];
+    }
+
+    case "thread": {
+      const tweets = Array.isArray(phase.content)
+        ? phase.content
+        : [phase.content];
+      let lastId: string | null = replyTo ?? null;
+      const ids: string[] = [];
+
+      for (let i = 0; i < tweets.length; i++) {
+        const options = lastId
+          ? { reply: { in_reply_to_tweet_id: lastId } }
+          : {};
+        const tweet = await safeTweet(client, tweets[i], options);
+        const id = tweet!.data.id;
+        console.log(`  [${i + 1}/${tweets.length}] ${id}`);
+        ids.push(id);
+        lastId = id;
+
+        if (i < tweets.length - 1) {
+          await humanDelay();
+        }
+      }
+
+      console.log(
+        `  Thread: https://x.com/PercivalLabs/status/${ids[0]}`
+      );
+      return ids;
+    }
+
+    case "qrt": {
+      const text =
+        typeof phase.content === "string" ? phase.content : phase.content[0];
+      if (!phase.quoteTweetId) {
+        throw new Error("QRT phase requires quoteTweetId");
+      }
+      const tweet = await safeTweet(client, text, {
+        quote_tweet_id: phase.quoteTweetId,
+      });
+      const id = tweet!.data.id;
+      console.log(`  Posted QRT: ${id}`);
+      console.log(`  https://x.com/PercivalLabs/status/${id}`);
+      return [id];
+    }
+
+    default:
+      throw new Error(`Unknown phase type: ${phase.type}`);
+  }
 }
 
-// Main
+// ── Main ─────────────────────────────────────────────────────────────
+
 if (isQueue) {
-  postFromQueue().catch(console.error);
+  processQueue().catch(console.error);
 } else if (isThread) {
   const tweets = args.slice(1).filter((a) => a !== "--dry-run");
   if (tweets.length < 2) {
