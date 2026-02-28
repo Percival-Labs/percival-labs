@@ -143,6 +143,9 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   OPENAI_API_KEY: string;
 
+  // CORS — comma-separated allowed origins (no wildcard when proxying API keys)
+  ALLOWED_ORIGINS?: string;
+
   // Dev mode
   DEV_MODE?: string; // "true" to use mock scores
 

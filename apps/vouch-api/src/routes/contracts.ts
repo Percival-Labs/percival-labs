@@ -374,6 +374,14 @@ app.post('/:id/release-retention', async (c) => {
 
   try {
     const contractId = c.req.param('id');
+
+    // Authorization: only contract parties can release retention
+    const detail = await getContract(contractId);
+    if (!detail) return error(c, 404, 'NOT_FOUND', 'Contract not found');
+    if (detail.contract.customerPubkey !== pubkey && detail.contract.agentPubkey !== pubkey) {
+      return error(c, 403, 'FORBIDDEN', 'Only contract parties can release retention');
+    }
+
     const result = await releaseRetention(contractId);
     return success(c, result);
   } catch (err) {
