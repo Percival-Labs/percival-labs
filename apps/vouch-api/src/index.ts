@@ -245,7 +245,7 @@ const port = parseInt(process.env.PORT || '3601', 10);
 console.log(`[vouch-api] Starting on port ${port}`);
 console.log(`[vouch-api] Auth: ${process.env.VOUCH_SKIP_AUTH === 'true' ? 'BYPASSED (test mode)' : 'enabled'}`);
 console.log(`[vouch-api] DATABASE_URL: ${process.env.DATABASE_URL ? 'configured' : 'NOT SET'}`);
-console.log(`[vouch-api] ALBY_HUB_URL: ${process.env.ALBY_HUB_URL || 'not set (will use http://localhost:8080)'}`);
+console.log(`[vouch-api] NWC_URL: ${process.env.NWC_URL ? 'configured' : 'NOT SET (treasury will be unavailable)'}`);
 console.log(`[vouch-api] ENCRYPTION_KEY: ${process.env.ENCRYPTION_KEY ? 'configured' : 'NOT SET (NWC storage will fail)'}`);
 
 export default {
