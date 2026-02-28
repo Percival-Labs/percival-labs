@@ -153,6 +153,7 @@ export interface ContractMilestoneInput {
   description?: string;
   acceptance_criteria?: string;
   percentage_bps: number;
+  isc_criteria?: MilestoneISC;
 }
 
 export interface CreateContractOptions {
@@ -204,6 +205,7 @@ export interface ContractMilestone {
   is_retention: boolean;
   deliverable_url: string | null;
   deliverable_notes: string | null;
+  isc_criteria: MilestoneISC | null;
   payment_hash: string | null;
   submitted_at: string | null;
   accepted_at: string | null;
@@ -262,6 +264,30 @@ export interface ChangeOrderOptions {
   description: string;
   costDeltaSats?: number;
   timelineDeltaDays?: number;
+}
+
+// ── ISC Types ──
+
+export interface ISCCriterion {
+  id: string;
+  criterion: string;
+  verify: string;
+  priority: 'critical' | 'important' | 'nice';
+  status: 'pending' | 'passed' | 'failed';
+  evidence?: string;
+}
+
+export interface ISCAntiCriterion {
+  id: string;
+  criterion: string;
+  verify: string;
+  status: 'avoided' | 'violated';
+  evidence?: string;
+}
+
+export interface MilestoneISC {
+  criteria: ISCCriterion[];
+  antiCriteria?: ISCAntiCriterion[];
 }
 
 // ── Credentials ──

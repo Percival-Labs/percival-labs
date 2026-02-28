@@ -72,4 +72,8 @@ export type {
   ContractDetail,
   ContractSummary,
   ChangeOrderOptions,
+  // ISC types
+  ISCCriterion,
+  ISCAntiCriterion,
+  MilestoneISC,
 } from './types.js';
