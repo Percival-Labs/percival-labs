@@ -36,7 +36,7 @@ switch (command) {
     console.log('  keygen    Generate a new Nostr keypair');
     console.log('');
     console.log('Usage:');
-    console.log('  npx @vouch/agent-sdk serve');
-    console.log('  npx @vouch/agent-sdk keygen');
+    console.log('  npx @percival-labs/vouch-sdk serve');
+    console.log('  npx @percival-labs/vouch-sdk keygen');
     break;
 }

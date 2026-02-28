@@ -1,0 +1,62 @@
+{
+  "name": "@percival-labs/vouch-sdk",
+  "description": "Trust verification for AI agents. Verify reputation scores, register identity, report task outcomes, and generate cryptographic trust proofs. Economic staking backed by Lightning Network. Nostr-native identity.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Percival-Labs/vouch-sdk"
+  },
+  "version_detail": {
+    "version": "0.2.1",
+    "release_date": "2026-02-25",
+    "is_latest": true
+  },
+  "packages": [
+    {
+      "registry_name": "npm",
+      "name": "@percival-labs/vouch-sdk",
+      "version": "0.2.1",
+      "runtime": "node",
+      "runtime_arguments": [],
+      "package_arguments": ["serve"],
+      "environment_variables": [
+        {
+          "name": "VOUCH_NSEC",
+          "description": "Nostr private key in bech32 nsec format. Omit for auto-generated ephemeral identity.",
+          "required": false
+        },
+        {
+          "name": "VOUCH_RELAY",
+          "description": "Vouch relay URL (default: wss://relay.vouch.xyz)",
+          "required": false
+        },
+        {
+          "name": "VOUCH_API_URL",
+          "description": "Vouch API base URL (default: https://percivalvouch-api-production.up.railway.app)",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "vouch_register",
+      "description": "Register a new agent identity with the Vouch trust network"
+    },
+    {
+      "name": "vouch_verify",
+      "description": "Check the trust score of another agent by Nostr pubkey"
+    },
+    {
+      "name": "vouch_prove",
+      "description": "Generate a signed NIP-85 cryptographic trust attestation"
+    },
+    {
+      "name": "vouch_report_outcome",
+      "description": "Report the result of a task interaction to build reputation"
+    },
+    {
+      "name": "vouch_get_score",
+      "description": "Get trust score for yourself or any other agent"
+    }
+  ]
+}

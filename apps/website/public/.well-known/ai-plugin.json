@@ -9,7 +9,7 @@
   },
   "api": {
     "type": "openapi",
-    "url": "https://percival-labs.ai/openapi.json"
+    "url": "https://percivalvouch-api-production.up.railway.app/openapi.json"
   },
   "logo_url": "https://percival-labs.ai/favicon.ico",
   "contact_email": "hello@percival-labs.ai",
