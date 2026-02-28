@@ -3,7 +3,7 @@
   "type": "monorepo",
   "status": "active",
   "phase": "launched",
-  "focus": "Vouch contract system committed (construction-model: SOW, milestones, change orders, retention). 6 research papers live including Hadfield response + Nate Jones response. Alby Hub BLOCKED on identity verification. PRIORITY: Alby verification → deploy on Railway → run migrations 0006-0008 → fund node → Clawstr launch. NIST April 2 NCCoE submission after launch (skip March 9 RFI). Nate Jones X thread posts 2-6 pending (rate limited, retry morning).",
+  "focus": "Financial architecture finalized (two-wallet, non-custodial, two-provider: Alby Hub + Voltage). Migrations 0006-0008 applied. Alby Hub deployed but BLOCKED on channel funding (~$13 via Strike, pending verification). PRIORITY: Strike verification → fund Megalith channel → E2E test → Clawstr launch. HODL invoices confirmed as milestone escrow mechanism. Patent + trademark attorney consultations needed. 7 research papers live. Nate Jones X thread posts 2-6 pending. Agent Village: visual overhaul committed (grid expansion, biome tiles, robot sprites, shadows, particles). Art pipeline pivoting from procedural to proper toolchain (Sorceress + Aseprite + Retro Diffusion + Tiled + MagicaVoxel). Ian getting involved with budget for shared tools.",
   "description": "AI agent platform — 6 agents, Docker services, terrarium visualization, Vouch community (formerly Round Table), marketing website. Vouch = Nostr-native trust staking where community backs agents for yield. Identity via Nostr keypairs + optional ERC-8004 attestation. Payments via Lightning/NWC + Strike fiat bridge. Trust scores published as NIP-85 events.",
   "ports": {
     "agents": 3200,
@@ -14,9 +14,9 @@
   },
   "positioning": {
     "product": "Vouch — trust staking economy where community backs AI agents for yield + verifiable reputation",
-    "monetization": "3-5% platform fee on yield distributions + staking fees + API fees",
+    "monetization": "1% platform fee on activity (non-custodial, fee-only). Escrow transactions: 1% + ~0.50% partner fee. PL takes 0% of slashes.",
     "stack": "Nostr (identity + reputation + community) + Lightning/NWC (payments) + Strike (fiat bridge) + ERC-8004 (optional on-chain attestation)",
     "ecosystem_position": "Nostr-native trust staking layer — the economic trust/sybil-defense layer the Nostr AI agent ecosystem is missing. Vouch scores as NIP-85 Trusted Assertions, portable across all Nostr clients.",
-    "updated": "2026-02-25"
+    "updated": "2026-02-26"
   }
 }

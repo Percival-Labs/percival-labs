@@ -1,8 +1,8 @@
 # Percival Labs Financial Architecture
 
-**Two-wallet structure. Non-custodial fund flows. No escrow.**
+**Two-wallet structure. Non-custodial fund flows. Two-provider architecture.**
 
-Last updated: Feb 26, 2026
+Last updated: Feb 26, 2026 (Lightspark + Voltage evaluations added)
 
 ---
 
@@ -157,13 +157,116 @@ Treasury wallet tracks its own cost basis independently. Do not commingle with p
 
 ---
 
+## Escrow Roadmap — HODL Invoices + Partner Strategy
+
+### Key Finding: Lightning Has Native Escrow
+
+Lightning **HODL invoices** (hold invoices) provide non-custodial escrow without a money transmitter license:
+
+```
+Client pays HODL invoice → sats LOCK in Lightning HTLC (in transit, not held by PL)
+  → Milestone verified → PL releases preimage → sats flow to agent
+  → Milestone fails/timeout → invoice expires → sats return to client
+```
+
+PL never takes custody. The Lightning protocol IS the escrow mechanism. RoboSats uses this pattern in production for P2P trade escrow.
+
+**Decision (Feb 26):** HODL invoices are the primary mechanism for contract milestone payments. Implement via Alby Hub (LDK supports hold invoices) or Voltage.
+
+### Legal Question (MUST ANSWER BEFORE SCALING)
+
+Do HODL invoices constitute custody under WA RCW 19.230 or FinCEN guidance? Sats are locked in an HTLC, not in anyone's wallet — "in transit" not "held." Probably NOT custody, but fintech attorney must confirm. See `research/escrow-custody-partner-landscape.md`.
+
+### Phased Infrastructure Strategy
+
+| Phase | Trigger | Approach | Cost |
+|-------|---------|----------|------|
+| **1 (Now)** | Launch | Alby Hub only. HODL invoices via LDK. Fund Megalith channel. Ship. | ~$5-10/mo (Railway) |
+| **2** | Revenue exists | Add Voltage Lite as dedicated treasury node. SOC 2 story for sales. | +$27/mo |
+| **3** | $50K+/mo, enterprise | Upgrade to Voltage Payments API. Partner with Zero Hash for 51-state regulatory cover. | $12K+/yr + custom |
+| **4** | $500K+/mo | Evaluate own licensing vs. deepening partnerships | $100K+ |
+
+### Infrastructure Evaluation (Deep-Dived Feb 26)
+
+#### Voltage — Best Scaling Partner
+
+Voltage runs managed **LND nodes** with full gRPC/REST API access. Non-custodial by default (you hold seed + macaroon). Key findings:
+
+| Capability | Status |
+|------------|--------|
+| **HODL invoices** | Full support via LND API (`AddHoldInvoice`, `SettleInvoice`, `CancelInvoice`). Most battle-tested implementation in ecosystem. |
+| **SOC 2 Type II** | Confirmed (Sept 2023). Strongest enterprise credibility signal in Lightning infra space. |
+| **NWC support** | None. Alby Hub is the NWC reference implementation — Voltage can't replace it for user-facing payments. |
+| **Nostr toolkit** | Thin — NIP-05 + LN address only. Not useful for platform-level Nostr integration. |
+| **Pricing** | Lite ~$27/mo, Standard ~$38/mo, Enterprise from $12K/yr. No per-transaction fee (unlike Lightspark). |
+| **Self-custody** | Yes — AES-256 encryption, Tor routing, no SSH on servers, stateless-init macaroons. |
+| **SDK** | No official SDK. Raw LND gRPC/REST with Node.js examples. TypeScript via LND proto defs. |
+| **LSP** | Flow (their LSP) deprecated late 2024. Amboss partnership (Nov 2025) for enterprise liquidity. Manual channel management otherwise. |
+
+**Role in PL stack:** Dedicated treasury/escrow node when revenue exists. SOC 2 cert for enterprise sales materials. Battle-tested HODL invoices for milestone verification at scale.
+
+#### Lightspark — Not a Fit (Yet)
+
+Enterprise Lightning infra by David Marcus (ex-PayPal president, ex-Meta Diem/Libra). $175M+ raised. Customers: Coinbase, Revolut, SoFi.
+
+| Capability | Status |
+|------------|--------|
+| **HODL invoices** | **No API support found.** Their abstraction layer removes low-level Lightning primitives. Dealbreaker. |
+| **Transaction fee** | 0.50% per tx — eats half our 1% platform fee. Net negative vs Alby Hub. |
+| **Custody model** | Custodial by default (remote-key option exists). Wrong direction for us. |
+| **NWC** | UMA Auth is built ON NWC (collaborated with Alby). Interesting for fiat bridging, not for Bitcoin-native agent payments. |
+| **SOC 2** | Not publicly confirmed despite enterprise customer list. |
+| **UMA protocol** | Universal Money Address — cross-currency fiat routing. Relevant only if we ever bridge to fiat payments at enterprise scale. |
+
+**Role in PL stack:** None currently. Revisit only if we need fiat-to-fiat bridging for enterprise customers at $1M+/month volume.
+
+#### Other Partners
+
+| Partner | Fit | Notes |
+|---------|-----|-------|
+| **Zero Hash** | Regulatory cover at scale | 51 state MTL licenses. Custom enterprise pricing. For $50K+/mo volume. |
+| **BitGo + Voltage** | Institutional | Go Network settlement (Dec 2025). 5 bps/mo + custom. |
+
+**Not a fit:** Bridge (no LN), Strike (no hold), OpenNode (no escrow), Fortress (NFTs), Anchorage (institutional only), Lightspark (no HODL invoices, 0.50% fee).
+
+### Two-Provider Architecture (Decided Feb 26)
+
+PL needs two different things no single provider excels at:
+
+| Layer | Provider | Why |
+|-------|----------|-----|
+| **User payments** (NWC, zaps, agent wallets) | **Alby Hub** (permanent) | NWC reference implementation, Nostr-native, TypeScript SDK, zero tx fees |
+| **Treasury/escrow** (fee collection, HODL invoices, compliance) | **Voltage** (add later) | SOC 2 Type II, battle-tested LND HODL invoices, enterprise scaling path |
+
+### Fee Structure for Escrow Transactions
+
+```
+Standard transactions: 1% platform fee (current)
+Escrow transactions:   1% platform fee + partner escrow fee (~0.50%)
+                       Total: ~1.50% on escrowed transactions
+```
+
+Higher fee justified by: actual fund locking, milestone verification, dispute resolution infrastructure.
+
+### Patent Strategy (Decided Feb 26)
+
+Filing provisional patent on the system: "Construction-derived milestone-gated contract system using Lightning HODL invoices for AI agent transactions with three-party trust verification."
+
+- **12-month clock** from first public disclosure (~Feb 2026). Must file provisional by ~Feb 2027.
+- **Alice v. CLS Bank risk:** Pure "escrow on blockchain" is ineligible. Must frame as technical improvement (construction contract patterns + three-party verification + HODL invoice mechanics).
+- Full landscape analysis: `research/escrow-custody-partner-landscape.md`
+- Legal counsel research: `research/legal-counsel-research.md`
+
+---
+
 ## Legal References
 
-- **No escrow:** RCW 19.230 (WA money transmitter statute). No threshold, no exemption.
+- **No custodial escrow (current):** RCW 19.230 (WA money transmitter statute). No threshold, no exemption.
+- **HODL invoices (escrow roadmap):** Potentially non-custodial — attorney review needed.
 - **Non-custodial safe harbor:** FinCEN 2019 CVC Guidance — NWC budget auth is not money transmission.
 - **Tax:** IRS FAQ Q10 (crypto as income at receipt), Schedule C (single-member LLC pass-through).
 - **B&O:** WAC 458-20-254, DOR interim statement on Bitcoin.
-- **Full analysis:** `research/vouch-crypto-legal-analysis.md`
+- **Full analyses:** `research/vouch-crypto-legal-analysis.md`, `research/escrow-custody-partner-landscape.md`
 
 ---
 

@@ -27,7 +27,7 @@ export async function initTreasury(): Promise<void> {
     }
   } else {
     console.warn('[treasury] Alby Hub not reachable — treasury features will be limited');
-    console.warn('[treasury] Set ALBY_HUB_URL and ALBY_HUB_JWT to connect');
+    console.warn('[treasury] Set NWC_URL to connect (Nostr Wallet Connect string from Alby Hub)');
   }
 }
 

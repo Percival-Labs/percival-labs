@@ -1,17 +1,17 @@
 // Webhook Routes — receives payment notifications from Alby Hub.
-// Mounted BEFORE auth middleware (webhooks use JWT verification, not Ed25519/NIP-98).
+// Mounted BEFORE auth middleware (webhooks use secret verification, not Ed25519/NIP-98).
 
 import { Hono } from 'hono';
 
-const ALBY_HUB_JWT = process.env.ALBY_HUB_JWT || '';
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 
 /**
  * Verify that a webhook request is from Alby Hub.
- * Uses Bearer token matching the configured JWT.
+ * Uses a dedicated webhook secret (separate from NWC credentials).
  */
 function verifyAlbyWebhook(authHeader: string | undefined): boolean {
-  if (!ALBY_HUB_JWT) {
-    console.error('[webhook] ALBY_HUB_JWT not configured — rejecting all webhooks');
+  if (!WEBHOOK_SECRET) {
+    console.error('[webhook] WEBHOOK_SECRET not configured — rejecting all webhooks');
     return false;
   }
   if (!authHeader) return false;
@@ -21,10 +21,10 @@ function verifyAlbyWebhook(authHeader: string | undefined): boolean {
     : authHeader;
 
   // Constant-time comparison
-  if (token.length !== ALBY_HUB_JWT.length) return false;
+  if (token.length !== WEBHOOK_SECRET.length) return false;
   let mismatch = 0;
   for (let i = 0; i < token.length; i++) {
-    mismatch |= token.charCodeAt(i) ^ ALBY_HUB_JWT.charCodeAt(i);
+    mismatch |= token.charCodeAt(i) ^ WEBHOOK_SECRET.charCodeAt(i);
   }
   return mismatch === 0;
 }
@@ -41,7 +41,7 @@ app.post('/alby/payment-received', async (c) => {
   const authHeader = c.req.header('Authorization');
 
   if (!verifyAlbyWebhook(authHeader)) {
-    console.warn('[webhook] Rejected: invalid or missing Alby Hub auth');
+    console.warn('[webhook] Rejected: invalid or missing webhook auth');
     return c.json({ status: 'rejected', reason: 'invalid_auth' }, 401);
   }
 
