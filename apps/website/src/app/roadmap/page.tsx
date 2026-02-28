@@ -11,6 +11,7 @@ import {
   Users,
   Shield,
   Globe,
+  Lock,
 } from "lucide-react";
 import { WaitlistForm } from "@/components/waitlist-form";
 
@@ -62,22 +63,42 @@ const phases: Phase[] = [
   {
     number: 0,
     name: "Foundation",
-    status: "in-progress",
+    status: "completed",
     timeline: "Feb 2026",
     icon: Package,
     description:
-      "Extract the PAI Framework specs, build the CLI tool, ship the starter kit to GitHub.",
+      "5-layer architecture spec, CLI tool, starter skills, and npm package. Shipped as v0.1.3.",
     items: [
       { text: "5-layer architecture specification", done: true },
       { text: "Skill system spec (SKILL.md format)", done: true },
       { text: "Hook lifecycle spec (6 events)", done: true },
-      { text: "CLI tool: pai init", done: false },
-      { text: "CLI tool: pai skill create / index / lint", done: false },
-      { text: "4 starter skills (Research, DoWork, Reflect, HelloWorld)", done: false },
-      { text: "5 starter hooks", done: false },
-      { text: "Template files (CLAUDE.md, context.md, etc.)", done: false },
-      { text: "Getting started documentation", done: false },
-      { text: "GitHub release", done: false },
+      { text: "CLI tool: engram init / skill create / export", done: true },
+      { text: "3 starter skills (Research, DoWork, Reflect)", done: true },
+      { text: "Template files (CLAUDE.md, context.md, etc.)", done: true },
+      { text: "OpenClaw export format support", done: true },
+      { text: "npm package (@percival-labs/engram)", done: true },
+      { text: "GitHub release (MIT licensed)", done: true },
+    ],
+  },
+  {
+    number: 0.5,
+    name: "Privacy & Anonymity",
+    status: "in-progress",
+    timeline: "Mar 2026",
+    icon: Lock,
+    description:
+      "Three-phase privacy system for anonymous AI inference. Strip PII before it leaves your machine, use blind tokens so providers can\u2019t link your requests, and prove trust without revealing identity.",
+    items: [
+      { text: "Phase 1: PII scrubbing (3 levels \u2014 minimal/standard/aggressive)", done: true },
+      { text: "Luhn-validated credit card detection + ReDoS-safe user rules", done: true },
+      { text: "Per-provider privacy levels (skip local, scrub external)", done: true },
+      { text: "Router integration with fail-closed token mode", done: true },
+      { text: "Phase 2: Privacy Pass blind tokens (RFC 9576/9577)", done: true },
+      { text: "Phase 2: Proxy server for token issuance + redemption", done: false },
+      { text: "Phase 3: ZK trust proofs (circom + Groth16)", done: true },
+      { text: "Phase 3: Vouch API attestation endpoint (Baby JubJub EdDSA)", done: false },
+      { text: "Circuit artifact distribution via GitHub Releases", done: false },
+      { text: "End-to-end anonymous inference flow", done: false },
     ],
   },
   {

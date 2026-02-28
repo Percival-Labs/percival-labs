@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Wrench, Brain, Layers, User, Cog } from "lucide-react";
+import { Wrench, Brain, Layers, User, Cog, Lock, ShieldCheck, Eye } from "lucide-react";
+import Link from "next/link";
 import { DownloadSection } from "@/components/engram/download-section";
 import { BundleGenerator } from "@/components/engram/bundle-generator";
 import { SetupTabs } from "@/components/engram/setup-tabs";
@@ -83,6 +84,73 @@ export default function EngramPage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Privacy — Coming Soon */}
+      <section className="py-16 border-t border-pl-border px-6">
+        <div className="mx-auto max-w-3xl">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <h2 className="text-2xl font-bold text-pl-text text-center">
+              Privacy layer
+            </h2>
+            <span className="inline-flex items-center rounded-full bg-pl-cyan/10 px-2.5 py-0.5 text-xs font-medium text-pl-cyan">
+              Coming Soon
+            </span>
+          </div>
+          <p className="text-sm text-pl-text-muted text-center mb-8 max-w-xl mx-auto">
+            Three layers of protection so your AI conversations stay yours
+            &mdash; even when routed through external providers.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-xl border border-pl-border bg-pl-surface p-5">
+              <Eye className="h-5 w-5 text-pl-green mb-3" />
+              <p className="text-sm font-semibold text-pl-text">
+                PII Scrubbing
+              </p>
+              <p className="text-xs text-pl-text-muted mt-1.5 leading-relaxed">
+                Strip personal data before it leaves your machine. API keys,
+                emails, paths, credit cards &mdash; all redacted automatically.
+              </p>
+              <p className="text-xs text-pl-green font-medium mt-2">
+                Available now
+              </p>
+            </div>
+            <div className="rounded-xl border border-pl-border bg-pl-surface p-5">
+              <Lock className="h-5 w-5 text-pl-amber mb-3" />
+              <p className="text-sm font-semibold text-pl-text">
+                Blind Tokens
+              </p>
+              <p className="text-xs text-pl-text-muted mt-1.5 leading-relaxed">
+                Privacy Pass blind signatures (RFC 9576). Providers verify
+                you&apos;re authorized without linking your requests together.
+              </p>
+              <p className="text-xs text-pl-amber font-medium mt-2">
+                Proxy server in progress
+              </p>
+            </div>
+            <div className="rounded-xl border border-pl-border bg-pl-surface p-5">
+              <ShieldCheck className="h-5 w-5 text-pl-cyan mb-3" />
+              <p className="text-sm font-semibold text-pl-text">
+                ZK Trust Proofs
+              </p>
+              <p className="text-xs text-pl-text-muted mt-1.5 leading-relaxed">
+                Prove &ldquo;my Vouch score is above threshold&rdquo; with a
+                zero-knowledge proof. Nobody learns who you are.
+              </p>
+              <p className="text-xs text-pl-cyan font-medium mt-2">
+                Circuit built, endpoint coming
+              </p>
+            </div>
+          </div>
+          <p className="text-center mt-6">
+            <Link
+              href="/roadmap"
+              className="text-xs text-pl-text-dim hover:text-pl-cyan transition-colors"
+            >
+              See the full roadmap &rarr;
+            </Link>
+          </p>
         </div>
       </section>
 
