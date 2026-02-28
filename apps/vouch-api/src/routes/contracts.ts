@@ -14,6 +14,7 @@ import {
   RateContractSchema,
   CancelContractSchema,
   PaginationSchema,
+  UpdateISCSchema,
 } from '../lib/schemas';
 import type { NostrAuthEnv } from '../middleware/nostr-auth';
 import {
@@ -422,13 +423,12 @@ app.put('/:id/milestones/:mid/isc', async (c) => {
     const contractId = c.req.param('id');
     const milestoneId = c.req.param('mid');
     const body = await c.req.json();
-    const isc = body as { criteria: unknown[]; antiCriteria?: unknown[] };
 
-    if (!isc.criteria || !Array.isArray(isc.criteria)) {
-      return error(c, 400, 'VALIDATION_ERROR', 'criteria array is required');
-    }
+    // Validate through Zod schema (ISC-S4 fix: no raw cast)
+    const v = validate(UpdateISCSchema, body);
+    if (!v.success) return error(c, 400, v.error.code, v.error.message, v.error.details);
 
-    await updateMilestoneISC(contractId, milestoneId, pubkey, isc as MilestoneISC);
+    await updateMilestoneISC(contractId, milestoneId, pubkey, v.data as MilestoneISC);
     return success(c, { updated: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
