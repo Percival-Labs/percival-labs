@@ -1225,7 +1225,48 @@ These items should be completed before Vouch accepts real money from external us
 
 ---
 
-## 10. Document Maintenance
+## 10. Contract ISC Security Model (Added 2026-02-28)
+
+### 10.1 Overview
+
+Contract milestones now use **Ideal State Criteria (ISC)** — structured, binary-testable verification criteria stored as jsonb in `contract_milestones.isc_criteria` (migration 0009). ISC is auto-generated from plain text `acceptance_criteria` when no structured ISC is provided, ensuring every milestone has verifiable criteria.
+
+### 10.2 New Attack Surface
+
+| Attack | Vector | Mitigation |
+|--------|--------|------------|
+| **ISC Criteria Injection** | Malicious agent crafts criteria designed to always pass trivially | Validation enforces 4-20 word criteria, CRITICAL priority requires substantive evidence. Customer reviews criteria before contract activation. |
+| **Evidence Forgery** | Agent submits fabricated evidence strings | Evidence is stored alongside criteria for customer review. Future: automated verification hooks (test runners, API checks). Currently: human verification. |
+| **Criterion Manipulation** | Party modifies ISC after contract active to weaken requirements | ISC updates require contract to be in draft/active status. PUT endpoint requires NIP-98 auth from authorized party. Contract event audit trail logs all changes. |
+| **Anti-Criteria Bypass** | Agent structures deliverable to technically satisfy criteria while violating anti-criteria | Anti-criteria checked on acceptance. Customer can reject if anti-criteria violated despite criteria passing. Override requires explicit justification stored in audit trail. |
+| **Auto-Generation Gaming** | Agent provides acceptance_criteria text crafted to generate trivially satisfiable ISC | `generateISCFromText()` creates `important` priority by default, first criterion always `critical`. Customer should review auto-generated ISC before funding. |
+| **Bulk Override Attack** | Customer overrides all CRITICAL criteria to force-accept substandard work | All overrides stored with notes in ISC audit trail. Override pattern detectable in dispute resolution. |
+
+### 10.3 Data Integrity
+
+- ISC criteria stored as jsonb — no SQL injection risk (parameterized via Drizzle ORM)
+- Evidence strings limited to 2000 chars per criterion (Zod validation in schemas.ts)
+- Criterion text limited to 100 chars (validation in `validateISC()`)
+- IDs must be unique per milestone (validation check)
+
+### 10.4 Auth Requirements
+
+| Endpoint | Method | Auth | Who Can Call |
+|----------|--------|------|-------------|
+| `GET /v1/contracts/:id/milestones/:mid/isc` | GET | NIP-98 | Customer or Agent on the contract |
+| `PUT /v1/contracts/:id/milestones/:mid/isc` | PUT | NIP-98 | Customer or Agent (draft/active only) |
+| Submit with ISC evidence | POST (existing) | NIP-98 | Agent on the contract |
+| Accept with ISC overrides | POST (existing) | NIP-98 | Customer on the contract |
+
+### 10.5 Residual Risks
+
+1. **No automated verification yet** — ISC verification is currently human-reviewed. Agents can submit evidence strings that sound plausible but are fabricated. Automated verification (test execution, API endpoint checks) is Phase 2.
+2. **Auto-generated ISC quality** — `generateISCFromText()` does simple sentence splitting. Complex or poorly written acceptance criteria may produce low-quality ISC. Mitigation: customer review before funding.
+3. **ISC doesn't prevent collusion** — A cooperating customer and agent can trivially pass all criteria. This is inherent to two-party contracts and mitigated at the platform level by Vouch trust scoring (staker + community + performance dimensions).
+
+---
+
+## 11. Document Maintenance
 
 This threat model is a living document. It must be updated when:
 
@@ -1258,7 +1299,11 @@ Percival Labs monorepo.
 | `apps/vouch-api/src/index.ts` | Server entry point (CORS, headers, body limit, error handler, middleware mounting) |
 | `apps/vouch-api/src/openapi-spec.ts` | OpenAPI 3.1 specification |
 | `packages/vouch-db/src/schema/staking.ts` | Drizzle schema (pools, stakes, fees, distributions, nonces, treasury) |
+| `packages/vouch-db/src/schema/contracts.ts` | Contract/milestone schema including `iscCriteria` jsonb column |
+| `packages/vouch-db/drizzle/0009_add_isc_criteria.sql` | Migration adding ISC criteria column to `contract_milestones` |
 | `packages/vouch-db/src/connection.ts` | PostgreSQL connection (throws on missing DATABASE_URL) |
+| `apps/vouch-api/src/services/contract-service.ts` | Contract lifecycle: ISC validation, auto-generation, evidence tracking, acceptance |
+| `apps/vouch-api/src/routes/contracts.ts` | Contract API routes including ISC GET/PUT endpoints |
 | `docker/docker-compose.yml` | Docker deployment configuration (env vars, networks, health checks) |
 
 ## Appendix B: Cryptographic Primitives

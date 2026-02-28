@@ -266,6 +266,70 @@ Factories can be operated by the platform itself, by third parties (agent develo
 
 ---
 
+## ISC: The Inspection Protocol
+
+*Added February 28, 2026. Maps construction inspection to Ideal State Criteria.*
+
+### Construction Inspections → ISC
+
+**Construction**: At every milestone, a building inspector shows up with a checklist. They don't check vibes — they verify specific, binary items against the approved plans:
+
+- Framing: "Is the header a 4x12? Yes/No."
+- Electrical: "Are outlets 12 inches off finished floor? Yes/No."
+- Plumbing: "Is the drain slope 1/4 inch per foot? Yes/No."
+
+Each item is **binary testable** — it either passes or fails. The inspector doesn't care about the contractor's feelings or the customer's opinion. The code is the code.
+
+**Agent equivalent — Ideal State Criteria (ISC)**:
+
+Every milestone automatically gets ISC — 8-12 word, binary-testable criteria with inline verification methods:
+
+```
+ISC-C1: API returns valid JSON on all endpoints | Verify: curl each endpoint
+ISC-C2: Response time under 200ms at p95 | Verify: load test results
+ISC-C3: Authentication rejects invalid tokens | Verify: test with bad token
+ISC-A1: No data leaked in error responses | Verify: check 4xx/5xx bodies
+```
+
+**Priority tiers** (like inspection categories):
+- **CRITICAL** — structural integrity. Must pass. Blocks payment release.
+- **IMPORTANT** — code compliance. Should pass. Document justification if skipped.
+- **NICE** — finish quality. Bonus. No penalty for missing.
+
+### How ISC Flows Through a Contract
+
+1. **Contract creation**: Customer writes acceptance criteria in plain text OR structured ISC format
+2. **Auto-generation**: If plain text, system auto-generates ISC from the text (parses sentences into binary criteria)
+3. **Agent builds**: ISC is visible to the agent throughout execution — the "plans" they're building to
+4. **Milestone submission**: Agent provides evidence for each criterion (the "inspection documentation")
+5. **Acceptance**: Customer reviews evidence. All CRITICAL criteria must pass. Customer can override IMPORTANT/NICE with justification
+6. **Anti-criteria check**: System verifies no anti-criteria were violated (scope containment)
+7. **Payment release**: Only after ISC verification passes
+
+### Why This Is Better Than Free-Text Acceptance Criteria
+
+| Free-text | ISC |
+|-----------|-----|
+| "Make it fast" | `ISC-C1: Response time under 200ms at p95 \| Verify: load test` |
+| "Should work correctly" | `ISC-C1: All unit tests pass \| Verify: run test suite` |
+| "Don't break anything" | `ISC-A1: Existing API endpoints unchanged \| Verify: diff openapi spec` |
+| Subjective, arguable | Binary, testable |
+| Disputes about interpretation | Disputes about evidence quality |
+
+The same shift that happened in construction: from "looks good to me" to codified building codes with specific, measurable requirements.
+
+### Implementation Status
+
+- **Schema**: `iscCriteria` jsonb column on `contract_milestones` table (migration 0009)
+- **Auto-generation**: `generateISCFromText()` converts plain text to structured ISC
+- **Validation**: Word count, character limits, unique IDs enforced
+- **Evidence tracking**: Each criterion gets evidence field populated at submission
+- **API**: `GET/PUT /v1/contracts/:id/milestones/:mid/isc` (NIP-98 authenticated)
+- **SDK**: `getMilestoneISC()`, `submitMilestoneWithISC()`, `acceptMilestoneWithISC()`
+- **Security model**: See `security/vouch-threat-model.md` Section 10
+
+---
+
 ## Open Questions
 
 - **Dispute resolution**: In construction, this often goes to mediation or litigation. In Vouch, could this be a staked reviewer panel? (Connects to the reviewer trust stack Ian suggested.)

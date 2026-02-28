@@ -421,6 +421,51 @@ export class Vouch {
     await this.signedFetch('POST', `/v1/contracts/${contractId}/cancel`, { reason });
   }
 
+  // ── ISC (Ideal State Criteria) API ──
+
+  /**
+   * Get ISC criteria for a specific milestone.
+   * Returns null if no ISC criteria are set.
+   */
+  async getMilestoneISC(contractId: string, milestoneId: string): Promise<import('./types.js').MilestoneISC | null> {
+    const res = await this.signedFetch('GET', `/v1/contracts/${contractId}/milestones/${milestoneId}/isc`, undefined);
+    return (res as { isc: import('./types.js').MilestoneISC | null }).isc;
+  }
+
+  /**
+   * Submit a milestone with ISC evidence for each criterion.
+   * Evidence is a map of criterion ID to proof string.
+   * All CRITICAL criteria must have evidence or submission will fail.
+   */
+  async submitMilestoneWithISC(
+    contractId: string,
+    milestoneId: string,
+    evidence: Record<string, string>,
+    opts?: { deliverableUrl?: string; deliverableNotes?: string },
+  ): Promise<void> {
+    await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/submit`, {
+      deliverable_url: opts?.deliverableUrl,
+      deliverable_notes: opts?.deliverableNotes,
+      isc_evidence: evidence,
+    });
+  }
+
+  /**
+   * Accept a milestone with optional ISC criterion overrides.
+   * Overrides allow the customer to mark criteria as passed/failed with a note.
+   * All CRITICAL criteria must be passed or the acceptance will fail.
+   */
+  async acceptMilestoneWithISC(
+    contractId: string,
+    milestoneId: string,
+    overrides?: Record<string, { status: 'passed' | 'failed'; note?: string }>,
+  ): Promise<{ milestoneAccepted: boolean; contractCompleted: boolean }> {
+    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/accept`, {
+      isc_overrides: overrides,
+    });
+    return res as { milestoneAccepted: boolean; contractCompleted: boolean };
+  }
+
   // ── Nostr Event Helpers ──
 
   /**

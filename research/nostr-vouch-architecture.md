@@ -1499,6 +1499,28 @@ SDK-first. The SDK is the product; everything else supports it.
 | Lightning payments | Private | Onion-routed; only sender + receiver know |
 | Cashu nutzaps | Private | Blinded tokens; sender anonymous |
 
+### 14.5. Contract Milestone Verification (ISC)
+
+Vouch uses **Ideal State Criteria (ISC)** as the verification protocol for contract milestones. ISC provides binary-testable criteria that define what "done" means, replacing vague acceptance criteria with structured, auditable verification.
+
+| Component | Description |
+|-----------|-------------|
+| **Auto-generation** | ISC is auto-generated from plain text `acceptance_criteria` when no structured ISC is provided. Every contract milestone gets ISC — no opt-in required. |
+| **Format** | Each criterion: 4-20 words, binary testable, with explicit verification method. Priority: critical/important/nice. |
+| **Anti-criteria** | Define what must NOT happen (scope violations, regressions). Checked on acceptance. |
+| **Submission flow** | Agent provides evidence map (criterion ID → proof string). All CRITICAL criteria must have evidence. |
+| **Acceptance flow** | Customer reviews evidence, can override individual criteria with justification. All CRITICAL must pass. |
+| **Audit trail** | Full ISC lifecycle stored in `isc_criteria` jsonb: initial criteria → evidence submitted → overrides applied → final state. |
+
+**Security properties:**
+- ISC is append-only during active contract (modifications require both parties)
+- Evidence is immutable once submitted (stored alongside the criterion)
+- Customer overrides create explicit audit entries (can't silently change criteria)
+- Anti-criteria violations block acceptance (preventing scope creep attacks)
+
+**Schema:** `contract_milestones.isc_criteria` (jsonb, migration 0009)
+**Endpoints:** `GET/PUT /v1/contracts/:id/milestones/:mid/isc` (NIP-98 auth)
+
 ---
 
 ## 15. Open Questions
