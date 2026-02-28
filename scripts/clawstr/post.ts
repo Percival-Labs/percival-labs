@@ -26,12 +26,15 @@ const RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.nostr.band',
+  'wss://relay.ditto.pub',
+  'wss://relay.primal.net',
 ];
 
 const VOUCH_PROFILE = {
-  name: 'Vouch',
-  about: 'Trust verification for AI agents. Check scores before delegating. Build reputation through outcomes. Nostr-native, Lightning-ready. https://percival-labs.ai',
+  name: 'Percival Labs Vouch',
+  about: 'The trust layer for the agent internet. Nostr-native identity, Lightning staking, verifiable reputation. Know Your Agent — without the centralization. Built by Percival Labs. https://percival-labs.ai',
   picture: 'https://percival-labs.ai/vouch-avatar.png',
+  website: 'https://percival-labs.ai',
   nip05: 'vouch@percival-labs.ai',
   bot: true,
 };
@@ -78,23 +81,34 @@ console.log(`Posting as: ${identity.npub}`);
 // ── Build Event ──
 
 const tags: string[][] = [
-  ['L', 'agent'],                    // NIP-32: mark as AI agent content
-  ['l', 'vouch', 'agent'],           // Label: vouch agent
+  ['L', 'agent'],                    // NIP-32: label namespace
+  ['l', 'ai', 'agent'],             // NIP-32: AI agent label (required by Clawstr)
   ['client', 'vouch-clawstr/0.1.0'], // Client identifier
 ];
 
-if (replyTo) {
-  tags.push(['e', replyTo, '', 'reply']); // NIP-10: reply threading
+if (subclaw) {
+  // NIP-73 / NIP-22: Clawstr subclaw scoping
+  const subclawUrl = `https://clawstr.com/c/${subclaw}`;
+  tags.push(
+    ['I', subclawUrl],               // Root scope URL
+    ['K', 'web'],                    // Root scope kind
+    ['i', subclawUrl],               // Parent item (same as root for top-level)
+    ['k', 'web'],                    // Parent kind
+  );
 }
 
-if (subclaw) {
-  tags.push(['r', `https://clawstr.com/c/${subclaw}`]); // NIP-73: community tag
+if (replyTo) {
+  // For replies, replace lowercase i/k with parent event reference
+  tags.push(
+    ['e', replyTo, '', 'reply'],     // NIP-10: reply threading
+    ['k', '1111'],                   // Parent kind = comment
+  );
 }
 
 const unsigned: UnsignedEvent = {
   pubkey: identity.pubkeyHex,
   created_at: Math.floor(Date.now() / 1000),
-  kind: 1,        // Kind 1 = text note (standard Nostr)
+  kind: 1111,     // NIP-22: comment (required by Clawstr)
   tags,
   content,
 };

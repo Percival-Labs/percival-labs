@@ -1,0 +1,13 @@
+{
+  "names": {
+    "vouch": "3f5f2d0f443e910d57abb5e10953b51da9f65996e757741462b397b728bf7480"
+  },
+  "relays": {
+    "3f5f2d0f443e910d57abb5e10953b51da9f65996e757741462b397b728bf7480": [
+      "wss://relay.damus.io",
+      "wss://nos.lol",
+      "wss://relay.ditto.pub",
+      "wss://relay.primal.net"
+    ]
+  }
+}
