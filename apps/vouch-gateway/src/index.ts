@@ -66,7 +66,7 @@ export default {
 
     // Only POST/GET/PUT/DELETE to provider paths
     if (request.method === 'OPTIONS') {
-      return corsResponse();
+      return corsResponse(env, request.headers.get('Origin') ?? undefined);
     }
 
     // Safety: prevent DEV_MODE in production
@@ -297,8 +297,15 @@ export default {
       isFinite(rateResult.remaining) ? String(rateResult.remaining) : 'unlimited',
     );
 
-    // CORS headers
-    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    // CORS headers — restrict to configured origins (no wildcard with API key proxying)
+    const allowedOrigins = (env.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    const requestOrigin = request.headers.get('Origin') ?? '';
+    if (allowedOrigins.length > 0 && allowedOrigins.includes(requestOrigin)) {
+      responseHeaders.set('Access-Control-Allow-Origin', requestOrigin);
+    } else if (allowedOrigins.length === 0) {
+      // No origins configured — default to no CORS (safe default)
+      responseHeaders.delete('Access-Control-Allow-Origin');
+    }
 
     return new Response(upstreamResponse.body, {
       status: upstreamResponse.status,
@@ -313,7 +320,6 @@ export default {
 function jsonResponse(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
     ...extraHeaders,
   };
   return new Response(JSON.stringify(data, null, 2), { status, headers });
@@ -332,16 +338,16 @@ function errorResponse(
   );
 }
 
-function corsResponse(): Response {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Vouch-Auth, Authorization, x-api-key, anthropic-version, anthropic-beta',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
+function corsResponse(env?: Env, requestOrigin?: string): Response {
+  const allowedOrigins = (env?.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  const origin = (requestOrigin && allowedOrigins.includes(requestOrigin)) ? requestOrigin : '';
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Vouch-Auth, Authorization, x-api-key, anthropic-version, anthropic-beta',
+    'Access-Control-Max-Age': '86400',
+  };
+  if (origin) headers['Access-Control-Allow-Origin'] = origin;
+  return new Response(null, { status: 204, headers });
 }
 
 /**
