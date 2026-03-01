@@ -1,19 +1,23 @@
 // Vouch Gateway — Cloudflare Worker Entry Point
 //
-// Trust-tiered proxy for AI provider APIs using the Vouch protocol.
+// Per-token inference proxy with dual auth and usage metering.
 //
 // Request flow:
-// 1. Extract Vouch identity from X-Vouch-Auth header
-// 2. Look up consumer trust score (cached in KV)
-// 3. Resolve trust tier and enforce rate limits
-// 4. Validate model access for the consumer's tier
-// 5. Forward request to upstream provider
-// 6. Track usage patterns asynchronously (anomaly detection)
-// 7. Return response with Vouch headers
+// 1. Extract auth identity: NIP-98 (transparent) or Privacy Token (private)
+// 2. Look up consumer trust score (cached in KV) — for rate limits, NOT model gating
+// 3. Enforce per-consumer rate limits
+// 4. Strip identity headers, forward to upstream provider
+// 5. Count tokens from response, compute cost
+// 6. Report usage to Vouch API (async) for billing
+// 7. Return response with Vouch headers (cost/model info in transparent mode)
 
 import type { Env, TrustTier } from './types';
 import { TIER_CONFIGS } from './types';
-import { extractNostrAuth, validateNip98Structure, verifyNostrEvent } from './auth';
+import {
+  resolveAuthIdentity,
+  validateNip98Structure,
+  verifyNostrEvent,
+} from './auth';
 import { getConsumerScore } from './scoring';
 import { enforceRateLimit } from './rate-limiter';
 import { trackRequest } from './anomaly';
@@ -24,9 +28,10 @@ import {
   getUpstreamUrl,
   getProviderApiKey,
   extractModelFromRequest,
-  isModelAllowed,
   isReasoningModel,
 } from './providers';
+import { extractTokenCounts, reportUsage } from './metering';
+import { getPricingTable, estimateCostSats } from './pricing';
 
 // ── Worker Export ──
 
@@ -39,32 +44,43 @@ export default {
       return jsonResponse({
         status: 'ok',
         service: 'vouch-gateway',
-        version: '0.1.0',
-        providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai').split(','),
+        version: '0.2.0',
+        providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
+        authModes: ['transparent', 'private'],
       });
     }
 
     // Discovery endpoint — returns gateway capabilities
     if (url.pathname === '/.well-known/vouch-gateway') {
       return jsonResponse({
-        version: '0.1.0',
+        version: '0.2.0',
         protocol: 'vouch-nip-98',
-        providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai').split(','),
+        providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
         tiers: Object.entries(TIER_CONFIGS).map(([name, config]) => ({
           name,
           minScore: config.minScore,
           rateLimit: isFinite(config.rateLimit) ? config.rateLimit : null,
-          models: config.allowedModels,
+          models: 'all', // No model gating — all models available to all tiers
         })),
         auth: {
-          header: 'X-Vouch-Auth',
-          format: 'Nostr <base64 NIP-98 event>',
-          eventKind: 27235,
+          transparent: {
+            header: 'X-Vouch-Auth',
+            format: 'Nostr <base64 NIP-98 event>',
+          },
+          private: {
+            header: 'X-Vouch-Auth',
+            format: 'PrivacyToken <base64 JSON>',
+          },
+        },
+        billing: {
+          model: 'per-token',
+          transparent: 'credit-balance',
+          private: 'prepaid-batch',
         },
       });
     }
 
-    // Only POST/GET/PUT/DELETE to provider paths
+    // CORS preflight
     if (request.method === 'OPTIONS') {
       return corsResponse(env, request.headers.get('Origin') ?? undefined);
     }
@@ -75,6 +91,14 @@ export default {
       return errorResponse(500, 'CONFIG_ERROR', 'Service misconfigured');
     }
 
+    // ── 0. Request Body Size Limit ──
+
+    const contentLength = parseInt(request.headers.get('Content-Length') ?? '0', 10);
+    const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB — generous for large prompts
+    if (contentLength > MAX_BODY_BYTES) {
+      return errorResponse(413, 'PAYLOAD_TOO_LARGE', `Request body exceeds ${MAX_BODY_BYTES / (1024 * 1024)} MB limit`);
+    }
+
     // ── 1. Resolve Provider ──
 
     const provider = getProviderConfig(url.pathname);
@@ -82,23 +106,23 @@ export default {
       return errorResponse(404, 'UNKNOWN_PROVIDER', `No provider found for path: ${url.pathname}. Use /{provider}/... (e.g., /anthropic/v1/messages)`);
     }
 
-    // Check if provider is in the supported list
-    const supportedProviders = (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai')
+    const supportedProviders = (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter')
       .split(',')
       .map((p) => p.trim().toLowerCase());
     if (!supportedProviders.includes(provider.id)) {
       return errorResponse(403, 'PROVIDER_DISABLED', `Provider "${provider.id}" is not enabled on this gateway`);
     }
 
-    // ── 2. Extract Identity ──
+    // ── 2. Extract Identity (Dual Auth) ──
 
-    const nostrEvent = extractNostrAuth(request.headers);
-    let pubkey: string;
+    const clientIp = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+    const { identity, nostrEvent } = resolveAuthIdentity(request.headers, clientIp);
+
     let tier: TrustTier = 'restricted';
     let score = 0;
     let totalStakedSats = 0;
 
-    if (nostrEvent) {
+    if (identity.mode === 'transparent' && nostrEvent) {
       // Validate NIP-98 structure
       const structErr = validateNip98Structure(
         nostrEvent,
@@ -109,7 +133,7 @@ export default {
         return errorResponse(401, 'INVALID_AUTH', `NIP-98 validation failed: ${structErr}`);
       }
 
-      // Skip signature verification in dev mode for easier testing
+      // Verify signature (skip in dev mode)
       if (env.DEV_MODE !== 'true') {
         const sigValid = await verifyNostrEvent(nostrEvent);
         if (!sigValid) {
@@ -117,43 +141,42 @@ export default {
         }
       }
 
-      // Check for replay (event ID already used)
+      // Replay protection — MUST be synchronous to prevent race conditions.
+      // Two concurrent requests with the same NIP-98 event ID must not both succeed.
       const replayKey = `replay:${nostrEvent.id}`;
       const seen = await env.VOUCH_RATE_LIMITS.get(replayKey);
       if (seen) {
         return errorResponse(401, 'REPLAY_DETECTED', 'NIP-98 event already used');
       }
-      // Mark as seen (120s TTL > 60s timestamp window)
-      ctx.waitUntil(
-        env.VOUCH_RATE_LIMITS.put(replayKey, '1', { expirationTtl: 120 })
-      );
+      await env.VOUCH_RATE_LIMITS.put(replayKey, '1', { expirationTtl: 120 });
 
-      pubkey = nostrEvent.pubkey;
-
-      // ── 3. Look Up Trust Score ──
-      const scoreData = await getConsumerScore(pubkey, env);
+      // Look up trust score (for rate limits only, NOT model gating)
+      const scoreData = await getConsumerScore(identity.pubkey, env);
       if (scoreData) {
         score = scoreData.score;
         totalStakedSats = scoreData.totalStakedSats;
         tier = scoreData.tier;
       }
-    } else {
-      // No Vouch header — anonymous/restricted access
-      pubkey = `anon:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`;
+    } else if (identity.mode === 'private') {
+      // Private mode — use standard tier rate limits (trust is in the prepaid batch)
+      tier = 'standard';
+    } else if (identity.mode === 'anonymous') {
+      // Anonymous users cannot use inference — they must authenticate.
+      // This prevents unauthorized consumption of API credits.
+      return errorResponse(401, 'AUTH_REQUIRED', 'Authentication required. Provide NIP-98 or PrivacyToken in X-Vouch-Auth header.');
     }
 
     const tierConfig = TIER_CONFIGS[tier];
 
-    // ── 4. Rate Limiting ──
+    // ── 3. Rate Limiting ──
 
-    const rateResult = await enforceRateLimit(pubkey, tierConfig.rateLimit, env);
+    const rateResult = await enforceRateLimit(identity.pubkey, tierConfig.rateLimit, env);
     if (!rateResult.allowed) {
       return errorResponse(
         429,
         'RATE_LIMITED',
-        `Rate limit exceeded for tier "${tier}". Limit: ${tierConfig.rateLimit} req/min.`,
+        `Rate limit exceeded. Limit: ${tierConfig.rateLimit} req/min.`,
         {
-          'X-Vouch-Score': String(score),
           'X-Vouch-Tier': tier,
           'X-Vouch-Rate-Remaining': '0',
           'Retry-After': '60',
@@ -161,7 +184,7 @@ export default {
       );
     }
 
-    // ── 5. Parse Body and Validate Model Access ──
+    // ── 4. Parse Body and Extract Model ──
 
     let requestBody: unknown = null;
     let bodyText: string | null = null;
@@ -177,35 +200,19 @@ export default {
       }
     }
 
-    if (model && !isModelAllowed(model, tier, provider)) {
-      const tierDescription = tier === 'restricted'
-        ? 'basic models only'
-        : tier === 'standard'
-          ? 'all models except reasoning/CoT'
-          : 'all models including reasoning';
+    // No model gating — all models available to all tiers
+    // UX is #1 priority: best model for the task, period.
 
-      return errorResponse(
-        403,
-        'MODEL_DENIED',
-        `Model "${model}" is not available at tier "${tier}" (${tierDescription}). Increase your Vouch score and stake to access higher tiers.`,
-        {
-          'X-Vouch-Score': String(score),
-          'X-Vouch-Tier': tier,
-          'X-Vouch-Rate-Remaining': String(rateResult.remaining),
-        },
-      );
-    }
-
-    // ── 6. Forward to Upstream Provider ──
+    // ── 5. Forward to Upstream Provider ──
 
     const upstreamBase = getUpstreamUrl(provider, env);
     const upstreamPath = getUpstreamPath(url.pathname);
     const upstreamUrl = `${upstreamBase}${upstreamPath}${url.search}`;
 
-    // Build upstream headers — forward most headers, replace auth
+    // Build upstream headers — strip identity, inject provider auth
     const upstreamHeaders = new Headers();
 
-    // Copy safe headers from the original request
+    // Copy safe headers only (strip identity headers for privacy)
     const forwardHeaders = [
       'content-type',
       'accept',
@@ -217,13 +224,15 @@ export default {
       'x-stainless-package-version',
       'x-stainless-runtime',
       'x-stainless-runtime-version',
-      'user-agent',
     ];
 
     for (const name of forwardHeaders) {
       const value = request.headers.get(name);
       if (value) upstreamHeaders.set(name, value);
     }
+
+    // NEVER forward identity headers to providers
+    // X-Forwarded-For, User-Agent, cookies, X-Vouch-Auth — all stripped
 
     // Set provider API key
     const apiKey = getProviderApiKey(provider, env);
@@ -233,17 +242,22 @@ export default {
 
     if (provider.id === 'anthropic') {
       upstreamHeaders.set('x-api-key', apiKey);
-    } else if (provider.id === 'openai') {
+    } else {
+      // OpenAI and OpenRouter both use Bearer auth
       upstreamHeaders.set('Authorization', `Bearer ${apiKey}`);
     }
 
-    // Forward the request
+    // OpenRouter: add site/app headers for attribution
+    if (provider.id === 'openrouter') {
+      upstreamHeaders.set('HTTP-Referer', 'https://percival-labs.ai');
+      upstreamHeaders.set('X-Title', 'Percival Labs Gateway');
+    }
+
     const upstreamRequest: RequestInit = {
       method: request.method,
       headers: upstreamHeaders,
     };
 
-    // Attach body for POST/PUT
     if (bodyText !== null) {
       upstreamRequest.body = bodyText;
     } else if (request.method === 'POST' || request.method === 'PUT') {
@@ -258,7 +272,52 @@ export default {
       return errorResponse(502, 'UPSTREAM_ERROR', `Failed to reach ${provider.id} upstream`);
     }
 
-    // ── 7. Anomaly Detection (Async, Non-Blocking) ──
+    // ── 6. Count Tokens + Compute Cost ──
+
+    // Clone the response so we can read the body for token counts
+    // while still streaming the original to the client
+    let tokenCounts = { inputTokens: 0, outputTokens: 0 };
+    let costSats = 0;
+    let responseBodyForClient: ReadableStream | ArrayBuffer | string | null = upstreamResponse.body;
+
+    // Only count tokens for successful JSON responses (not streaming)
+    const contentType = upstreamResponse.headers.get('content-type') ?? '';
+    if (upstreamResponse.ok && contentType.includes('application/json') && model) {
+      try {
+        const responseText = await upstreamResponse.text();
+        const responseJson = JSON.parse(responseText);
+        tokenCounts = extractTokenCounts(responseJson, provider.id);
+
+        // Compute estimated cost
+        const pricing = await getPricingTable(env);
+        costSats = estimateCostSats(pricing, model, tokenCounts.inputTokens, tokenCounts.outputTokens);
+
+        responseBodyForClient = responseText;
+      } catch {
+        // If we can't parse, just pass through
+        responseBodyForClient = upstreamResponse.body;
+      }
+    }
+
+    // ── 7. Report Usage (Async, Non-Blocking) ──
+
+    if (model && (tokenCounts.inputTokens > 0 || tokenCounts.outputTokens > 0)) {
+      ctx.waitUntil(
+        reportUsage({
+          userNpub: identity.mode === 'transparent' ? identity.pubkey : undefined,
+          batchHash: identity.mode === 'private' ? identity.batchHash : undefined,
+          tokenHash: identity.mode === 'private' ? identity.tokenHash : undefined,
+          model,
+          provider: provider.id,
+          inputTokens: tokenCounts.inputTokens,
+          outputTokens: tokenCounts.outputTokens,
+        }, env).catch((err) => {
+          console.error('[metering] Usage report failed:', err);
+        }),
+      );
+    }
+
+    // ── 8. Anomaly Detection (Async, Non-Blocking) ──
 
     if (model) {
       const promptLength = estimatePromptLength(requestBody);
@@ -269,15 +328,13 @@ export default {
         promptLength,
       };
 
-      // Use waitUntil to avoid blocking the response
       ctx.waitUntil(
-        trackRequest(pubkey, anomalyRecord, env).then((result) => {
+        trackRequest(identity.pubkey, anomalyRecord, env).then((result) => {
           if (result.flagged) {
             console.warn(
-              `[anomaly] Consumer ${pubkey.slice(0, 16)}... flagged:`,
+              `[anomaly] Consumer ${identity.pubkey.slice(0, 16)}... flagged:`,
               result.reasons.join('; '),
             );
-            // Future: write flag to KV for scoring module to pick up
           }
         }).catch((err) => {
           console.error('[anomaly] Failed to track request:', err);
@@ -285,29 +342,50 @@ export default {
       );
     }
 
-    // ── 8. Return Response with Vouch Headers ──
+    // ── 9. Return Response with Vouch Headers ──
 
-    const responseHeaders = new Headers(upstreamResponse.headers);
+    // For error responses, build clean headers instead of forwarding upstream provider headers.
+    // This prevents leaking provider-specific headers (x-request-id, server versions, etc).
+    let responseHeaders: Headers;
+    if (!upstreamResponse.ok) {
+      responseHeaders = new Headers({
+        'Content-Type': upstreamResponse.headers.get('Content-Type') ?? 'application/json',
+      });
+    } else {
+      responseHeaders = new Headers(upstreamResponse.headers);
+    }
 
-    // Add Vouch headers
-    responseHeaders.set('X-Vouch-Score', String(score));
+    // Always add privacy mode header
+    responseHeaders.set('X-Vouch-Privacy', identity.mode);
     responseHeaders.set('X-Vouch-Tier', tier);
     responseHeaders.set(
       'X-Vouch-Rate-Remaining',
       isFinite(rateResult.remaining) ? String(rateResult.remaining) : 'unlimited',
     );
 
-    // CORS headers — restrict to configured origins (no wildcard with API key proxying)
+    // Transparent mode: full visibility into model, cost, tokens
+    if (identity.mode === 'transparent') {
+      responseHeaders.set('X-Vouch-Score', String(score));
+      if (model) responseHeaders.set('X-Vouch-Model', model);
+      responseHeaders.set('X-Vouch-Provider', provider.id);
+      if (costSats > 0) responseHeaders.set('X-Vouch-Cost-Sats', String(costSats));
+      if (tokenCounts.inputTokens > 0) {
+        responseHeaders.set('X-Vouch-Input-Tokens', String(tokenCounts.inputTokens));
+        responseHeaders.set('X-Vouch-Output-Tokens', String(tokenCounts.outputTokens));
+      }
+    }
+    // Private mode: minimal headers (no identity, no per-request cost)
+
+    // CORS headers
     const allowedOrigins = (env.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
     const requestOrigin = request.headers.get('Origin') ?? '';
     if (allowedOrigins.length > 0 && allowedOrigins.includes(requestOrigin)) {
       responseHeaders.set('Access-Control-Allow-Origin', requestOrigin);
     } else if (allowedOrigins.length === 0) {
-      // No origins configured — default to no CORS (safe default)
       responseHeaders.delete('Access-Control-Allow-Origin');
     }
 
-    return new Response(upstreamResponse.body, {
+    return new Response(responseBodyForClient, {
       status: upstreamResponse.status,
       statusText: upstreamResponse.statusText,
       headers: responseHeaders,
@@ -358,7 +436,6 @@ function estimatePromptLength(body: unknown): number {
   if (typeof body !== 'object' || body === null) return 0;
   const obj = body as Record<string, unknown>;
 
-  // Both Anthropic and OpenAI use `messages` array
   if (!Array.isArray(obj.messages)) return 0;
 
   let totalLength = 0;
@@ -368,7 +445,6 @@ function estimatePromptLength(body: unknown): number {
       if (typeof m.content === 'string') {
         totalLength += m.content.length;
       } else if (Array.isArray(m.content)) {
-        // Anthropic content blocks
         for (const block of m.content) {
           if (typeof block === 'object' && block !== null) {
             const b = block as Record<string, unknown>;
@@ -381,7 +457,6 @@ function estimatePromptLength(body: unknown): number {
     }
   }
 
-  // Include system prompt if present
   if (typeof obj.system === 'string') {
     totalLength += obj.system.length;
   }

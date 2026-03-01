@@ -19,7 +19,7 @@ function makeValidEvent(overrides: Partial<NostrEvent> = {}): NostrEvent {
     created_at: Math.floor(Date.now() / 1000),
     kind: 27235,
     tags: [
-      ['u', 'https://gateway.example.com/v1/messages'],
+      ['u', 'https://gateway.percival-labs.ai/v1/messages'],
       ['method', 'POST'],
     ],
     content: '',
@@ -173,7 +173,7 @@ describe('validateNip98Structure', () => {
 
   it('returns error for missing method tag', () => {
     const event = makeValidEvent({
-      tags: [['u', 'https://gateway.example.com/v1/messages']],
+      tags: [['u', 'https://gateway.percival-labs.ai/v1/messages']],
     });
     const err = validateNip98Structure(event, 'POST', '/v1/messages');
     expect(err).not.toBeNull();
@@ -183,7 +183,7 @@ describe('validateNip98Structure', () => {
   it('returns error for method mismatch', () => {
     const event = makeValidEvent({
       tags: [
-        ['u', 'https://gateway.example.com/v1/messages'],
+        ['u', 'https://gateway.percival-labs.ai/v1/messages'],
         ['method', 'GET'],
       ],
     });
@@ -218,8 +218,42 @@ describe('validateNip98Structure', () => {
   it('matches method case-insensitively', () => {
     const event = makeValidEvent({
       tags: [
-        ['u', 'https://gateway.example.com/v1/messages'],
+        ['u', 'https://gateway.percival-labs.ai/v1/messages'],
         ['method', 'post'],
+      ],
+    });
+    const err = validateNip98Structure(event, 'POST', '/v1/messages');
+    expect(err).toBeNull();
+  });
+
+  it('rejects unrecognized gateway hostname', () => {
+    const event = makeValidEvent({
+      tags: [
+        ['u', 'https://evil-gateway.example.com/v1/messages'],
+        ['method', 'POST'],
+      ],
+    });
+    const err = validateNip98Structure(event, 'POST', '/v1/messages');
+    expect(err).not.toBeNull();
+    expect(err).toContain('hostname not recognized');
+  });
+
+  it('accepts localhost for dev mode', () => {
+    const event = makeValidEvent({
+      tags: [
+        ['u', 'http://localhost:8787/v1/messages'],
+        ['method', 'POST'],
+      ],
+    });
+    const err = validateNip98Structure(event, 'POST', '/v1/messages');
+    expect(err).toBeNull();
+  });
+
+  it('accepts workers.dev gateway hostname', () => {
+    const event = makeValidEvent({
+      tags: [
+        ['u', 'https://vouch-gateway.percival-labs.workers.dev/v1/messages'],
+        ['method', 'POST'],
       ],
     });
     const err = validateNip98Structure(event, 'POST', '/v1/messages');
