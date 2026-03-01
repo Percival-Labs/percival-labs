@@ -331,7 +331,7 @@ app.post('/v1/agents/tasks/:id/reset', (c) => {
     status: 'pending',
     assignedTo: null,
     output: null,
-  });
+  }, 'system');
   const updated = team.getTaskStatus(id);
   return c.json({ message: `Task "${id}" reset to pending`, task: updated });
 });
@@ -341,7 +341,7 @@ app.post('/v1/agents/tasks/clear', (c) => {
   const dag = team.getDAG();
   const tasks = dag.getAllTasks();
   for (const task of tasks) {
-    dag.updateTask(task.id, { status: 'completed', output: 'Cleared by admin' });
+    dag.updateTask(task.id, { status: 'completed', output: 'Cleared by admin' }, 'system');
   }
   return c.json({ message: `Cleared ${tasks.length} tasks` });
 });

@@ -1,5 +1,9 @@
 // Task DAG — Directed Acyclic Graph for task orchestration
 // Manages task nodes with dependency tracking, status transitions, and ready-queue extraction.
+// Extended with evidence tracking and watcher enforcement for task accountability.
+
+import { checkTransition, formatAuditEntry, type StateTransition } from './watcher';
+import type { Evidence } from './evidence';
 
 // ── Limits ──
 export const MAX_TASK_DEPTH = 3;
@@ -7,18 +11,28 @@ export const MAX_SUBTASKS_PER_DECOMPOSITION = 5;
 export const MAX_TOTAL_TASKS = 200;
 export const MAX_CONCURRENT_TASKS = 20;
 
+export type TaskStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'blocked'
+  | 'awaiting_approval'
+  | 'evidence_submitted'
+  | 'failed';
+
 export interface TaskNode {
   id: string;
   title: string;
   description: string;
   priority: 'critical' | 'high' | 'medium' | 'low';
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'awaiting_approval';
+  status: TaskStatus;
   assignedTo: string | null;
   dependsOn: string[];
   output: string | null;
   createdAt: string;
   depth: number;
   parentId: string | null;
+  evidence?: Evidence;
 }
 
 let idCounter = 0;
@@ -82,10 +96,35 @@ export class TaskDAG {
     return id;
   }
 
+  // Watcher enforcement toggle — enabled by default, can be disabled for migration/testing
+  private watcherEnabled = true;
+
+  // Audit log callback — set externally to route audit entries (e.g. to Discord #audit)
+  private auditCallback: ((entry: string, blocked: boolean, transition: StateTransition) => void) | null = null;
+
+  /**
+   * Enable or disable watcher enforcement.
+   * When disabled, transitions happen without rule checks (useful for migration).
+   */
+  setWatcherEnabled(enabled: boolean): void {
+    this.watcherEnabled = enabled;
+  }
+
+  /**
+   * Register a callback for watcher audit entries.
+   */
+  onAudit(callback: (entry: string, blocked: boolean, transition: StateTransition) => void): void {
+    this.auditCallback = callback;
+  }
+
   /**
    * Update fields on an existing task.
+   * When watcher is enabled and status is changing, enforces transition rules.
+   *
+   * @param actor - The agent/system performing the update (for watcher enforcement).
+   *                Defaults to 'system' for backward compatibility.
    */
-  updateTask(id: string, updates: Partial<TaskNode>): void {
+  updateTask(id: string, updates: Partial<TaskNode>, actor: string = 'system'): void {
     const existing = this.nodes.get(id);
     if (!existing) {
       throw new Error(`Task "${id}" not found in DAG`);
@@ -106,7 +145,75 @@ export class TaskDAG {
       }
     }
 
+    // Watcher enforcement: check transition rules when status is changing
+    if (this.watcherEnabled && safeUpdates.status && safeUpdates.status !== existing.status) {
+      const subtasks = this.getSubtasks(id);
+
+      const transition: StateTransition = {
+        taskId: id,
+        from: existing.status,
+        to: safeUpdates.status,
+        actor: actor.toLowerCase(),
+        task: existing,
+        evidence: safeUpdates.evidence,
+        subtasks,
+      };
+
+      const result = checkTransition(transition);
+      const auditEntry = formatAuditEntry(transition, result);
+
+      // Fire audit callback
+      if (this.auditCallback) {
+        this.auditCallback(auditEntry, !result.allowed, transition);
+      }
+
+      if (!result.allowed) {
+        const rule = result.blockedBy?.rule ?? 'unknown';
+        const reason = result.blockedBy?.reason ?? 'Transition blocked by watcher';
+        throw new WatcherBlockedError(id, existing.status, safeUpdates.status, rule, reason);
+      }
+    }
+
     this.nodes.set(id, { ...existing, ...safeUpdates });
+
+    // Auto-validate: if transitioning to evidence_submitted and evidence is valid,
+    // automatically advance to completed
+    if (safeUpdates.status === 'evidence_submitted' && safeUpdates.evidence) {
+      // The evidence was already validated by the watcher rule.
+      // Auto-advance to completed.
+      this.nodes.set(id, {
+        ...this.nodes.get(id)!,
+        status: 'completed',
+      });
+
+      if (this.auditCallback) {
+        const autoEntry =
+          `[WATCHER] AUTO: ${id} transition evidence_submitted → completed\n` +
+          `  Validation: evidence meets policy (${safeUpdates.evidence.type})\n` +
+          `  Time: ${new Date().toISOString()}`;
+        this.auditCallback(autoEntry, false, {
+          taskId: id,
+          from: 'evidence_submitted',
+          to: 'completed',
+          actor: 'watcher',
+          task: this.nodes.get(id)!,
+          evidence: safeUpdates.evidence,
+        });
+      }
+    }
+  }
+
+  /**
+   * Get all direct child tasks of a given parent task.
+   */
+  getSubtasks(parentId: string): TaskNode[] {
+    const children: TaskNode[] = [];
+    for (const node of this.nodes.values()) {
+      if (node.parentId === parentId) {
+        children.push(node);
+      }
+    }
+    return children;
   }
 
   /**
@@ -218,5 +325,27 @@ export class TaskDAG {
       }
     }
     return dag;
+  }
+}
+
+// ── Watcher Error ──
+
+/**
+ * Error thrown when the watcher blocks a state transition.
+ * Callers can catch this specifically to handle enforcement actions.
+ */
+export class WatcherBlockedError extends Error {
+  public readonly taskId: string;
+  public readonly fromStatus: TaskStatus;
+  public readonly toStatus: TaskStatus;
+  public readonly rule: string;
+
+  constructor(taskId: string, from: TaskStatus, to: TaskStatus, rule: string, reason: string) {
+    super(`[WATCHER] BLOCKED: ${taskId} ${from} → ${to} — ${rule}: ${reason}`);
+    this.name = 'WatcherBlockedError';
+    this.taskId = taskId;
+    this.fromStatus = from;
+    this.toStatus = to;
+    this.rule = rule;
   }
 }

@@ -23,7 +23,13 @@ export type AgentEventType =
   | 'proposal_created'
   | 'proposal_approved'
   | 'proposal_rejected'
-  | 'model_routed';
+  | 'model_routed'
+  | 'watcher_blocked'
+  | 'watcher_allowed'
+  | 'evidence_submitted'
+  | 'evidence_rejected'
+  | 'ledger_updated'
+  | 'task_failed';
 
 export interface AgentEvent {
   id: string;

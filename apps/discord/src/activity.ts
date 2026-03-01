@@ -13,13 +13,15 @@ interface QueuedMessage {
 
 const THROTTLE_MS = 2000;
 
-// Event types to skip (too noisy for Discord)
+// Event types to skip (too noisy for activity, or handled by dedicated channels)
 const SKIP_EVENTS = new Set([
   'tick_started',
   'tick_completed',
   'auto_tick_started',
   'auto_tick_stopped',
   'task_output',
+  'watcher_allowed',    // verbose — goes to #audit only
+  'ledger_updated',     // internal — triggers ledger refresh
 ]);
 
 function formatEvent(type: string, data: Record<string, unknown>): string | null {
@@ -50,6 +52,14 @@ function formatEvent(type: string, data: Record<string, unknown>): string | null
       return `\u26A0\uFE0F Budget at ${Math.round((data.percentage as number) * 100)}% \u2014 $${(data.current as number).toFixed(2)} of $${(data.limit as number).toFixed(2)}`;
     case 'budget_exhausted':
       return `\u{1F6D1} Daily budget exhausted`;
+    case 'watcher_blocked':
+      return `\u{1F6E1}\uFE0F **Watcher blocked** ${data.taskId}: ${data.from} \u2192 ${data.to} (agent: ${data.actor})`;
+    case 'evidence_submitted':
+      return `\u{1F4CE} **${data.agent}** submitted evidence for ${data.taskId}: ${data.summary}`;
+    case 'evidence_rejected':
+      return `\u26A0\uFE0F **Evidence rejected** for ${data.taskId} \u2014 ${data.agent}: ${data.reason}`;
+    case 'task_failed':
+      return `\u{1F4A5} **Task failed:** ${data.taskId}`;
     default:
       return null;
   }

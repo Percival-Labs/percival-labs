@@ -5,7 +5,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Database } from 'bun:sqlite';
 import { loadIdentities, type AgentIdentity } from './identity/loader';
-import { TaskDAG, type TaskNode, MAX_SUBTASKS_PER_DECOMPOSITION } from './tasks/dag';
+import { TaskDAG, type TaskNode, type TaskStatus, MAX_SUBTASKS_PER_DECOMPOSITION, WatcherBlockedError } from './tasks/dag';
+import { createEvidence, type Evidence } from './tasks/evidence';
 import { matchTaskToAgent } from './tasks/scheduler';
 import { executeAgentTask, type AgentExecutionResult } from './agent';
 import { initMemoryDatabase } from '@percival/agent-memory';
@@ -164,6 +165,26 @@ export class AgentTeam {
   constructor(identitiesDir: string) {
     this.identities = loadIdentities(identitiesDir);
     this.dag = new TaskDAG();
+
+    // Wire watcher audit events to the event bus
+    this.dag.onAudit((entry, blocked, transition) => {
+      if (blocked) {
+        eventBus.publish('watcher_blocked', {
+          taskId: transition.taskId,
+          from: transition.from,
+          to: transition.to,
+          actor: transition.actor,
+          rule: entry,
+        });
+      } else {
+        eventBus.publish('watcher_allowed', {
+          taskId: transition.taskId,
+          from: transition.from,
+          to: transition.to,
+          actor: transition.actor,
+        });
+      }
+    });
 
     // Initialize budget tracker
     this.budget = new BudgetTracker();
@@ -331,11 +352,19 @@ export class AgentTeam {
           subtaskIds.push(subId);
         }
 
-        // Update parent with decomposition output
+        // Update parent with decomposition output — coordinator evidence for decomposition
+        const coordEvidence = createEvidence(
+          parentId,
+          'coordinator',
+          'coordination',
+          `Decomposed into ${subtaskIds.length} subtasks`,
+          [{ type: 'subtask_rollup', details: `Subtasks: ${subtaskIds.join(', ')}` }],
+        );
         this.dag.updateTask(parentId, {
           output: `Decomposed into ${subtaskIds.length} subtasks: ${subtaskIds.join(', ')}`,
-          status: 'completed',
-        });
+          status: 'evidence_submitted',
+          evidence: coordEvidence,
+        }, 'coordinator');
 
         eventBus.publish('task_decomposed', {
           parentTaskId: parentId,
@@ -363,11 +392,11 @@ export class AgentTeam {
         this.dag.updateTask(parentId, {
           status: 'pending',
           output: null,
-        });
+        }, 'system');
       }
     } else {
       // No coordinator or no API — leave as a single pending task
-      this.dag.updateTask(parentId, { status: 'pending' });
+      this.dag.updateTask(parentId, { status: 'pending' }, 'system');
     }
 
     return parentId;
@@ -399,7 +428,7 @@ export class AgentTeam {
       if (task.status === 'blocked' && task.output &&
           /\b(500|502|503|529|rate_limit|Internal server error|overloaded)\b/.test(task.output)) {
         console.log(`[team] Retrying blocked task "${task.id}" (transient API error)`);
-        this.dag.updateTask(task.id, { status: 'pending', output: null, assignedTo: null });
+        this.dag.updateTask(task.id, { status: 'pending', output: null, assignedTo: null }, 'system');
       }
     }
 
@@ -457,11 +486,11 @@ export class AgentTeam {
   ): Promise<AgentExecutionResult> {
     const agentId = agent.name.toLowerCase();
 
-    // Mark as in progress
+    // Mark as in progress (system dispatches on behalf of coordinator)
     this.dag.updateTask(task.id, {
       status: 'in_progress',
       assignedTo: agent.name,
-    });
+    }, 'system');
 
     eventBus.publish('task_assigned', {
       taskId: task.id,
@@ -489,7 +518,7 @@ export class AgentTeam {
     const budgetCheck = this.budget.canExecute(task.id);
     if (!budgetCheck.allowed) {
       console.warn(`[team] Budget blocked task "${task.id}": ${budgetCheck.reason}`);
-      this.dag.updateTask(task.id, { status: 'blocked', output: `Budget: ${budgetCheck.reason}` });
+      this.dag.updateTask(task.id, { status: 'blocked', output: `Budget: ${budgetCheck.reason}` }, 'system');
       eventBus.publish('task_budget_blocked', { taskId: task.id, reason: budgetCheck.reason });
       return {
         agentName: agent.name,
@@ -543,11 +572,58 @@ export class AgentTeam {
       this.budget.record(task.id, result.model, result.inputTokens, result.outputTokens);
     }
 
-    // Update DAG with result
-    this.dag.updateTask(task.id, {
-      status: result.success ? 'completed' : 'blocked',
-      output: result.output,
-    });
+    // Update DAG with result — go through evidence submission for successful tasks
+    if (result.success) {
+      // Build evidence from execution result
+      const agentRole = agent.name.toLowerCase();
+      const evidenceType = this.inferEvidenceType(agentRole);
+      const evidence = createEvidence(
+        task.id,
+        agentRole,
+        evidenceType,
+        `Completed: ${task.title}`,
+        this.buildEvidenceArtifacts(evidenceType, result),
+      );
+
+      try {
+        // Submit evidence — watcher validates, then auto-advances to completed
+        this.dag.updateTask(task.id, {
+          status: 'evidence_submitted',
+          output: result.output,
+          evidence,
+        }, agentRole);
+
+        eventBus.publish('evidence_submitted', {
+          taskId: task.id,
+          agent: agentRole,
+          evidenceType,
+          summary: evidence.summary,
+        });
+      } catch (err) {
+        if (err instanceof WatcherBlockedError) {
+          // Evidence validation failed — mark as blocked with reason
+          console.warn(`[team] Evidence rejected for task "${task.id}": ${err.message}`);
+          this.dag.updateTask(task.id, {
+            status: 'blocked',
+            output: `Evidence rejected: ${err.message}\n\nOriginal output: ${result.output}`,
+          }, 'system');
+
+          eventBus.publish('evidence_rejected', {
+            taskId: task.id,
+            agent: agentRole,
+            reason: err.message,
+          });
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      // Failed execution — mark as blocked (agents can report blocked status)
+      this.dag.updateTask(task.id, {
+        status: 'blocked',
+        output: result.output,
+      }, agent.name.toLowerCase());
+    }
 
     // Store episode in memory
     if (this.memoryDb) {
@@ -611,6 +687,66 @@ export class AgentTeam {
   }
 
   /**
+   * Infer the evidence type from an agent's role name.
+   */
+  private inferEvidenceType(agentRole: string): import('./tasks/evidence').EvidenceType {
+    const roleMap: Record<string, import('./tasks/evidence').EvidenceType> = {
+      builder: 'code_change',
+      workercoder: 'code_change',
+      reviewer: 'review',
+      auditor: 'scan',
+      researcher: 'research',
+      workerresearcher: 'research',
+      artist: 'asset',
+      coordinator: 'coordination',
+      workergeneral: 'code_change',
+    };
+    return roleMap[agentRole] ?? 'code_change';
+  }
+
+  /**
+   * Build evidence artifacts from execution results.
+   * Generates minimal valid artifacts based on evidence type.
+   */
+  private buildEvidenceArtifacts(
+    type: import('./tasks/evidence').EvidenceType,
+    result: AgentExecutionResult,
+  ): import('./tasks/evidence').EvidenceArtifact[] {
+    switch (type) {
+      case 'code_change':
+        return [
+          { type: 'diff', details: `Agent output: ${result.output.slice(0, 200)}` },
+          { type: 'test_output', result: result.success ? 'pass' : 'fail' },
+        ];
+      case 'review':
+        return [
+          { type: 'checklist', details: result.output.slice(0, 500) },
+        ];
+      case 'scan':
+        return [
+          { type: 'scan_output', details: result.output.slice(0, 500) },
+        ];
+      case 'research':
+        return [
+          { type: 'source', details: result.output.slice(0, 500) },
+        ];
+      case 'asset':
+        return [
+          { type: 'file', details: result.output.slice(0, 500) },
+        ];
+      case 'coordination':
+        return [
+          { type: 'subtask_rollup', details: result.output.slice(0, 500) },
+        ];
+      default:
+        return [
+          { type: 'diff', details: result.output.slice(0, 200) },
+          { type: 'test_output', result: 'pass' },
+        ];
+    }
+  }
+
+  /**
    * Approve a proposal — flip all awaiting_approval subtasks under parentId to pending.
    */
   approveProposal(parentId: string): void {
@@ -618,7 +754,7 @@ export class AgentTeam {
     let flipped = 0;
     for (const task of allTasks) {
       if (task.parentId === parentId && task.status === 'awaiting_approval') {
-        this.dag.updateTask(task.id, { status: 'pending' });
+        this.dag.updateTask(task.id, { status: 'pending' }, 'system');
         flipped++;
       }
     }
@@ -633,13 +769,13 @@ export class AgentTeam {
     let flipped = 0;
     for (const task of allTasks) {
       if (task.parentId === parentId && task.status === 'awaiting_approval') {
-        this.dag.updateTask(task.id, { status: 'blocked', output: 'Rejected by human' });
+        this.dag.updateTask(task.id, { status: 'blocked', output: 'Rejected by human' }, 'system');
         flipped++;
       }
     }
     const parent = this.dag.getTask(parentId);
     if (parent) {
-      this.dag.updateTask(parentId, { output: `Rejected by human (${flipped} subtasks blocked)` });
+      this.dag.updateTask(parentId, { output: `Rejected by human (${flipped} subtasks blocked)` }, 'system');
     }
     eventBus.publish('proposal_rejected', { parentId, subtasksRejected: flipped });
   }
