@@ -3,7 +3,7 @@
 // Creates channels on startup if they don't exist.
 
 import { Client, ChannelType, TextChannel, CategoryChannel } from 'discord.js';
-import type { ChannelMap, OpsChannelMap } from './types';
+import type { ChannelMap, OpsChannelMap, AgentLogChannelMap } from './types';
 
 const CATEGORY_NAME = 'Intelligence';
 
@@ -82,6 +82,8 @@ const OPS_CHANNEL_DEFS = [
   { key: 'results',   name: 'results',     topic: 'Agent task outputs and deliverables' },
   { key: 'activity',  name: 'activity',    topic: 'Live agent activity feed' },
   { key: 'xContent',  name: 'x-content',   topic: 'Draft tweets for @PercivalLabs — react ✅ to post, ❌ to reject' },
+  { key: 'ledger',    name: 'ledger',      topic: 'Canonical task state — auto-updated by Watcher' },
+  { key: 'audit',     name: 'audit',       topic: 'Watcher enforcement actions, violations, state changes' },
 ] as const;
 
 /**
@@ -135,4 +137,69 @@ export async function ensureOpsChannels(client: Client, guildId: string): Promis
   }
 
   return channelMap as unknown as OpsChannelMap;
+}
+
+// ── Agent Log Channels ──
+
+const LOGS_CATEGORY_NAME = 'Agent Logs';
+
+const AGENT_LOG_DEFS = [
+  { key: 'logCoordinator', name: 'log-coordinator', topic: 'Coordinator reasoning, decomposition traces' },
+  { key: 'logBuilder',     name: 'log-builder',     topic: 'Builder implementation logs, commands, errors' },
+  { key: 'logReviewer',    name: 'log-reviewer',    topic: 'Reviewer review notes, test runs, findings' },
+  { key: 'logAuditor',     name: 'log-auditor',     topic: 'Auditor security scans, dependency checks' },
+  { key: 'logResearcher',  name: 'log-researcher',  topic: 'Researcher search trails, source evaluations' },
+  { key: 'logArtist',      name: 'log-artist',      topic: 'Artist prompt iterations, style decisions' },
+] as const;
+
+/**
+ * Ensure the Agent Logs category and per-agent log channels exist.
+ */
+export async function ensureAgentLogChannels(client: Client, guildId: string): Promise<AgentLogChannelMap> {
+  const guild = client.guilds.cache.get(guildId) ?? await client.guilds.fetch(guildId);
+  if (!guild) {
+    throw new Error(`[channels] Guild ${guildId} not found.`);
+  }
+
+  let category = guild.channels.cache.find(
+    (ch): ch is CategoryChannel =>
+      ch.type === ChannelType.GuildCategory && ch.name === LOGS_CATEGORY_NAME
+  );
+
+  if (!category) {
+    console.log(`[channels] Creating category: ${LOGS_CATEGORY_NAME}`);
+    category = await guild.channels.create({
+      name: LOGS_CATEGORY_NAME,
+      type: ChannelType.GuildCategory,
+    });
+  } else {
+    console.log(`[channels] Found existing category: ${LOGS_CATEGORY_NAME}`);
+  }
+
+  const channelMap: Record<string, string> = {};
+
+  for (const def of AGENT_LOG_DEFS) {
+    let channel = guild.channels.cache.find(
+      (ch): ch is TextChannel =>
+        ch.type === ChannelType.GuildText &&
+        ch.name === def.name &&
+        ch.parentId === category.id
+    );
+
+    if (!channel) {
+      console.log(`[channels] Creating #${def.name}`);
+      channel = await guild.channels.create({
+        name: def.name,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        topic: def.topic,
+      });
+    } else {
+      console.log(`[channels] Found existing #${def.name}`);
+    }
+
+    channelMap[def.key] = channel.id;
+  }
+
+  return channelMap as unknown as AgentLogChannelMap;
 }

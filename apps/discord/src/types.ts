@@ -64,7 +64,33 @@ export interface OpsChannelMap {
   results: string;
   activity: string;
   xContent: string;
+  // Accountability channels
+  ledger: string;
+  audit: string;
 }
+
+// Per-agent log channel keys (managed in separate "Agent Logs" category)
+export interface AgentLogChannelMap {
+  logCoordinator: string;
+  logBuilder: string;
+  logReviewer: string;
+  logAuditor: string;
+  logResearcher: string;
+  logArtist: string;
+}
+
+// Map agent names (lowercase) to their log channel key
+export const AGENT_LOG_KEYS: Record<string, keyof AgentLogChannelMap> = {
+  coordinator: 'logCoordinator',
+  builder: 'logBuilder',
+  workercoder: 'logBuilder',
+  reviewer: 'logReviewer',
+  auditor: 'logAuditor',
+  researcher: 'logResearcher',
+  workerresearcher: 'logResearcher',
+  workergeneral: 'logBuilder',
+  artist: 'logArtist',
+};
 
 // Score emoji mapping (1-10)
 export const SCORE_EMOJI: Record<number, string> = {

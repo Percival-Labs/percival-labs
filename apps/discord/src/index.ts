@@ -4,7 +4,7 @@
 
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { initMemoryDatabase } from '@percival/agent-memory';
-import { ensureChannels, ensureOpsChannels } from './channels';
+import { ensureChannels, ensureOpsChannels, ensureAgentLogChannels } from './channels';
 import { setupHandlers } from './bot';
 import { AgentBridge } from './agent-bridge';
 import { setupActivityFeed } from './activity';
@@ -14,6 +14,8 @@ import { setupProposalHandler } from './proposals';
 import { setupCommands } from './commands';
 import { setupXPosting } from './x-posting';
 import { setupMentionHandler } from './mention';
+import { setupAuditFeed } from './audit';
+import { setupLedger } from './ledger';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -73,16 +75,22 @@ client.once('ready', async () => {
   const opsChannels = await ensureOpsChannels(client, GUILD_ID!);
   console.log('[discord] Operations channels ready');
 
+  // Agent log channels (per-agent verbose logging)
+  const logChannels = await ensureAgentLogChannels(client, GUILD_ID!);
+  console.log('[discord] Agent log channels ready');
+
   const bridge = new AgentBridge(AGENTS_URL, AGENTS_API_KEY);
   console.log(`[discord] Agent bridge connecting to ${AGENTS_URL}`);
 
   setupActivityFeed(client, bridge, opsChannels);
-  setupOutputHandler(client, bridge, opsChannels);
+  setupOutputHandler(client, bridge, opsChannels, logChannels);
   setupTaskHandler(client, bridge, opsChannels);
   setupProposalHandler(client, bridge, opsChannels);
   setupCommands(client, bridge, opsChannels);
   setupXPosting(client, opsChannels);
   setupMentionHandler(client, bridge, opsChannels);
+  setupAuditFeed(client, bridge, opsChannels);
+  setupLedger(client, bridge, opsChannels);
 
   console.log('[discord] Bot is operational -- listening for links in #drop, tasks in #tasks, @mentions, and drafts in #x-content');
 });
