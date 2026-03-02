@@ -611,72 +611,196 @@ app.get('/contracts/:id', async (c) => {
   }
 });
 
-// ── GET /stats/flywheel — Capability ROI and flywheel metrics (public) ──
+// ── GET /factory/graduates — List factory graduates (public, paginated) ──
+app.get('/factory/graduates', async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '25', 10)));
+
+    const { listFactoryGraduates } = await import('../services/factory-service');
+    const result = await listFactoryGraduates(page, limit);
+
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[public] GET /factory/graduates error:', message);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to list factory graduates');
+  }
+});
+
+// ── GET /factory/progress/:pubkey — Agent factory progress (public) ──
+app.get('/factory/progress/:pubkey', async (c) => {
+  const pubkey = c.req.param('pubkey');
+
+  if (!pubkey || !/^[0-9a-fA-F]{64}$/.test(pubkey)) {
+    return error(c, 400, 'INVALID_PUBKEY', 'Invalid pubkey format: expected 64 hex characters');
+  }
+
+  try {
+    const { getFactoryProgress } = await import('../services/factory-service');
+    const progress = await getFactoryProgress(pubkey);
+
+    if (!progress) {
+      return error(c, 404, 'NOT_FOUND', 'Agent not found');
+    }
+
+    return success(c, {
+      pubkey,
+      contractsCompleted: progress.contractsCompleted,
+      isGraduate: progress.isGraduate,
+      graduatedAt: progress.graduatedAt,
+      graduationThreshold: 5,
+      trustBoostOnGraduation: 25,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[public] GET /factory/progress/${pubkey} error:`, message);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to get factory progress');
+  }
+});
+
+// ── GET /stats/flywheel — Capability ROI and compound flywheel metrics (public) ──
+// Returns aggregate stats for the capability flywheel: skills listed, purchases,
+// royalties, contracts, velocity, factory graduates, and active stakers.
+// No auth required. Cached for 60s to prevent DoS via repeated full-table aggregation.
+
+let flywheelCache: { data: unknown; expiresAt: number } | null = null;
+const FLYWHEEL_CACHE_TTL_MS = 60_000; // 60 seconds
+
 app.get('/stats/flywheel', async (c) => {
   try {
-    // Total skills listed
-    const [skillCount] = await db.select({ count: sql<number>`count(*)::int` })
+    // Return cached response if fresh (P1 fix — prevent DoS via repeated aggregate queries)
+    if (flywheelCache && Date.now() < flywheelCache.expiresAt) {
+      c.header('Cache-Control', 'public, max-age=60');
+      return c.json(flywheelCache.data);
+    }
+    // Lazily import tables that live outside the top-level import to avoid circular deps
+    const { contracts, royaltyPayments, stakes } = await import('@percival/vouch-db');
+
+    // ── Skills & Purchases (already top-level imported) ──
+
+    const [skillCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
       .from(skills)
       .where(eq(skills.status, 'active'));
 
-    // Total purchases
-    const [purchaseCount] = await db.select({ count: sql<number>`count(*)::int` })
+    const [purchaseStats] = await db
+      .select({
+        totalPurchases: sql<number>`count(*)::int`,
+        totalRevenueSats: sql<string>`coalesce(sum(${skillPurchases.revenueFromSkillSats}), 0)`,
+        totalSpentSats: sql<string>`coalesce(sum(${skillPurchases.pricePaidSats}), 0)`,
+        purchasesWithRevenue: sql<number>`count(*) filter (where ${skillPurchases.revenueFromSkillSats} > 0)::int`,
+      })
       .from(skillPurchases);
 
-    // Total revenue attributed to skills and total spent on skills
-    const [revenueStats] = await db.select({
-      totalRevenueSats: sql<number>`coalesce(sum(${skillPurchases.revenueFromSkillSats}), 0)::int`,
-      totalSpentSats: sql<number>`coalesce(sum(${skillPurchases.pricePaidSats}), 0)::int`,
-      totalContractsUsing: sql<number>`coalesce(sum(${skillPurchases.contractsUsingSkill}), 0)::int`,
-    }).from(skillPurchases);
+    const totalRevenueSats = Number(purchaseStats?.totalRevenueSats ?? 0);
+    const totalSpentSats = Number(purchaseStats?.totalSpentSats ?? 0);
 
-    const totalRevenue = revenueStats?.totalRevenueSats ?? 0;
-    const totalSpent = revenueStats?.totalSpentSats ?? 0;
-    const totalContractsUsing = revenueStats?.totalContractsUsing ?? 0;
+    // Average capability ROI across purchases that have yielded revenue
+    // revenue_from_skill_sats / price_paid_sats per purchase, averaged
+    const [avgROIResult] = await db
+      .select({
+        avgROI: sql<string>`coalesce(
+          avg(${skillPurchases.revenueFromSkillSats}::float8 / nullif(${skillPurchases.pricePaidSats}, 0)),
+          0
+        )`,
+      })
+      .from(skillPurchases)
+      .where(sql`${skillPurchases.revenueFromSkillSats} > 0`);
 
-    // Capability ROI = total revenue / total spent (target: >3x)
-    const capabilityROI = totalSpent > 0 ? totalRevenue / totalSpent : 0;
+    const avgCapabilityROI = Math.round(Number(avgROIResult?.avgROI ?? 0) * 100) / 100;
 
-    // Unique creators and buyers
-    const [creatorCount] = await db.select({
-      count: sql<number>`count(DISTINCT ${skills.creatorPubkey})::int`,
-    }).from(skills).where(eq(skills.status, 'active'));
+    // ── Royalties ──
 
-    const [buyerCount] = await db.select({
-      count: sql<number>`count(DISTINCT ${skillPurchases.buyerPubkey})::int`,
-    }).from(skillPurchases);
+    const [royaltyStats] = await db
+      .select({
+        totalPaid: sql<number>`count(*) filter (where ${royaltyPayments.status} = 'paid')::int`,
+        totalSats: sql<string>`coalesce(sum(${royaltyPayments.royaltySats}) filter (where ${royaltyPayments.status} = 'paid'), 0)`,
+      })
+      .from(royaltyPayments);
 
-    // Creator-consumer count (agents who are both)
-    const [creatorConsumerCount] = await db.select({
-      count: sql<number>`count(*)::int`,
-    }).from(
-      sql`(
-        SELECT DISTINCT s.creator_pubkey as pubkey FROM skills s
-        WHERE s.status = 'active'
-        INTERSECT
-        SELECT DISTINCT sp.buyer_pubkey as pubkey FROM skill_purchases sp
-      ) as cc`,
-    );
+    // ── Contracts ──
 
-    return success(c, {
-      skills: {
-        totalListed: skillCount?.count ?? 0,
-        uniqueCreators: creatorCount?.count ?? 0,
-      },
-      purchases: {
-        totalPurchases: purchaseCount?.count ?? 0,
-        uniqueBuyers: buyerCount?.count ?? 0,
-        totalSpentSats: totalSpent,
-      },
-      flywheel: {
-        capabilityROI: Math.round(capabilityROI * 100) / 100,
-        totalRevenueFromSkillsSats: totalRevenue,
-        contractsUsingSkills: totalContractsUsing,
-        creatorConsumerCount: creatorConsumerCount?.count ?? 0,
-        selfSustaining: capabilityROI >= 3.0,
+    const [contractStats] = await db
+      .select({
+        completedCount: sql<number>`count(*) filter (where ${contracts.status} = 'completed')::int`,
+        completedValueSats: sql<string>`coalesce(sum(${contracts.totalSats}) filter (where ${contracts.status} = 'completed'), 0)`,
+      })
+      .from(contracts);
+
+    // ── Flywheel Velocity ──
+    // Average days between a skill purchase and its first paid royalty event.
+    // Uses a raw CTE query — Drizzle subquery-join syntax doesn't compose cleanly here.
+    const velocityRows = await db.execute(sql`
+      with first_royalty as (
+        select purchase_id, min(created_at) as first_royalty_at
+        from royalty_payments
+        where status = 'paid'
+        group by purchase_id
+      )
+      select coalesce(
+        avg(extract(epoch from (fr.first_royalty_at - sp.created_at)) / 86400.0),
+        null
+      ) as avg_days
+      from skill_purchases sp
+      inner join first_royalty fr on fr.purchase_id = sp.id
+    `);
+
+    const velocityRowArray = (velocityRows as any)?.rows ?? velocityRows;
+    const avgVelocityRaw = Array.isArray(velocityRowArray) ? (velocityRowArray[0]?.avg_days as string | null) : null;
+    const avgVelocityDays = avgVelocityRaw != null
+      ? Math.round(Number(avgVelocityRaw) * 10) / 10
+      : null;
+
+    // ── Factory Graduates ──
+
+    const [graduateCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agents)
+      .where(eq(agents.isFactoryGraduate, true));
+
+    // ── Active Stakers ──
+
+    const [activeStakerCount] = await db
+      .select({
+        count: sql<number>`count(DISTINCT ${stakes.stakerId})::int`,
+      })
+      .from(stakes)
+      .where(eq(stakes.status, 'active'));
+
+    const response = {
+      data: {
+        skills: {
+          totalListed: skillCount?.count ?? 0,
+        },
+        purchases: {
+          total: purchaseStats?.totalPurchases ?? 0,
+          totalSpentSats,
+          totalRevenueFromSkillsSats: totalRevenueSats,
+          avgCapabilityROI,
+        },
+        royalties: {
+          totalPaid: royaltyStats?.totalPaid ?? 0,
+          totalPaidSats: Number(royaltyStats?.totalSats ?? 0),
+        },
+        contracts: {
+          totalCompleted: contractStats?.completedCount ?? 0,
+          totalCompletedValueSats: Number(contractStats?.completedValueSats ?? 0),
+        },
+        flywheel: {
+          avgVelocityDays,
+          factoryGraduates: graduateCount?.count ?? 0,
+          activeStakers: activeStakerCount?.count ?? 0,
+          selfSustaining: avgCapabilityROI >= 3.0,
+        },
       },
       computedAt: new Date().toISOString(),
-    });
+    };
+
+    // Cache for 60s
+    flywheelCache = { data: response, expiresAt: Date.now() + FLYWHEEL_CACHE_TTL_MS };
+    c.header('Cache-Control', 'public, max-age=60');
+    return c.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[public] GET /stats/flywheel error:', message);

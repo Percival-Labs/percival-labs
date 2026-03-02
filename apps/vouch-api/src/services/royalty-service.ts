@@ -146,7 +146,8 @@ export async function calculateRoyalties(
     }
 
     // Calculate royalty: (paymentSats * rateBps) / 10000
-    const royaltySats = Math.round((paymentSats * skill.royaltyRateBps) / 10000);
+    // Use Math.floor to guarantee total royalties never exceed payment (RY-2 fix)
+    const royaltySats = Math.floor((paymentSats * skill.royaltyRateBps) / 10000);
 
     // Skip dust -- sub-sat royalties are not worth the Lightning overhead
     if (royaltySats < MIN_ROYALTY_SATS) {
@@ -161,6 +162,16 @@ export async function calculateRoyalties(
       royaltyRateBps: skill.royaltyRateBps,
       royaltySats,
     });
+  }
+
+  // Aggregate royalty cap: total royalties must not exceed the milestone payment (RY-3 fix).
+  // With multiple skills, independent percentages can sum above 100%.
+  const totalRoyalties = calculations.reduce((sum, c) => sum + c.royaltySats, 0);
+  if (totalRoyalties > paymentSats) {
+    const scale = paymentSats / totalRoyalties;
+    for (const calc of calculations) {
+      calc.royaltySats = Math.floor(calc.royaltySats * scale);
+    }
   }
 
   return calculations;
@@ -412,7 +423,7 @@ export async function getFlywheelStats(): Promise<FlywheelStats> {
   const [roiRow] = await db
     .select({
       avgRoi: sql<number>`COALESCE(AVG(
-        CASE WHEN ${skillPurchases.revenueFromSkillSats} > 0
+        CASE WHEN ${skillPurchases.revenueFromSkillSats} > 0 AND ${skillPurchases.pricePaidSats} > 0
           THEN ${skillPurchases.revenueFromSkillSats}::float / ${skillPurchases.pricePaidSats}::float
           ELSE NULL
         END

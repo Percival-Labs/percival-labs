@@ -15,6 +15,11 @@ import {
   outcomes,
 } from '@percival/vouch-db';
 import { ulid } from 'ulid';
+import {
+  calculateRoyalties,
+  recordRoyalties,
+  executeRoyaltyPayments,
+} from './royalty-service';
 
 // ── ISC Types ──
 
@@ -573,6 +578,7 @@ export async function submitMilestone(
   deliverableUrl?: string,
   deliverableNotes?: string,
   evidence?: Record<string, string>,
+  skillsUsed?: string[],
 ) {
   return await db.transaction(async (tx) => {
     const [contract] = await tx
@@ -644,6 +650,7 @@ export async function submitMilestone(
         deliverableNotes,
         submittedAt: new Date(),
         ...(updatedIsc ? { iscCriteria: updatedIsc } : {}),
+        ...(skillsUsed ? { skillsUsed } : {}),
       })
       .where(eq(contractMilestones.id, milestoneId));
 
@@ -796,13 +803,43 @@ export async function acceptMilestone(
         eventType: 'completed',
         actorPubkey: customerPubkey,
       });
+
     }
+
+    // Return factory-relevant data so we can fire the hook AFTER the transaction commits.
+    const completionSowObj = contract.sow as Record<string, unknown>;
+    const rawCompletionTags = completionSowObj?.['tags'];
+    const completionSowTags: string[] = Array.isArray(rawCompletionTags) ? (rawCompletionTags as string[]) : [];
 
     return {
       milestoneAccepted: true,
       contractCompleted: allWorkAccepted,
+      isFactoryContract: completionSowTags.includes('factory:training'),
+      agentPubkey: contract.agentPubkey,
     };
   });
+
+  // Factory onboarding hook — fires AFTER the transaction commits (FA-1 fix).
+  // If the tx rolled back, we never reach here, preventing trust boosts on failed milestones.
+  if (result.contractCompleted && result.isFactoryContract) {
+    const agentPub = result.agentPubkey;
+    setImmediate(async () => {
+      try {
+        const { recordFactoryCompletion } = await import('./factory-service');
+        await recordFactoryCompletion(contractId, agentPub);
+      } catch (err) {
+        console.error(
+          `[factory] recordFactoryCompletion failed for contract ${contractId}:`,
+          err,
+        );
+      }
+    });
+  }
+
+  return {
+    milestoneAccepted: result.milestoneAccepted,
+    contractCompleted: result.contractCompleted,
+  };
 }
 
 /**
@@ -928,6 +965,17 @@ export async function releaseMilestonePayment(contractId: string, milestoneId: s
 
     // TODO: Pay agent NWC (payYield pattern) once agent NWC connections are tracked
     // For now, payment goes to platform treasury and manual disbursement
+
+    // Trigger royalty payments if the agent used skills (non-blocking, matching existing pattern)
+    const milestoneSkillsUsed = milestone.skillsUsed as string[] | null;
+    if (milestoneSkillsUsed && milestoneSkillsUsed.length > 0) {
+      calculateRoyalties(contractId, milestoneId, contract.agentPubkey, milestone.amountSats, milestoneSkillsUsed)
+        .then((calculations) => recordRoyalties(contractId, milestoneId, milestone.amountSats, calculations))
+        .then((royaltyIds) => executeRoyaltyPayments(royaltyIds))
+        .catch((err) => {
+          console.error(`[contracts] Royalty processing failed for milestone ${milestoneId}:`, err instanceof Error ? err.message : err);
+        });
+    }
 
     return { paymentHash, amountSats: milestone.amountSats };
   } catch (err) {
@@ -1566,6 +1614,19 @@ export async function submitBid(
 
     if (existing) {
       throw new Error('You already have a pending bid on this contract');
+    }
+
+    // Factory contract gate: check if this is a factory:training contract,
+    // and if so, enforce the trust < 100 eligibility rule.
+    const sowObj = contract.sow as Record<string, unknown>;
+    const rawTags = sowObj?.['tags'];
+    const sowTags: string[] = Array.isArray(rawTags) ? (rawTags as string[]) : [];
+    if (sowTags.includes('factory:training')) {
+      const { canBidOnFactoryContract } = await import('./factory-service');
+      const eligible = await canBidOnFactoryContract(bidderPubkey);
+      if (!eligible.allowed) {
+        throw new Error(eligible.reason ?? 'Not eligible to bid on factory contracts');
+      }
     }
 
     // Snapshot bidder's trust score (best-effort, non-blocking)

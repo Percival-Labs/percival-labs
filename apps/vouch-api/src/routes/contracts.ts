@@ -15,6 +15,7 @@ import {
   CancelContractSchema,
   PaginationSchema,
   UpdateISCSchema,
+  SubmitBidSchema,
 } from '../lib/schemas';
 import type { NostrAuthEnv } from '../middleware/nostr-auth';
 import {
@@ -212,6 +213,7 @@ app.post('/:id/milestones/:mid/submit', async (c) => {
       v.data.deliverable_url,
       v.data.deliverable_notes,
       v.data.isc_evidence,
+      v.data.skills_used,
     );
     return success(c, { submitted: true });
   } catch (err) {
@@ -478,23 +480,11 @@ app.post('/:id/bids', async (c) => {
 
   try {
     const contractId = c.req.param('id');
-    const body = await c.req.json<{
-      approach: string;
-      cost_sats: number;
-      estimated_days: number;
-    }>();
+    const body = await c.req.json();
+    const v = validate(SubmitBidSchema, body);
+    if (!v.success) return error(c, 400, v.error.code, v.error.message, v.error.details);
 
-    if (!body.approach) {
-      return error(c, 400, 'VALIDATION_ERROR', 'approach is required');
-    }
-    if (typeof body.cost_sats !== 'number') {
-      return error(c, 400, 'VALIDATION_ERROR', 'cost_sats is required and must be a number');
-    }
-    if (typeof body.estimated_days !== 'number') {
-      return error(c, 400, 'VALIDATION_ERROR', 'estimated_days is required and must be a number');
-    }
-
-    const result = await submitBid(contractId, pubkey, body.approach, body.cost_sats, body.estimated_days);
+    const result = await submitBid(contractId, pubkey, v.data.approach, v.data.cost_sats, v.data.estimated_days);
     return success(c, result, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
