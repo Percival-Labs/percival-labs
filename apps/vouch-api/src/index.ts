@@ -36,6 +36,7 @@ import { processRetentionReleases } from './services/contract-service';
 import { takePriceSnapshot } from './services/price-service';
 import { expireTokenBatches } from './services/credit-service';
 import { pruneSpentTokens } from './services/privacy-service';
+import { distributeFeePool } from './services/fee-distribution-service';
 
 // Combined env supports both Ed25519 (AppEnv) and Nostr (NostrAuthEnv) auth flows
 type CombinedEnv = {
@@ -286,6 +287,21 @@ const spentTokenPruneInterval = setInterval(async () => {
 }, 24 * 60 * 60 * 1000);
 if (spentTokenPruneInterval && typeof spentTokenPruneInterval === 'object' && 'unref' in spentTokenPruneInterval) {
   spentTokenPruneInterval.unref();
+}
+
+// ── Monthly fee pool distribution (every 30 days) ──
+const feeDistributionInterval = setInterval(async () => {
+  try {
+    const result = await distributeFeePool();
+    if (result) {
+      console.log(`[vouch-api] Fee distribution complete: ${result.totalFeePoolSats} sats distributed to ${result.stakerCount} stakers`);
+    }
+  } catch (e) {
+    console.error('[vouch-api] Fee distribution error:', e);
+  }
+}, 30 * 24 * 60 * 60 * 1000);
+if (feeDistributionInterval && typeof feeDistributionInterval === 'object' && 'unref' in feeDistributionInterval) {
+  feeDistributionInterval.unref();
 }
 
 // ── Start server ──

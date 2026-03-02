@@ -210,10 +210,24 @@ export async function getSkillBySlug(slug: string) {
 
 // ── Purchase & Rating ──
 
-/** Purchase a skill. Inserts purchase record and increments purchaseCount. Atomic. */
+/**
+ * Purchase a skill. Inserts purchase record and increments purchaseCount. Atomic.
+ *
+ * SECURITY NOTE (SK-3): The paymentHash is currently accepted from the client without
+ * server-side verification against the Lightning node. This is acceptable for the initial
+ * launch where PL is both the buyer and seller (seed skills), but MUST be replaced with
+ * a server-side invoice flow before third-party purchases go live:
+ *   1. Client requests invoice → server creates via Alby Hub
+ *   2. Client pays invoice
+ *   3. Server verifies settlement via NWC lookupInvoice before recording purchase
+ */
 export async function purchaseSkill(skillId: string, buyerPubkey: string, paymentHash: string) {
   if (!paymentHash || paymentHash.trim().length === 0) {
     throw new Error('payment_hash is required');
+  }
+  // Validate payment hash format — must be 64-char hex (SHA-256 hash)
+  if (!/^[0-9a-f]{64}$/i.test(paymentHash.trim())) {
+    throw new Error('payment_hash must be a 64-character hex string');
   }
 
   return await db.transaction(async (tx) => {
