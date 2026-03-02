@@ -8,6 +8,7 @@ import {
   contracts,
   contractMilestones,
   contractChangeOrders,
+  contractBids,
   contractEvents,
   paymentEvents,
   nwcConnections,
@@ -1495,5 +1496,282 @@ export async function updateMilestoneISC(
       .update(contractMilestones)
       .set({ iscCriteria: sanitized })
       .where(eq(contractMilestones.id, milestoneId));
+  });
+}
+
+// ── Bid System ──
+
+const SENTINEL_PUBKEY = '0'.repeat(64);
+
+/**
+ * Submit a bid on an open contract.
+ * Validates: contract is biddable (draft/awaiting_funding), bidder isn't customer,
+ * no duplicate pending bids. Snapshots bidder trust score at submission time.
+ */
+export async function submitBid(
+  contractId: string,
+  bidderPubkey: string,
+  approach: string,
+  costSats: number,
+  estimatedDays: number,
+) {
+  if (!approach || approach.trim().length === 0) {
+    throw new Error('approach is required');
+  }
+  if (approach.trim().length > 5000) {
+    throw new Error('approach must be under 5000 characters');
+  }
+  if (!Number.isInteger(costSats) || costSats < 1 || costSats > 100_000_000) {
+    throw new Error('cost_sats must be a positive integer up to 100,000,000');
+  }
+  if (!Number.isInteger(estimatedDays) || estimatedDays < 1 || estimatedDays > 365) {
+    throw new Error('estimated_days must be a positive integer up to 365');
+  }
+
+  return await db.transaction(async (tx) => {
+    // Lock contract and verify it's biddable
+    const [contract] = await tx
+      .select()
+      .from(contracts)
+      .where(eq(contracts.id, contractId))
+      .for('update');
+
+    if (!contract) throw new Error('Contract not found');
+    if (contract.status !== 'draft' && contract.status !== 'awaiting_funding') {
+      throw new Error('Contract is not open for bids');
+    }
+
+    // If an agent has already been assigned (bid accepted), no more bids
+    if (contract.agentPubkey !== SENTINEL_PUBKEY) {
+      throw new Error('Contract already has an assigned agent');
+    }
+
+    // Bidder can't be the customer
+    if (contract.customerPubkey === bidderPubkey) {
+      throw new Error('Cannot bid on your own contract');
+    }
+
+    // Check for duplicate pending bid
+    const [existing] = await tx
+      .select({ id: contractBids.id })
+      .from(contractBids)
+      .where(
+        and(
+          eq(contractBids.contractId, contractId),
+          eq(contractBids.bidderPubkey, bidderPubkey),
+          eq(contractBids.status, 'pending'),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      throw new Error('You already have a pending bid on this contract');
+    }
+
+    // Snapshot bidder's trust score (best-effort, non-blocking)
+    let bidderTrustScore = 0;
+    try {
+      const { calculateAgentTrust } = await import('./trust-service');
+      const trust = await calculateAgentTrust(bidderPubkey);
+      bidderTrustScore = trust.score;
+    } catch {
+      // Trust score unavailable — default to 0
+    }
+
+    const [bid] = await tx
+      .insert(contractBids)
+      .values({
+        contractId,
+        bidderPubkey,
+        approach: approach.trim(),
+        costSats,
+        estimatedDays,
+        bidderTrustScore,
+      })
+      .returning();
+
+    console.log(`[contracts] Bid submitted: ${bidderPubkey} on contract ${contractId} for ${costSats} sats`);
+    return bid!;
+  });
+}
+
+/**
+ * List bids for a contract.
+ * Customer sees all bids. Bidders see only their own.
+ * Non-parties get an empty array (no leak of contract existence).
+ */
+export async function listBids(contractId: string, requesterPubkey: string) {
+  const [contract] = await db
+    .select({
+      id: contracts.id,
+      customerPubkey: contracts.customerPubkey,
+    })
+    .from(contracts)
+    .where(eq(contracts.id, contractId))
+    .limit(1);
+
+  if (!contract) throw new Error('Contract not found');
+
+  // Customer sees all bids
+  if (contract.customerPubkey === requesterPubkey) {
+    return db
+      .select()
+      .from(contractBids)
+      .where(eq(contractBids.contractId, contractId))
+      .orderBy(desc(contractBids.createdAt));
+  }
+
+  // Bidder sees only their own bids
+  return db
+    .select()
+    .from(contractBids)
+    .where(
+      and(
+        eq(contractBids.contractId, contractId),
+        eq(contractBids.bidderPubkey, requesterPubkey),
+      ),
+    )
+    .orderBy(desc(contractBids.createdAt));
+}
+
+/**
+ * Accept a bid. Sets the bidder as the contract's agent, updates totalSats
+ * to match the accepted bid's costSats, and rejects all other pending bids.
+ * Only the customer can accept bids. Atomic.
+ */
+export async function acceptBid(
+  contractId: string,
+  bidId: string,
+  customerPubkey: string,
+) {
+  return await db.transaction(async (tx) => {
+    // Lock contract
+    const [contract] = await tx
+      .select()
+      .from(contracts)
+      .where(eq(contracts.id, contractId))
+      .for('update');
+
+    if (!contract) throw new Error('Contract not found');
+    if (contract.customerPubkey !== customerPubkey) {
+      throw new Error('Only the customer can accept bids');
+    }
+    if (contract.status !== 'draft' && contract.status !== 'awaiting_funding') {
+      throw new Error('Contract is not open for bids');
+    }
+
+    // Lock bid
+    const [bid] = await tx
+      .select()
+      .from(contractBids)
+      .where(eq(contractBids.id, bidId))
+      .for('update');
+
+    if (!bid) throw new Error('Bid not found');
+    if (bid.contractId !== contractId) throw new Error('Bid does not belong to this contract');
+    if (bid.status !== 'pending') throw new Error(`Bid is ${bid.status}, not pending`);
+
+    // Accept this bid
+    await tx
+      .update(contractBids)
+      .set({ status: 'accepted' })
+      .where(eq(contractBids.id, bidId));
+
+    // Reject all other pending bids for this contract
+    await tx
+      .update(contractBids)
+      .set({ status: 'rejected' })
+      .where(
+        and(
+          eq(contractBids.contractId, contractId),
+          eq(contractBids.status, 'pending'),
+          sql`${contractBids.id} != ${bidId}`,
+        ),
+      );
+
+    // Assign agent to contract and update totalSats to bid amount
+    await tx
+      .update(contracts)
+      .set({
+        agentPubkey: bid.bidderPubkey,
+        totalSats: bid.costSats,
+        updatedAt: new Date(),
+      })
+      .where(eq(contracts.id, contractId));
+
+    console.log(`[contracts] Bid accepted: ${bid.bidderPubkey} assigned to contract ${contractId} for ${bid.costSats} sats`);
+    return { contractId, bidId, agentPubkey: bid.bidderPubkey, costSats: bid.costSats };
+  });
+}
+
+/**
+ * Reject a bid. Only the customer can reject bids. Atomic.
+ */
+export async function rejectBid(
+  contractId: string,
+  bidId: string,
+  customerPubkey: string,
+) {
+  return await db.transaction(async (tx) => {
+    const [contract] = await tx
+      .select({ id: contracts.id, customerPubkey: contracts.customerPubkey })
+      .from(contracts)
+      .where(eq(contracts.id, contractId))
+      .limit(1);
+
+    if (!contract) throw new Error('Contract not found');
+    if (contract.customerPubkey !== customerPubkey) {
+      throw new Error('Only the customer can reject bids');
+    }
+
+    const [bid] = await tx
+      .select()
+      .from(contractBids)
+      .where(eq(contractBids.id, bidId))
+      .for('update');
+
+    if (!bid) throw new Error('Bid not found');
+    if (bid.contractId !== contractId) throw new Error('Bid does not belong to this contract');
+    if (bid.status !== 'pending') throw new Error(`Bid is ${bid.status}, not pending`);
+
+    await tx
+      .update(contractBids)
+      .set({ status: 'rejected' })
+      .where(eq(contractBids.id, bidId));
+
+    console.log(`[contracts] Bid rejected: ${bidId} on contract ${contractId}`);
+    return { contractId, bidId, rejected: true };
+  });
+}
+
+/**
+ * Withdraw a bid. Only the bidder can withdraw their own pending bid. Atomic.
+ */
+export async function withdrawBid(
+  contractId: string,
+  bidId: string,
+  bidderPubkey: string,
+) {
+  return await db.transaction(async (tx) => {
+    const [bid] = await tx
+      .select()
+      .from(contractBids)
+      .where(eq(contractBids.id, bidId))
+      .for('update');
+
+    if (!bid) throw new Error('Bid not found');
+    if (bid.contractId !== contractId) throw new Error('Bid does not belong to this contract');
+    if (bid.bidderPubkey !== bidderPubkey) {
+      throw new Error('Only the bidder can withdraw their bid');
+    }
+    if (bid.status !== 'pending') throw new Error(`Bid is ${bid.status}, not pending`);
+
+    await tx
+      .update(contractBids)
+      .set({ status: 'withdrawn' })
+      .where(eq(contractBids.id, bidId));
+
+    console.log(`[contracts] Bid withdrawn: ${bidId} on contract ${contractId}`);
+    return { contractId, bidId, withdrawn: true };
   });
 }

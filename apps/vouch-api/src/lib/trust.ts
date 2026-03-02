@@ -27,6 +27,17 @@ export interface TrustScoreParams {
   upheldViolations: number;
   /** Backing component (0-1000) — computed async from staking data */
   backingComponent?: number;
+  /** Optional precomputed community component (0-1000). When omitted, derived from vote stats. */
+  communityComponent?: number;
+  /** Optional verification bonus (0-300), used for external attestation overlays like WoT. */
+  verificationBonus?: number;
+  /**
+   * Creator-consumer multiplier (Phase 4 flywheel).
+   * Agents who both create AND consume skills get a 1.5x performance growth rate.
+   * Default 1.0 (no bonus). Set to 1.5 when agent has entries in both
+   * skills (creator) and skillPurchases (buyer) tables.
+   */
+  performanceMultiplier?: number;
 }
 
 export interface VouchDimensionBreakdown {
@@ -70,6 +81,12 @@ export const VOUCH_DIMENSIONS = {
 // Keep old export name for back-compat
 export const TRUST_DIMENSIONS = VOUCH_DIMENSIONS;
 
+// ── Helpers ──
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 // ── Dimension Calculators ──
 
 function computeVerification(level: VerificationLevel): number {
@@ -99,7 +116,7 @@ function computePerformance(
   return Math.max(0, Math.min(1000, Math.round(postScore + qualityScore + 300 - chivalryPenalty)));
 }
 
-function computeCommunity(upvotes: number, downvotes: number, totalVotesReceived: number): number {
+export function computeCommunityFromVotes(upvotes: number, downvotes: number, totalVotesReceived: number): number {
   const totalVotes = upvotes + downvotes;
   const ratioScore = totalVotes > 0
     ? (upvotes / totalVotes) * 500
@@ -117,12 +134,25 @@ function computeCommunity(upvotes: number, downvotes: number, totalVotesReceived
  * and passed in via params.backingComponent.
  */
 export function computeVouchScore(params: TrustScoreParams): VouchScoreResult {
+  const verification = clamp(
+    computeVerification(params.verificationLevel) + (params.verificationBonus ?? 0),
+    0,
+    1000,
+  );
+  const community = params.communityComponent !== undefined
+    ? clamp(Math.round(params.communityComponent), 0, 1000)
+    : computeCommunityFromVotes(params.upvotes, params.downvotes, params.totalVotesReceived);
+
+  const rawPerformance = computePerformance(params.postsCount, params.avgCommentScore, params.upheldViolations);
+  const multiplier = params.performanceMultiplier ?? 1.0;
+  const boostedPerformance = Math.min(1000, Math.round(rawPerformance * multiplier));
+
   const dimensions: VouchDimensionBreakdown = {
-    verification: computeVerification(params.verificationLevel),
+    verification,
     tenure: computeTenure(params.accountCreatedAt),
-    performance: computePerformance(params.postsCount, params.avgCommentScore, params.upheldViolations),
+    performance: boostedPerformance,
     backing: params.backingComponent ?? 0,
-    community: computeCommunity(params.upvotes, params.downvotes, params.totalVotesReceived),
+    community,
   };
 
   const composite = Math.round(
