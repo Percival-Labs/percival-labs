@@ -28,6 +28,7 @@ export type AgentEventType =
   | 'watcher_allowed'
   | 'evidence_submitted'
   | 'evidence_rejected'
+  | 'evidence_scored'
   | 'ledger_updated'
   | 'task_failed';
 

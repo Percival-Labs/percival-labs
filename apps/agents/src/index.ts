@@ -321,27 +321,40 @@ app.post('/v1/agents/proposals/:id/reject', (c) => {
 });
 
 // ── POST /v1/agents/tasks/:id/reset — Admin: reset a stuck task to pending ──
+// Temporarily disables watcher to bypass done_immutable/failed_immutable rules.
 app.post('/v1/agents/tasks/:id/reset', (c) => {
   const id = c.req.param('id');
   const task = team.getTaskStatus(id);
   if (!task) {
     return c.json({ error: `Task "${id}" not found` }, 404);
   }
-  team.getDAG().updateTask(id, {
-    status: 'pending',
-    assignedTo: null,
-    output: null,
-  }, 'system');
+  const dag = team.getDAG();
+  dag.setWatcherEnabled(false);
+  try {
+    dag.updateTask(id, {
+      status: 'pending',
+      assignedTo: null,
+      output: null,
+    }, 'system');
+  } finally {
+    dag.setWatcherEnabled(true);
+  }
   const updated = team.getTaskStatus(id);
   return c.json({ message: `Task "${id}" reset to pending`, task: updated });
 });
 
 // ── POST /v1/agents/tasks/clear — Admin: remove all tasks from DAG ──
+// Temporarily disables watcher to bypass evidence_required/immutability rules.
 app.post('/v1/agents/tasks/clear', (c) => {
   const dag = team.getDAG();
   const tasks = dag.getAllTasks();
-  for (const task of tasks) {
-    dag.updateTask(task.id, { status: 'completed', output: 'Cleared by admin' }, 'system');
+  dag.setWatcherEnabled(false);
+  try {
+    for (const task of tasks) {
+      dag.updateTask(task.id, { status: 'completed', output: 'Cleared by admin' }, 'system');
+    }
+  } finally {
+    dag.setWatcherEnabled(true);
   }
   return c.json({ message: `Cleared ${tasks.length} tasks` });
 });

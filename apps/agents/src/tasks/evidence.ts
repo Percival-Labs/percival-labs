@@ -182,6 +182,131 @@ function validateCoordination(evidence: Evidence, errors: string[]): void {
   }
 }
 
+// ── Quality Scoring ──
+
+export interface EvidenceScore {
+  quality: number;   // 0-1 composite quality score
+  factors: Record<string, number>;  // individual factor scores for transparency
+}
+
+/**
+ * Score evidence quality (0-1) for Vouch trust integration.
+ * Higher scores = better evidence = more trust earned.
+ *
+ * Scoring factors by type:
+ * - code_change: test pass rate (0-1) + diff presence (0.2) + failure count penalty
+ * - review: checklist presence (0.5) + findings detail (0-0.5)
+ * - scan: scan output presence (0.5) + clean result bonus (0.5)
+ * - research: confidence score passthrough (0-1)
+ * - asset: file/url presence (0.5) + details richness (0-0.5)
+ * - coordination: subtask rollup presence (0.5) + completeness detail (0-0.5)
+ */
+export function scoreEvidence(evidence: Evidence): EvidenceScore {
+  const factors: Record<string, number> = {};
+
+  // Base score: evidence exists and is valid
+  const validation = validateEvidence(evidence);
+  if (!validation.valid) {
+    return { quality: 0, factors: { valid: 0 } };
+  }
+  factors.valid = 1.0;
+
+  switch (evidence.type) {
+    case 'code_change':
+      return scoreCodeChange(evidence, factors);
+    case 'review':
+      return scoreReview(evidence, factors);
+    case 'scan':
+      return scoreScan(evidence, factors);
+    case 'research':
+      return scoreResearch(evidence, factors);
+    case 'asset':
+      return scoreAsset(evidence, factors);
+    case 'coordination':
+      return scoreCoordination(evidence, factors);
+    default:
+      return { quality: 0.5, factors: { valid: 1.0, unknown_type: 0.5 } };
+  }
+}
+
+function scoreCodeChange(evidence: Evidence, factors: Record<string, number>): EvidenceScore {
+  const testArtifact = evidence.artifacts.find(a => a.type === 'test_output');
+  const diffArtifact = evidence.artifacts.find(a => a.type === 'diff');
+
+  // Diff presence: 0.2
+  factors.diff = diffArtifact ? 0.2 : 0;
+
+  // Test results: 0-0.8
+  if (testArtifact) {
+    if (testArtifact.result === 'pass') {
+      const failures = testArtifact.failures ?? 0;
+      const total = testArtifact.count ?? 1;
+      if (failures === 0) {
+        factors.tests = 0.8;
+      } else {
+        factors.tests = Math.max(0, 0.8 * (1 - failures / Math.max(total, 1)));
+      }
+    } else {
+      factors.tests = 0.1;  // Tests ran but failed
+    }
+  } else {
+    factors.tests = 0;
+  }
+
+  const quality = Math.min(1.0, factors.diff + factors.tests);
+  return { quality, factors };
+}
+
+function scoreReview(evidence: Evidence, factors: Record<string, number>): EvidenceScore {
+  const checklist = evidence.artifacts.find(a => a.type === 'checklist');
+  factors.checklist = checklist ? 0.5 : 0;
+  factors.detail = checklist?.details && checklist.details.length > 50 ? 0.5 : 0.25;
+
+  const quality = Math.min(1.0, factors.checklist + factors.detail);
+  return { quality, factors };
+}
+
+function scoreScan(evidence: Evidence, factors: Record<string, number>): EvidenceScore {
+  const scan = evidence.artifacts.find(a => a.type === 'scan_output');
+  factors.scan_present = scan ? 0.5 : 0;
+  factors.clean = scan?.result === 'clean' ? 0.5 : 0.25;
+
+  const quality = Math.min(1.0, factors.scan_present + factors.clean);
+  return { quality, factors };
+}
+
+function scoreResearch(evidence: Evidence, factors: Record<string, number>): EvidenceScore {
+  // Research quality = confidence score directly (already 0-1)
+  const confidence = evidence.confidence ?? 0;
+  factors.confidence = confidence;
+
+  const sourceCount = evidence.artifacts.filter(a => a.type === 'source').length;
+  factors.sources = Math.min(0.3, sourceCount * 0.1);  // Up to 0.3 bonus for multiple sources
+
+  const quality = Math.min(1.0, confidence * 0.7 + factors.sources);
+  return { quality, factors };
+}
+
+function scoreAsset(evidence: Evidence, factors: Record<string, number>): EvidenceScore {
+  const hasFile = evidence.artifacts.some(a => a.type === 'file' || a.type === 'url');
+  factors.artifact_present = hasFile ? 0.5 : 0;
+
+  const hasDetails = evidence.artifacts.some(a => a.details && a.details.length > 20);
+  factors.detail = hasDetails ? 0.5 : 0.25;
+
+  const quality = Math.min(1.0, factors.artifact_present + factors.detail);
+  return { quality, factors };
+}
+
+function scoreCoordination(evidence: Evidence, factors: Record<string, number>): EvidenceScore {
+  const rollup = evidence.artifacts.find(a => a.type === 'subtask_rollup');
+  factors.rollup_present = rollup ? 0.5 : 0;
+  factors.detail = rollup?.details && rollup.details.length > 20 ? 0.5 : 0.25;
+
+  const quality = Math.min(1.0, factors.rollup_present + factors.detail);
+  return { quality, factors };
+}
+
 /**
  * Create a minimal valid evidence object (helper for building evidence programmatically).
  */
