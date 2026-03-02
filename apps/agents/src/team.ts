@@ -7,6 +7,7 @@ import type { Database } from 'bun:sqlite';
 import { loadIdentities, type AgentIdentity } from './identity/loader';
 import { TaskDAG, type TaskNode, type TaskStatus, MAX_SUBTASKS_PER_DECOMPOSITION, WatcherBlockedError } from './tasks/dag';
 import { createEvidence, type Evidence } from './tasks/evidence';
+import { scoreAndReport } from './tasks/vouch-reporter';
 import { matchTaskToAgent } from './tasks/scheduler';
 import { executeAgentTask, type AgentExecutionResult } from './agent';
 import { initMemoryDatabase } from '@percival/agent-memory';
@@ -598,6 +599,11 @@ export class AgentTeam {
           agent: agentRole,
           evidenceType,
           summary: evidence.summary,
+        });
+
+        // Score evidence and report to Vouch (async, non-blocking)
+        scoreAndReport(evidence).catch((err) => {
+          console.warn(`[team] Evidence scoring failed (non-blocking): ${err instanceof Error ? err.message : err}`);
         });
       } catch (err) {
         if (err instanceof WatcherBlockedError) {
