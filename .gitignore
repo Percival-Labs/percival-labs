@@ -18,3 +18,8 @@ $HOME/
 
 # Local backups
 **/audio-old/
+
+# Private scripts — engagement, outreach, internal tooling
+scripts/clawstr/
+scripts/x/
+infrastructure/litellm/.env
