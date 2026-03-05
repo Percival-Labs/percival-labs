@@ -212,14 +212,41 @@ export function extractPrivacyToken(headers: Headers): PrivacyTokenPayload | nul
   }
 }
 
+// ── AgentKey Extraction ──
+
+/**
+ * Extract an AgentKey token from the X-Vouch-Auth header.
+ * Format: `AgentKey <64-char hex token>`
+ *
+ * Returns the raw token string if valid format, null otherwise.
+ * Actual KV validation happens in index.ts (requires env).
+ */
+export function extractAgentKey(headers: Headers): string | null {
+  const authHeader = headers.get('X-Vouch-Auth');
+  if (!authHeader || !authHeader.startsWith('AgentKey ')) {
+    return null;
+  }
+
+  const token = authHeader.slice('AgentKey '.length).trim();
+  if (!token) return null;
+
+  // Validate: must be exactly 64 hex characters (32 bytes)
+  if (!/^[0-9a-f]{64}$/.test(token)) {
+    return null;
+  }
+
+  return token;
+}
+
 /**
  * Determine auth identity from request headers.
  * Tries NIP-98 first (transparent), then Privacy Token (private),
- * then falls back to anonymous.
+ * then AgentKey, then falls back to anonymous.
  */
 export function resolveAuthIdentity(headers: Headers, clientIp: string): {
   identity: AuthIdentity;
   nostrEvent: NostrEvent | null;
+  agentKeyToken: string | null;
 } {
   // Try NIP-98 (transparent mode)
   const nostrEvent = extractNostrAuth(headers);
@@ -230,6 +257,7 @@ export function resolveAuthIdentity(headers: Headers, clientIp: string): {
         pubkey: nostrEvent.pubkey,
       },
       nostrEvent,
+      agentKeyToken: null,
     };
   }
 
@@ -244,6 +272,20 @@ export function resolveAuthIdentity(headers: Headers, clientIp: string): {
         tokenHash: privacyToken.tokenHash,
       },
       nostrEvent: null,
+      agentKeyToken: null,
+    };
+  }
+
+  // Try AgentKey (long-lived token mode)
+  const agentKeyToken = extractAgentKey(headers);
+  if (agentKeyToken) {
+    return {
+      identity: {
+        mode: 'agent-key',
+        pubkey: '', // resolved async via KV lookup in index.ts
+      },
+      nostrEvent: null,
+      agentKeyToken,
     };
   }
 
@@ -254,5 +296,6 @@ export function resolveAuthIdentity(headers: Headers, clientIp: string): {
       pubkey: `anon:${clientIp}`,
     },
     nostrEvent: null,
+    agentKeyToken: null,
   };
 }
