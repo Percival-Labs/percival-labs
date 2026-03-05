@@ -17,9 +17,10 @@ custom_domain = true
 
 [vars]
 VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
-SUPPORTED_PROVIDERS = "anthropic,openai"
+SUPPORTED_PROVIDERS = "anthropic,openai,openrouter"
 ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
 OPENAI_UPSTREAM = "https://api.openai.com"
+OPENROUTER_UPSTREAM = "https://openrouter.ai/api"
 ENVIRONMENT = "production"
 
 # ── KV Namespaces ──
@@ -40,9 +41,16 @@ id = "669e8ad0088847189a337a8385cc22fe"
 binding = "VOUCH_ANOMALY"
 id = "5df2e1ac74e74b4288a6a67af6563e46"
 
+[[kv_namespaces]]
+binding = "VOUCH_AGENT_KEYS"
+id = "7b41bd292359497d9c421b872429e3a1"
+
 # ── Secrets (set via `wrangler secret put`) ──
 # ANTHROPIC_API_KEY
 # OPENAI_API_KEY
+# OPENROUTER_API_KEY
+# GATEWAY_SECRET         — shared secret for usage reporting to Vouch API
+# ALLOWED_ORIGINS        — comma-separated CORS origins (e.g., https://percival-labs.ai)
 
 # ── Dev Environment ──
 
@@ -51,9 +59,10 @@ name = "vouch-gateway-dev"
 
 [env.dev.vars]
 VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
-SUPPORTED_PROVIDERS = "anthropic,openai"
+SUPPORTED_PROVIDERS = "anthropic,openai,openrouter"
 ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
 OPENAI_UPSTREAM = "https://api.openai.com"
+OPENROUTER_UPSTREAM = "https://openrouter.ai/api"
 DEV_MODE = "true"
 
 [[env.dev.kv_namespaces]]
@@ -67,3 +76,7 @@ id = "278c4b1fcdbe4262bb85207746fd75aa"
 [[env.dev.kv_namespaces]]
 binding = "VOUCH_ANOMALY"
 id = "a5783b9aacc849e1b50b40c277661515"
+
+[[env.dev.kv_namespaces]]
+binding = "VOUCH_AGENT_KEYS"
+id = "9a1f193ad0d34a318505464947bde083"

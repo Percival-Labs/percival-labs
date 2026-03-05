@@ -11,7 +11,7 @@
 // 6. Report usage to Vouch API (async) for billing
 // 7. Return response with Vouch headers (cost/model info in transparent mode)
 
-import type { Env, TrustTier } from './types';
+import type { Env, TrustTier, AgentKeyEntry } from './types';
 import { TIER_CONFIGS } from './types';
 import {
   resolveAuthIdentity,
@@ -46,7 +46,7 @@ export default {
         service: 'vouch-gateway',
         version: '0.2.0',
         providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
-        authModes: ['transparent', 'private'],
+        authModes: ['transparent', 'private', 'agent-key'],
       });
     }
 
@@ -70,6 +70,10 @@ export default {
           private: {
             header: 'X-Vouch-Auth',
             format: 'PrivacyToken <base64 JSON>',
+          },
+          'agent-key': {
+            header: 'X-Vouch-Auth',
+            format: 'AgentKey <64-char hex token>',
           },
         },
         billing: {
@@ -116,7 +120,7 @@ export default {
     // ── 2. Extract Identity (Dual Auth) ──
 
     const clientIp = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-    const { identity, nostrEvent } = resolveAuthIdentity(request.headers, clientIp);
+    const { identity, nostrEvent, agentKeyToken } = resolveAuthIdentity(request.headers, clientIp);
 
     let tier: TrustTier = 'restricted';
     let score = 0;
@@ -151,6 +155,25 @@ export default {
       await env.VOUCH_RATE_LIMITS.put(replayKey, '1', { expirationTtl: 120 });
 
       // Look up trust score (for rate limits only, NOT model gating)
+      const scoreData = await getConsumerScore(identity.pubkey, env);
+      if (scoreData) {
+        score = scoreData.score;
+        totalStakedSats = scoreData.totalStakedSats;
+        tier = scoreData.tier;
+      }
+    } else if (identity.mode === 'agent-key' && agentKeyToken) {
+      // Agent key mode — long-lived token mapped to agent pubkey
+      const kvKey = `agentkey:${agentKeyToken}`;
+      const entry = await env.VOUCH_AGENT_KEYS.get<AgentKeyEntry>(kvKey, 'json');
+
+      if (!entry) {
+        return errorResponse(401, 'INVALID_AGENT_KEY', 'Agent key not found or revoked');
+      }
+
+      // Resolve identity to the agent's pubkey
+      identity.pubkey = entry.pubkey;
+
+      // Look up trust score (same as transparent mode)
       const scoreData = await getConsumerScore(identity.pubkey, env);
       if (scoreData) {
         score = scoreData.score;
@@ -304,7 +327,7 @@ export default {
     if (model && (tokenCounts.inputTokens > 0 || tokenCounts.outputTokens > 0)) {
       ctx.waitUntil(
         reportUsage({
-          userNpub: identity.mode === 'transparent' ? identity.pubkey : undefined,
+          userNpub: (identity.mode === 'transparent' || identity.mode === 'agent-key') ? identity.pubkey : undefined,
           batchHash: identity.mode === 'private' ? identity.batchHash : undefined,
           tokenHash: identity.mode === 'private' ? identity.tokenHash : undefined,
           model,
@@ -363,8 +386,8 @@ export default {
       isFinite(rateResult.remaining) ? String(rateResult.remaining) : 'unlimited',
     );
 
-    // Transparent mode: full visibility into model, cost, tokens
-    if (identity.mode === 'transparent') {
+    // Transparent/AgentKey mode: full visibility into model, cost, tokens
+    if (identity.mode === 'transparent' || identity.mode === 'agent-key') {
       responseHeaders.set('X-Vouch-Score', String(score));
       if (model) responseHeaders.set('X-Vouch-Model', model);
       responseHeaders.set('X-Vouch-Provider', provider.id);

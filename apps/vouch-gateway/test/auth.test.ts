@@ -4,9 +4,11 @@
 import { describe, expect, it } from 'bun:test';
 import {
   extractNostrAuth,
+  extractAgentKey,
   parseNostrEvent,
   computeEventId,
   validateNip98Structure,
+  resolveAuthIdentity,
 } from '../src/auth';
 import type { NostrEvent } from '../src/types';
 
@@ -258,5 +260,110 @@ describe('validateNip98Structure', () => {
     });
     const err = validateNip98Structure(event, 'POST', '/v1/messages');
     expect(err).toBeNull();
+  });
+});
+
+// ── extractAgentKey ──
+
+describe('extractAgentKey', () => {
+  it('returns null when no X-Vouch-Auth header is present', () => {
+    const headers = new Headers();
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null when header has wrong prefix', () => {
+    const headers = new Headers({ 'X-Vouch-Auth': 'Bearer abc123' });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null when header has Nostr prefix', () => {
+    const headers = new Headers({ 'X-Vouch-Auth': 'Nostr abc123' });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null when header has PrivacyToken prefix', () => {
+    const headers = new Headers({ 'X-Vouch-Auth': 'PrivacyToken abc123' });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null for empty token after prefix', () => {
+    const headers = new Headers({ 'X-Vouch-Auth': 'AgentKey ' });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null for token shorter than 64 chars', () => {
+    const headers = new Headers({ 'X-Vouch-Auth': 'AgentKey abcd1234' });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null for token longer than 64 chars', () => {
+    const token = 'a'.repeat(65);
+    const headers = new Headers({ 'X-Vouch-Auth': `AgentKey ${token}` });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null for non-hex characters', () => {
+    const token = 'g'.repeat(64);
+    const headers = new Headers({ 'X-Vouch-Auth': `AgentKey ${token}` });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('returns null for uppercase hex', () => {
+    const token = 'A'.repeat(64);
+    const headers = new Headers({ 'X-Vouch-Auth': `AgentKey ${token}` });
+    expect(extractAgentKey(headers)).toBeNull();
+  });
+
+  it('extracts valid 64-char hex token', () => {
+    const token = 'a1b2c3d4'.repeat(8);
+    const headers = new Headers({ 'X-Vouch-Auth': `AgentKey ${token}` });
+    expect(extractAgentKey(headers)).toBe(token);
+  });
+
+  it('trims whitespace around token', () => {
+    const token = 'a1b2c3d4'.repeat(8);
+    const headers = new Headers({ 'X-Vouch-Auth': `AgentKey   ${token}  ` });
+    expect(extractAgentKey(headers)).toBe(token);
+  });
+});
+
+// ── resolveAuthIdentity — agent-key mode ──
+
+describe('resolveAuthIdentity — agent-key mode', () => {
+  it('resolves to agent-key mode for valid AgentKey header', () => {
+    const token = 'a1b2c3d4'.repeat(8);
+    const headers = new Headers({ 'X-Vouch-Auth': `AgentKey ${token}` });
+    const { identity, nostrEvent, agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+
+    expect(identity.mode).toBe('agent-key');
+    expect(identity.pubkey).toBe('');
+    expect(nostrEvent).toBeNull();
+    expect(agentKeyToken).toBe(token);
+  });
+
+  it('prefers NIP-98 over AgentKey', () => {
+    const event = makeValidEvent();
+    const headers = new Headers({
+      'X-Vouch-Auth': `Nostr ${encodeEvent(event)}`,
+    });
+    const { identity, nostrEvent, agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+
+    expect(identity.mode).toBe('transparent');
+    expect(nostrEvent).not.toBeNull();
+    expect(agentKeyToken).toBeNull();
+  });
+
+  it('falls back to anonymous when AgentKey token is invalid format', () => {
+    const headers = new Headers({ 'X-Vouch-Auth': 'AgentKey not-valid-hex!' });
+    const { identity, agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+
+    expect(identity.mode).toBe('anonymous');
+    expect(agentKeyToken).toBeNull();
+  });
+
+  it('returns agentKeyToken as null for non-agent-key modes', () => {
+    const headers = new Headers();
+    const { agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+    expect(agentKeyToken).toBeNull();
   });
 });
