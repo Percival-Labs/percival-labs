@@ -10,6 +10,35 @@ export const metadata: Metadata = {
 
 const papers = [
   {
+    slug: "isc-agent-os-architecture",
+    title:
+      "Ideal State Criteria as a Runtime Quality Primitive for AI Agents and Unified Agent Operating System Architecture",
+    type: "Defensive Disclosure",
+    date: "March 5, 2026",
+    id: "PL-DD-2026-004",
+    summary:
+      "AI agents executing multi-step tasks produce outputs of variable quality with no mechanism for continuous quality tracking during execution. This disclosure describes ISC — automatically generated binary testable criteria tracked at phase boundaries with circuit breaker anti-criteria — plus a unified three-pillar agent OS architecture (Define, Route, Govern) that scales from solo developers to enterprises through configuration alone.",
+  },
+  {
+    slug: "agent-inference-governance",
+    title:
+      "Per-Agent Policy Enforcement and Budget Management at the AI Inference Proxy Layer",
+    type: "Defensive Disclosure",
+    date: "March 5, 2026",
+    id: "PL-DD-2026-003",
+    summary:
+      "Organizations deploying multiple AI agents face compound governance challenges: different model access, different budgets, no unified enforcement. This disclosure describes a proxy layer that enforces per-agent model allowlists, configurable budget caps with automatic resets, agent self-service introspection APIs, and structured audit logging — all from a single configuration surface.",
+  },
+  {
+    slug: "compound-capability-flywheel",
+    title: "The Compound Capability Flywheel",
+    type: "Analysis",
+    date: "March 2, 2026",
+    id: "",
+    summary:
+      "In most platform economies, consumption is terminal. The agent economy is structurally different: every skill purchase increases the buyer's earning capacity. This creates per-transaction compounding — a growth engine that runs at machine speed.",
+  },
+  {
     slug: "digital-institutions-agent-governance",
     title:
       "Economic Bonds and Cryptographic Identity as Digital Institutions for AI Agent Governance",
