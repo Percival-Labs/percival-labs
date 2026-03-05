@@ -122,14 +122,16 @@ describe('recordRequest', () => {
 describe('detectAnomalies', () => {
   it('returns no flags for normal usage', () => {
     let data = createAnomalyData();
-    const now = Date.now();
-    // 20 requests over 20 minutes, mixed models, varied timing
+    // Anchor 30 minutes into an hour to avoid boundary crossings
+    const hourStart = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    const now = hourStart + 30 * 60_000;
+    // 20 requests over 20 minutes, mixed models, deterministic varied timing
     for (let i = 0; i < 20; i++) {
       data = recordRequest(data, {
-        timestamp: now + i * 60_000 + Math.random() * 30_000,
+        timestamp: now + i * 60_000 + ((i * 7919) % 30_000),
         model: i % 3 === 0 ? 'claude-3-5-sonnet-20241022' : 'gpt-4o',
         isReasoning: i === 15, // 1 out of 20 = 5% reasoning
-        promptLength: 200 + Math.floor(Math.random() * 800),
+        promptLength: 200 + ((i * 3571) % 800),
       });
     }
     const result = detectAnomalies(data);
@@ -173,27 +175,29 @@ describe('detectAnomalies', () => {
 
   it('flags volume spikes (>5x normal)', () => {
     let data = createAnomalyData();
-    const now = Date.now();
     const hourMs = 3_600_000;
+    // Anchor 30 minutes into current hour to avoid boundary crossings
+    const hourStart = Math.floor(Date.now() / hourMs) * hourMs;
+    const now = hourStart + 30 * 60_000;
 
-    // Normal: 10 requests in each of the first 5 hours
+    // Normal: 10 requests centered in each of 5 previous hours
     for (let h = 0; h < 5; h++) {
       for (let i = 0; i < 10; i++) {
         data = recordRequest(data, {
-          timestamp: now - (5 - h) * hourMs + i * 60_000,
+          timestamp: now - (5 - h) * hourMs + 15 * 60_000 + i * 60_000,
           model: 'gpt-4o',
           isReasoning: false,
-          promptLength: 500 + Math.random() * 500,
+          promptLength: 500 + ((i * 3571) % 500),
         });
       }
     }
     // Spike: 60 requests in the current hour (6x normal)
     for (let i = 0; i < 60; i++) {
       data = recordRequest(data, {
-        timestamp: now + i * 1000 + Math.random() * 500,
+        timestamp: now + i * 1000,
         model: 'gpt-4o',
         isReasoning: false,
-        promptLength: 500 + Math.random() * 500,
+        promptLength: 500 + ((i * 3571) % 500),
       });
     }
 

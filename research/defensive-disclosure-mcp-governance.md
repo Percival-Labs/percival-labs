@@ -3,7 +3,7 @@
 **Publication Type:** Defensive Disclosure / Technical Disclosure
 **Filing Date:** February 24, 2026
 **Inventors:** Alan Carroll (Bellingham, WA, USA)
-**Assignee:** Percival Labs (Bellingham, WA, USA)
+**Assignee:** Percival Labs LLC (Bellingham, WA, USA)
 **Document ID:** PL-DD-2026-002
 
 ---

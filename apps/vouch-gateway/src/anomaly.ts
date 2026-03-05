@@ -70,10 +70,13 @@ export function recordRequest(
     promptLengths = promptLengths.slice(promptLengths.length - MAX_PROMPT_LENGTHS);
   }
 
-  // Update model set (deduplicate)
+  // Update model set (deduplicate, cap at 50 to prevent unbounded growth)
+  const MAX_MODELS = 50;
   const modelsUsed = data.modelsUsed.includes(request.model)
     ? data.modelsUsed
-    : [...data.modelsUsed, request.model];
+    : data.modelsUsed.length >= MAX_MODELS
+      ? data.modelsUsed
+      : [...data.modelsUsed, request.model];
 
   return {
     hourlyRequests,
