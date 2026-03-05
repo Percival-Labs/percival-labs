@@ -1,26 +1,39 @@
-// providers.test.ts — Provider routing and model access tests
-// TDD RED phase
+// providers.test.ts — Provider routing and model extraction tests
 
 import { describe, expect, it } from 'bun:test';
 import {
   getProviderConfig,
-  isModelAllowed,
   extractModelFromRequest,
+  isReasoningModel,
+  getUpstreamPath,
   PROVIDER_CONFIGS,
 } from '../src/providers';
-import type { TrustTier } from '../src/types';
 
 describe('getProviderConfig', () => {
   it('returns anthropic config for /anthropic/ path', () => {
     const config = getProviderConfig('/anthropic/v1/messages');
     expect(config).not.toBeNull();
-    expect(config!.id).toBe('anthropic');
+    expect(config).not.toBe('auto');
+    if (config && config !== 'auto') expect(config.id).toBe('anthropic');
   });
 
   it('returns openai config for /openai/ path', () => {
     const config = getProviderConfig('/openai/v1/chat/completions');
     expect(config).not.toBeNull();
-    expect(config!.id).toBe('openai');
+    expect(config).not.toBe('auto');
+    if (config && config !== 'auto') expect(config.id).toBe('openai');
+  });
+
+  it('returns openrouter config for /openrouter/ path', () => {
+    const config = getProviderConfig('/openrouter/v1/chat/completions');
+    expect(config).not.toBeNull();
+    expect(config).not.toBe('auto');
+    if (config && config !== 'auto') expect(config.id).toBe('openrouter');
+  });
+
+  it('returns auto for /auto/ path', () => {
+    const config = getProviderConfig('/auto/v1/chat/completions');
+    expect(config).toBe('auto');
   });
 
   it('returns null for unknown provider', () => {
@@ -34,37 +47,30 @@ describe('getProviderConfig', () => {
   });
 });
 
-describe('isModelAllowed', () => {
-  const anthropic = PROVIDER_CONFIGS.anthropic;
-
-  it('allows basic models for restricted tier', () => {
-    expect(isModelAllowed('claude-3-5-haiku-20241022', 'restricted', anthropic)).toBe(true);
+describe('getUpstreamPath', () => {
+  it('strips provider prefix from path', () => {
+    expect(getUpstreamPath('/anthropic/v1/messages')).toBe('/v1/messages');
+    expect(getUpstreamPath('/openai/v1/chat/completions')).toBe('/v1/chat/completions');
   });
 
-  it('denies non-basic models for restricted tier', () => {
-    expect(isModelAllowed('claude-3-5-sonnet-20241022', 'restricted', anthropic)).toBe(false);
+  it('returns / for provider-only path', () => {
+    expect(getUpstreamPath('/anthropic')).toBe('/');
+  });
+});
+
+describe('isReasoningModel', () => {
+  it('identifies anthropic reasoning models', () => {
+    expect(isReasoningModel('claude-3-7-sonnet-thinking', PROVIDER_CONFIGS.anthropic)).toBe(true);
   });
 
-  it('allows all models for standard tier', () => {
-    expect(isModelAllowed('claude-3-5-sonnet-20241022', 'standard', anthropic)).toBe(true);
+  it('identifies openai reasoning models', () => {
+    expect(isReasoningModel('o1', PROVIDER_CONFIGS.openai)).toBe(true);
+    expect(isReasoningModel('o3-mini', PROVIDER_CONFIGS.openai)).toBe(true);
   });
 
-  it('denies reasoning models for standard tier', () => {
-    expect(isModelAllowed('claude-3-7-sonnet-thinking', 'standard', anthropic)).toBe(false);
-  });
-
-  it('allows reasoning models for elevated tier', () => {
-    expect(isModelAllowed('claude-3-7-sonnet-thinking', 'elevated', anthropic)).toBe(true);
-  });
-
-  it('allows all models for unlimited tier', () => {
-    expect(isModelAllowed('claude-3-7-sonnet-thinking', 'unlimited', anthropic)).toBe(true);
-    expect(isModelAllowed('claude-3-5-haiku-20241022', 'unlimited', anthropic)).toBe(true);
-  });
-
-  it('allows unknown models at standard+ tier (permissive default)', () => {
-    expect(isModelAllowed('claude-4-future', 'standard', anthropic)).toBe(true);
-    expect(isModelAllowed('claude-4-future', 'restricted', anthropic)).toBe(false);
+  it('returns false for non-reasoning models', () => {
+    expect(isReasoningModel('claude-3-5-sonnet-20241022', PROVIDER_CONFIGS.anthropic)).toBe(false);
+    expect(isReasoningModel('gpt-4o', PROVIDER_CONFIGS.openai)).toBe(false);
   });
 });
 

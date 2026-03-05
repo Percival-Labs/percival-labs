@@ -1,15 +1,26 @@
-// Vouch Gateway — Cloudflare Worker Entry Point
+// Vouch Gateway v0.4.0 — Cloudflare Worker Entry Point
 //
-// Per-token inference proxy with dual auth and usage metering.
+// Enterprise-grade inference proxy with trust-tiered access, per-agent
+// model policies, budget caps, structured audit logging, and self-service APIs.
 //
 // Request flow:
-// 1. Extract auth identity: NIP-98 (transparent) or Privacy Token (private)
-// 2. Look up consumer trust score (cached in KV) — for rate limits, NOT model gating
-// 3. Enforce per-consumer rate limits
-// 4. Strip identity headers, forward to upstream provider
-// 5. Count tokens from response, compute cost
-// 6. Report usage to Vouch API (async) for billing
-// 7. Return response with Vouch headers (cost/model info in transparent mode)
+//  0. Body size limit
+//  1. Resolve provider (explicit path or /auto/ model-based routing)
+//  2. Extract auth identity (NIP-98 / PrivacyToken / AgentKey)
+//  3. Rate limiting (per-consumer, tier-based)
+//  4. Parse body → extract model → auto-route resolution
+// 4c. Agent model policy enforcement (allowlist check)
+// 4d. Budget pre-check (reject if over cap)
+//  5. Forward to upstream provider (stripped headers, injected auth)
+//  6. Count tokens, compute cost, record budget spend
+//  7. Report usage to Vouch API (async)
+//  8. Anomaly detection (async)
+//  9. Return response with Vouch headers
+// 10. Emit structured audit log
+//
+// Additional APIs:
+//  /admin/v1/*  — Platform management (GATEWAY_SECRET auth)
+//  /agent/v1/*  — Agent self-service (AgentKey auth)
 
 import type { Env, TrustTier, AgentKeyEntry } from './types';
 import { TIER_CONFIGS } from './types';
@@ -29,31 +40,42 @@ import {
   getProviderApiKey,
   extractModelFromRequest,
   isReasoningModel,
+  resolveProviderForModel,
 } from './providers';
+import type { ProviderConfig } from './types';
 import { extractTokenCounts, reportUsage } from './metering';
 import { getPricingTable, estimateCostSats } from './pricing';
+import { checkBudget, recordSpend } from './budget';
+import type { BudgetConfig } from './types';
+import { handleAdminRoute } from './admin';
+import { handleAgentRoute } from './agent-api';
+import { emitAuditLog, startTimer } from './audit';
+import type { AuditAction } from './audit';
 
 // ── Worker Export ──
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const elapsed = startTimer();
 
     // Health check endpoint
     if (url.pathname === '/health' || url.pathname === '/') {
       return jsonResponse({
         status: 'ok',
         service: 'vouch-gateway',
-        version: '0.2.0',
+        version: '0.4.0',
         providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
+        autoRoute: true,
         authModes: ['transparent', 'private', 'agent-key'],
+        features: ['model-policies', 'budget-caps', 'admin-api', 'agent-self-service'],
       });
     }
 
     // Discovery endpoint — returns gateway capabilities
     if (url.pathname === '/.well-known/vouch-gateway') {
       return jsonResponse({
-        version: '0.2.0',
+        version: '0.4.0',
         protocol: 'vouch-nip-98',
         providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
         tiers: Object.entries(TIER_CONFIGS).map(([name, config]) => ({
@@ -89,6 +111,14 @@ export default {
       return corsResponse(env, request.headers.get('Origin') ?? undefined);
     }
 
+    // ── Admin API ──
+    // Handles /admin/v1/* routes for agent key management.
+    // Authenticated via GATEWAY_SECRET header.
+    if (url.pathname.startsWith('/admin/')) {
+      const adminResponse = await handleAdminRoute(request, url.pathname, env);
+      if (adminResponse) return adminResponse;
+    }
+
     // Safety: prevent DEV_MODE in production
     if (env.DEV_MODE === 'true' && env.ENVIRONMENT === 'production') {
       console.error('[FATAL] DEV_MODE=true in production environment');
@@ -105,16 +135,25 @@ export default {
 
     // ── 1. Resolve Provider ──
 
-    const provider = getProviderConfig(url.pathname);
-    if (!provider) {
-      return errorResponse(404, 'UNKNOWN_PROVIDER', `No provider found for path: ${url.pathname}. Use /{provider}/... (e.g., /anthropic/v1/messages)`);
+    const providerOrAuto = getProviderConfig(url.pathname);
+    if (!providerOrAuto) {
+      return errorResponse(404, 'UNKNOWN_PROVIDER', `No provider found for path: ${url.pathname}. Use /{provider}/... (e.g., /anthropic/v1/messages) or /auto/... for auto-routing`);
     }
 
-    const supportedProviders = (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter')
-      .split(',')
-      .map((p) => p.trim().toLowerCase());
-    if (!supportedProviders.includes(provider.id)) {
-      return errorResponse(403, 'PROVIDER_DISABLED', `Provider "${provider.id}" is not enabled on this gateway`);
+    // Auto-routing is resolved after body parsing (needs model name).
+    // For explicit providers, validate they're enabled.
+    let provider: ProviderConfig | null = null;
+    let autoRoute: { upstreamModel: string; format: 'anthropic' | 'openai' } | null = null;
+    const isAutoRoute = providerOrAuto === 'auto';
+
+    if (!isAutoRoute) {
+      provider = providerOrAuto;
+      const supportedProviders = (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter')
+        .split(',')
+        .map((p) => p.trim().toLowerCase());
+      if (!supportedProviders.includes(provider.id)) {
+        return errorResponse(403, 'PROVIDER_DISABLED', `Provider "${provider.id}" is not enabled on this gateway`);
+      }
     }
 
     // ── 2. Extract Identity (Dual Auth) ──
@@ -125,6 +164,7 @@ export default {
     let tier: TrustTier = 'restricted';
     let score = 0;
     let totalStakedSats = 0;
+    let agentKeyEntry: AgentKeyEntry | null = null;
 
     if (identity.mode === 'transparent' && nostrEvent) {
       // Validate NIP-98 structure
@@ -166,19 +206,32 @@ export default {
       const kvKey = `agentkey:${agentKeyToken}`;
       const entry = await env.VOUCH_AGENT_KEYS.get<AgentKeyEntry>(kvKey, 'json');
 
-      if (!entry) {
+      if (!entry || typeof entry.pubkey !== 'string' || typeof entry.agentId !== 'string') {
+        emitAuditLog({ timestamp: new Date().toISOString(), action: 'auth:failed', authMode: 'agent-key', pubkey: '', status: 401, reason: 'Agent key not found or revoked', durationMs: elapsed() });
         return errorResponse(401, 'INVALID_AGENT_KEY', 'Agent key not found or revoked');
       }
+
+      // Store entry for model policy + budget enforcement later
+      agentKeyEntry = entry;
 
       // Resolve identity to the agent's pubkey
       identity.pubkey = entry.pubkey;
 
-      // Look up trust score (same as transparent mode)
+      // AgentKeys default to 'standard' tier — agents should work out of the box.
+      // Entry can override with a specific tier. Vouch score lookup is secondary.
+      tier = entry.tier ?? 'standard';
+
+      // Also try Vouch score — if agent has one, it may upgrade the tier
       const scoreData = await getConsumerScore(identity.pubkey, env);
       if (scoreData) {
         score = scoreData.score;
         totalStakedSats = scoreData.totalStakedSats;
-        tier = scoreData.tier;
+        // Use whichever tier is higher: entry override or score-based
+        const scoreTier = scoreData.tier;
+        const tierRank: Record<string, number> = { restricted: 0, standard: 1, elevated: 2, unlimited: 3 };
+        if ((tierRank[scoreTier] ?? 0) > (tierRank[tier] ?? 0)) {
+          tier = scoreTier;
+        }
       }
     } else if (identity.mode === 'private') {
       // Private mode — use standard tier rate limits (trust is in the prepaid batch)
@@ -186,15 +239,24 @@ export default {
     } else if (identity.mode === 'anonymous') {
       // Anonymous users cannot use inference — they must authenticate.
       // This prevents unauthorized consumption of API credits.
+      emitAuditLog({ timestamp: new Date().toISOString(), action: 'auth:failed', authMode: 'anonymous', pubkey: identity.pubkey, status: 401, reason: 'No authentication provided', durationMs: elapsed() });
       return errorResponse(401, 'AUTH_REQUIRED', 'Authentication required. Provide NIP-98 or PrivacyToken in X-Vouch-Auth header.');
     }
 
     const tierConfig = TIER_CONFIGS[tier];
 
+    // ── Agent Self-Service API ──
+    // Agents query their own status/budget/usage. Doesn't count against rate limits.
+    if (url.pathname.startsWith('/agent/')) {
+      const agentResponse = await handleAgentRoute(request, url.pathname, agentKeyEntry, env);
+      if (agentResponse) return agentResponse;
+    }
+
     // ── 3. Rate Limiting ──
 
     const rateResult = await enforceRateLimit(identity.pubkey, tierConfig.rateLimit, env);
     if (!rateResult.allowed) {
+      emitAuditLog({ timestamp: new Date().toISOString(), action: 'rate:limited', authMode: identity.mode, pubkey: identity.pubkey, status: 429, tier, reason: `Limit ${tierConfig.rateLimit} req/min`, durationMs: elapsed() });
       return errorResponse(
         429,
         'RATE_LIMITED',
@@ -223,13 +285,99 @@ export default {
       }
     }
 
-    // No model gating — all models available to all tiers
-    // UX is #1 priority: best model for the task, period.
+    // ── 4b. Resolve Auto-Route (if /auto/ path) ──
+
+    if (isAutoRoute) {
+      if (!model) {
+        return errorResponse(400, 'MODEL_REQUIRED', 'Auto-routing requires a "model" field in the request body');
+      }
+
+      const resolved = resolveProviderForModel(model, env);
+      if (!resolved) {
+        return errorResponse(404, 'NO_PROVIDER', `No available provider for model: ${model}`);
+      }
+
+      provider = resolved.provider;
+      autoRoute = { upstreamModel: resolved.upstreamModel, format: resolved.format };
+
+      // Rewrite model name in the request body if needed
+      if (resolved.upstreamModel !== model && requestBody && bodyText) {
+        (requestBody as Record<string, unknown>).model = resolved.upstreamModel;
+        bodyText = JSON.stringify(requestBody);
+      }
+    }
+
+    if (!provider) {
+      return errorResponse(500, 'INTERNAL_ERROR', 'Provider resolution failed');
+    }
+
+    // ── 4c. Agent Model Policy ──
+    // If the agent key has a model allowlist, enforce it.
+    // Also apply default model if request didn't specify one.
+
+    if (agentKeyEntry) {
+      // Apply default model if none specified
+      if (!model && agentKeyEntry.defaultModel && requestBody) {
+        model = agentKeyEntry.defaultModel;
+        (requestBody as Record<string, unknown>).model = model;
+        bodyText = JSON.stringify(requestBody);
+      }
+
+      // Enforce model allowlist (filter out empty entries from misconfigured KV data)
+      const allowedModels = agentKeyEntry.models?.filter(m => m.length > 0);
+      if (model && allowedModels && allowedModels.length > 0) {
+        // Check both exact match and bare-name match (e.g., "claude-sonnet-4" matches "anthropic/claude-sonnet-4")
+        const bareModel = model.includes('/') ? model.split('/').pop()! : model;
+        const allowed = allowedModels.some(m => {
+          const bareAllowed = m.includes('/') ? m.split('/').pop()! : m;
+          return m === model || bareAllowed === bareModel;
+        });
+
+        if (!allowed) {
+          emitAuditLog({ timestamp: new Date().toISOString(), action: 'model:blocked', authMode: identity.mode, pubkey: identity.pubkey, agentId: agentKeyEntry.agentId, model, status: 403, reason: `Not in allowlist: ${allowedModels.join(', ')}`, durationMs: elapsed() });
+          return errorResponse(403, 'MODEL_NOT_ALLOWED',
+            `Model "${model}" is not in this agent's allowed models. Allowed: ${allowedModels.join(', ')}`);
+        }
+      }
+    }
+
+    // ── 4d. Budget Pre-Check ──
+    // Reject early if agent is already over budget (saves upstream call costs).
+
+    if (agentKeyEntry?.budget &&
+        typeof agentKeyEntry.budget.maxSats === 'number' && agentKeyEntry.budget.maxSats > 0 &&
+        typeof agentKeyEntry.budget.periodDays === 'number' && agentKeyEntry.budget.periodDays > 0) {
+      const budgetResult = await checkBudget(identity.pubkey, agentKeyEntry.budget, env);
+      if (!budgetResult.allowed) {
+        const periodDays = agentKeyEntry.budget.periodDays;
+        const periodLabel = periodDays === 30 ? 'monthly' : periodDays === 7 ? 'weekly' : `${periodDays}-day`;
+        emitAuditLog({ timestamp: new Date().toISOString(), action: 'budget:exceeded', authMode: identity.mode, pubkey: identity.pubkey, agentId: agentKeyEntry.agentId, model: model ?? undefined, status: 402, costSats: budgetResult.spentSats, reason: `${budgetResult.spentSats}/${agentKeyEntry.budget.maxSats} sats (${periodLabel})`, durationMs: elapsed() });
+        return errorResponse(402, 'BUDGET_EXCEEDED',
+          `Agent budget exhausted. ${budgetResult.spentSats} / ${agentKeyEntry.budget.maxSats} sats spent this ${periodLabel} period.`,
+          {
+            'X-Vouch-Budget-Spent': String(budgetResult.spentSats),
+            'X-Vouch-Budget-Max': String(agentKeyEntry.budget.maxSats),
+            'X-Vouch-Budget-Remaining': '0',
+          },
+        );
+      }
+    }
 
     // ── 5. Forward to Upstream Provider ──
 
+    let upstreamPath: string;
+    if (isAutoRoute) {
+      // For auto-routing, determine the correct API path based on provider
+      if (provider.id === 'anthropic') {
+        upstreamPath = '/v1/messages';
+      } else {
+        upstreamPath = '/v1/chat/completions';
+      }
+    } else {
+      upstreamPath = getUpstreamPath(url.pathname);
+    }
+
     const upstreamBase = getUpstreamUrl(provider, env);
-    const upstreamPath = getUpstreamPath(url.pathname);
     const upstreamUrl = `${upstreamBase}${upstreamPath}${url.search}`;
 
     // Build upstream headers — strip identity, inject provider auth
@@ -322,6 +470,17 @@ export default {
       }
     }
 
+    // ── 6b. Record Budget Spend ──
+
+    if (agentKeyEntry?.budget && costSats > 0 &&
+        agentKeyEntry.budget.maxSats > 0 && agentKeyEntry.budget.periodDays > 0) {
+      ctx.waitUntil(
+        recordSpend(identity.pubkey, costSats, agentKeyEntry.budget, env).catch((err) => {
+          console.error('[budget] Failed to record spend:', err);
+        }),
+      );
+    }
+
     // ── 7. Report Usage (Async, Non-Blocking) ──
 
     if (model && (tokenCounts.inputTokens > 0 || tokenCounts.outputTokens > 0)) {
@@ -396,6 +555,14 @@ export default {
         responseHeaders.set('X-Vouch-Input-Tokens', String(tokenCounts.inputTokens));
         responseHeaders.set('X-Vouch-Output-Tokens', String(tokenCounts.outputTokens));
       }
+      // Budget visibility — agents can self-monitor spend
+      if (agentKeyEntry?.budget) {
+        responseHeaders.set('X-Vouch-Budget-Max', String(agentKeyEntry.budget.maxSats));
+        // Approximate remaining (actual state is async-updated)
+        if (costSats > 0) {
+          responseHeaders.set('X-Vouch-Budget-Cost', String(costSats));
+        }
+      }
     }
     // Private mode: minimal headers (no identity, no per-request cost)
 
@@ -407,6 +574,24 @@ export default {
     } else if (allowedOrigins.length === 0) {
       responseHeaders.delete('Access-Control-Allow-Origin');
     }
+
+    // ── 10. Audit Log ──
+
+    emitAuditLog({
+      timestamp: new Date().toISOString(),
+      action: 'inference',
+      authMode: identity.mode,
+      pubkey: identity.pubkey,
+      agentId: agentKeyEntry?.agentId,
+      model: model ?? undefined,
+      provider: provider.id,
+      status: upstreamResponse.status,
+      inputTokens: tokenCounts.inputTokens || undefined,
+      outputTokens: tokenCounts.outputTokens || undefined,
+      costSats: costSats || undefined,
+      tier,
+      durationMs: elapsed(),
+    });
 
     return new Response(responseBodyForClient, {
       status: upstreamResponse.status,
@@ -462,7 +647,10 @@ function estimatePromptLength(body: unknown): number {
   if (!Array.isArray(obj.messages)) return 0;
 
   let totalLength = 0;
-  for (const msg of obj.messages) {
+  // Cap iteration to prevent CPU abuse from pathological payloads
+  const maxMessages = Math.min(obj.messages.length, 1000);
+  for (let mi = 0; mi < maxMessages; mi++) {
+    const msg = obj.messages[mi];
     if (typeof msg === 'object' && msg !== null) {
       const m = msg as Record<string, unknown>;
       if (typeof m.content === 'string') {

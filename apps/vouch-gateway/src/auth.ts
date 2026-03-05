@@ -99,8 +99,10 @@ export function validateNip98Structure(
     const eventUrl = new URL(urlTag[1]);
     // Validate both hostname and path to prevent auth token reuse across hosts.
     // The hostname must match our gateway domain(s).
-    const gatewayHosts = ['gateway.percival-labs.ai', 'vouch-gateway.percival-labs.workers.dev'];
-    if (!gatewayHosts.includes(eventUrl.hostname) && eventUrl.hostname !== 'localhost') {
+    // Production hosts + localhost for dev. TODO: make env-aware to block
+    // localhost in production (requires passing env to auth validation).
+    const gatewayHosts = ['gateway.percival-labs.ai', 'vouch-gateway.percival-labs.workers.dev', 'localhost'];
+    if (!gatewayHosts.includes(eventUrl.hostname)) {
       return `URL hostname not recognized: "${eventUrl.hostname}"`;
     }
     if (eventUrl.pathname !== requestPath) {
@@ -198,14 +200,18 @@ export function extractPrivacyToken(headers: Headers): PrivacyTokenPayload | nul
     const decoded = atob(base64Token);
     const payload = JSON.parse(decoded);
 
-    if (!payload.batchHash || !payload.tokenHash) {
+    if (typeof payload.batchHash !== 'string' || typeof payload.tokenHash !== 'string') {
       return null;
     }
+
+    // Validate hash format — must be hex strings of reasonable length
+    if (!/^[0-9a-f]{16,128}$/.test(payload.batchHash)) return null;
+    if (!/^[0-9a-f]{16,128}$/.test(payload.tokenHash)) return null;
 
     return {
       batchHash: payload.batchHash,
       tokenHash: payload.tokenHash,
-      tokenBytes: payload.tokenBytes || '',
+      tokenBytes: typeof payload.tokenBytes === 'string' ? payload.tokenBytes : '',
     };
   } catch {
     return null;

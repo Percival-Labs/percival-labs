@@ -137,6 +137,23 @@ export interface AgentKeyEntry {
   agentId: string;     // human-readable agent identifier
   name: string;        // display name
   createdAt: string;   // ISO 8601 timestamp
+  tier?: TrustTier;    // override tier (default: 'standard' — agents should work out of the box)
+  models?: string[];   // allowed models (empty/undefined = all)
+  defaultModel?: string; // fallback model when request doesn't specify one
+  budget?: BudgetConfig; // spending cap (undefined = unlimited)
+}
+
+/** Per-agent budget configuration */
+export interface BudgetConfig {
+  maxSats: number;     // max spend per period (in sats)
+  periodDays: number;  // budget reset period (e.g., 30 for monthly, 7 for weekly)
+}
+
+/** Budget spend state tracked in KV */
+export interface BudgetState {
+  spentSats: number;   // total spent in current period
+  periodStart: number; // epoch ms when current period started
+  lastUpdated: number; // epoch ms of last update
 }
 
 /** Gateway environment bindings for Cloudflare Worker */
