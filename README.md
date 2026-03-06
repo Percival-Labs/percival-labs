@@ -77,6 +77,10 @@ cd apps/website && bun dev
 | Website | percival-labs.ai (Cloudflare Pages) |
 | SDK | npmjs.com/@percival-labs/vouch-sdk |
 
+## Intellectual Property
+
+Patent Pending — U.S. Provisional Application No. 63/997,733 (filed March 5, 2026). Covers trust-staked economic accountability, privacy-preserving trust attestation, per-agent inference governance, and ISC runtime architecture.
+
 ## License
 
 Business Source License 1.1 — see [LICENSE](./LICENSE).

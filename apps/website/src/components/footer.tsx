@@ -95,8 +95,8 @@ export function Footer() {
 
         <div className="mt-8 border-t border-pl-border pt-6 text-center">
           <p className="text-xs text-pl-text-dim">
-            &copy; {new Date().getFullYear()} Percival Labs. Built in the open.
-            Make C &gt; D.
+            &copy; {new Date().getFullYear()} Percival Labs. Patent Pending.
+            Built in the open. Make C &gt; D.
           </p>
         </div>
       </div>
