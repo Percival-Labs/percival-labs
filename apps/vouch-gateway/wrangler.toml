@@ -22,6 +22,9 @@ ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
 OPENAI_UPSTREAM = "https://api.openai.com"
 OPENROUTER_UPSTREAM = "https://openrouter.ai/api"
 ENVIRONMENT = "production"
+STRIPE_METER_INPUT_ID = ""
+STRIPE_METER_OUTPUT_ID = ""
+# STRIPE_API_KEY — set via `wrangler secret put STRIPE_API_KEY`
 
 # ── KV Namespaces ──
 # Create these with:
