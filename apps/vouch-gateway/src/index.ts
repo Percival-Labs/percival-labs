@@ -120,6 +120,27 @@ export default {
       if (adminResponse) return adminResponse;
     }
 
+    // ── Agent Self-Service API ──
+    // Handles /agent/v1/* routes (budget, usage, models).
+    // Authenticated via AgentKey header.
+    if (url.pathname.startsWith('/agent/')) {
+      // Extract AgentKey from header
+      const authHeader = request.headers.get('X-Vouch-Auth') ?? '';
+      const agentKeyMatch = authHeader.match(/^AgentKey\s+([a-f0-9]{64})$/i);
+      if (!agentKeyMatch) {
+        return errorResponse(401, 'AUTH_REQUIRED', 'AgentKey authentication required for /agent/* endpoints');
+      }
+      const token = agentKeyMatch[1]!;
+      const raw = await env.VOUCH_AGENT_KEYS.get(`agentkey:${token}`);
+      if (!raw) {
+        return errorResponse(401, 'INVALID_AGENT_KEY', 'Agent key not found');
+      }
+      const entry = JSON.parse(raw) as AgentKeyEntry;
+      const agentResponse = await handleAgentRoute(request, url.pathname, entry, env);
+      if (agentResponse) return agentResponse;
+      return errorResponse(404, 'NOT_FOUND', `Unknown agent endpoint: ${url.pathname}`);
+    }
+
     // Safety: prevent DEV_MODE in production
     if (env.DEV_MODE === 'true' && env.ENVIRONMENT === 'production') {
       console.error('[FATAL] DEV_MODE=true in production environment');
@@ -248,13 +269,6 @@ export default {
     }
 
     const tierConfig = TIER_CONFIGS[tier];
-
-    // ── Agent Self-Service API ──
-    // Agents query their own status/budget/usage. Doesn't count against rate limits.
-    if (url.pathname.startsWith('/agent/')) {
-      const agentResponse = await handleAgentRoute(request, url.pathname, agentKeyEntry, env);
-      if (agentResponse) return agentResponse;
-    }
 
     // ── 3. Rate Limiting ──
 
