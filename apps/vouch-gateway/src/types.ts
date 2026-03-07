@@ -141,6 +141,9 @@ export interface AgentKeyEntry {
   models?: string[];   // allowed models (empty/undefined = all)
   defaultModel?: string; // fallback model when request doesn't specify one
   budget?: BudgetConfig; // spending cap (undefined = unlimited)
+  stripeCustomerId?: string;     // Stripe customer ID for meter billing
+  stripeSubscriptionId?: string; // Stripe subscription ID (for reference)
+  billingMode?: 'lightning' | 'stripe' | 'credits'; // billing method (default: lightning)
 }
 
 /** Per-agent budget configuration */
@@ -180,6 +183,11 @@ export interface Env {
 
   // Gateway secret for usage reporting to Vouch API
   GATEWAY_SECRET?: string;
+
+  // Stripe Billing Meters (set STRIPE_API_KEY via `wrangler secret put`)
+  STRIPE_API_KEY?: string;
+  STRIPE_METER_INPUT_ID?: string;
+  STRIPE_METER_OUTPUT_ID?: string;
 
   // CORS — comma-separated allowed origins (no wildcard when proxying API keys)
   ALLOWED_ORIGINS?: string;

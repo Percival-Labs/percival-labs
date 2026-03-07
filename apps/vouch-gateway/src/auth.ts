@@ -80,6 +80,7 @@ export function validateNip98Structure(
   event: NostrEvent,
   requestMethod: string,
   requestPath: string,
+  environment?: string,
 ): string | null {
   if (event.kind !== 27235) {
     return `Invalid event kind: expected 27235, got ${event.kind}`;
@@ -99,10 +100,11 @@ export function validateNip98Structure(
     const eventUrl = new URL(urlTag[1]);
     // Validate both hostname and path to prevent auth token reuse across hosts.
     // The hostname must match our gateway domain(s).
-    // Production hosts + localhost for dev. TODO: make env-aware to block
-    // localhost in production (requires passing env to auth validation).
-    const gatewayHosts = ['gateway.percival-labs.ai', 'vouch-gateway.percival-labs.workers.dev', 'localhost'];
-    if (!gatewayHosts.includes(eventUrl.hostname)) {
+    // localhost is only accepted in non-production environments.
+    const gatewayHosts = ['gateway.percival-labs.ai', 'vouch-gateway.percival-labs.workers.dev'];
+    if (environment !== 'production' && eventUrl.hostname === 'localhost') {
+      // Allow localhost in dev/staging
+    } else if (!gatewayHosts.includes(eventUrl.hostname)) {
       return `URL hostname not recognized: "${eventUrl.hostname}"`;
     }
     if (eventUrl.pathname !== requestPath) {

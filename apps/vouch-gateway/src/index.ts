@@ -44,6 +44,7 @@ import {
 } from './providers';
 import type { ProviderConfig } from './types';
 import { extractTokenCounts, reportUsage } from './metering';
+import { reportToStripeMeter } from './stripe-meter';
 import { getPricingTable, estimateCostSats } from './pricing';
 import { checkBudget, recordSpend } from './budget';
 import type { BudgetConfig } from './types';
@@ -172,6 +173,7 @@ export default {
         nostrEvent,
         request.method,
         url.pathname,
+        env.ENVIRONMENT,
       );
       if (structErr) {
         return errorResponse(401, 'INVALID_AUTH', `NIP-98 validation failed: ${structErr}`);
@@ -221,8 +223,10 @@ export default {
       // Entry can override with a specific tier. Vouch score lookup is secondary.
       tier = entry.tier ?? 'standard';
 
-      // Also try Vouch score — if agent has one, it may upgrade the tier
-      const scoreData = await getConsumerScore(identity.pubkey, env);
+      // Also try Vouch score — if agent has a pubkey, it may upgrade the tier
+      const scoreData = identity.pubkey
+        ? await getConsumerScore(identity.pubkey, env)
+        : null;
       if (scoreData) {
         score = scoreData.score;
         totalStakedSats = scoreData.totalStakedSats;
@@ -495,6 +499,22 @@ export default {
           outputTokens: tokenCounts.outputTokens,
         }, env).catch((err) => {
           console.error('[metering] Usage report failed:', err);
+        }),
+      );
+    }
+
+    // ── 7b. Stripe Meter Billing (Async, Non-Blocking) ──
+
+    if (model && agentKeyEntry?.stripeCustomerId &&
+        (tokenCounts.inputTokens > 0 || tokenCounts.outputTokens > 0)) {
+      ctx.waitUntil(
+        reportToStripeMeter(env, {
+          stripeCustomerId: agentKeyEntry.stripeCustomerId,
+          model,
+          inputTokens: tokenCounts.inputTokens,
+          outputTokens: tokenCounts.outputTokens,
+        }).catch((err) => {
+          console.error('[stripe-meter] Meter event failed:', err);
         }),
       );
     }
