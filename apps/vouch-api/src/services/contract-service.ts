@@ -909,6 +909,31 @@ export async function acceptMilestone(
     });
   }
 
+  // Gateway Credits Launch Promo — grant bonus inference credits on contract completion.
+  // Separate from sats payout. Agent claims via GET /v1/credits/gateway.
+  // PROMO: Remove or disable after launch window closes.
+  if (result.contractCompleted) {
+    const agentPub = result.agentPubkey;
+    const PROMO_CREDITS_SATS = 25_000; // 25,000 sats of Gateway inference budget per completed contract
+    const PROMO_DEADLINE = new Date('2026-04-13T00:00:00Z'); // 1 month from launch
+
+    if (new Date() < PROMO_DEADLINE) {
+      setImmediate(async () => {
+        try {
+          const { payAgentGatewayCredits } = await import('./gateway-service');
+          await payAgentGatewayCredits(
+            agentPub,
+            PROMO_CREDITS_SATS,
+            `Launch promo: bonus inference credits for completing contract ${contractId}`,
+          );
+          console.log(`[promo] Granted ${PROMO_CREDITS_SATS} Gateway credits to ${agentPub.slice(0, 8)}... for contract ${contractId}`);
+        } catch (err) {
+          console.error(`[promo] Failed to grant Gateway credits to ${agentPub.slice(0, 8)}...:`, err instanceof Error ? err.message : err);
+        }
+      });
+    }
+  }
+
   return {
     milestoneAccepted: result.milestoneAccepted,
     contractCompleted: result.contractCompleted,
