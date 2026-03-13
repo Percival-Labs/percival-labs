@@ -1,4 +1,4 @@
-// Vouch Gateway v0.4.0 — Cloudflare Worker Entry Point
+// Vouch Gateway v0.6.0 — Cloudflare Worker Entry Point
 //
 // Enterprise-grade inference proxy with trust-tiered access, per-agent
 // model policies, budget caps, structured audit logging, and self-service APIs.
@@ -50,7 +50,7 @@ import { checkBudget, recordSpend } from './budget';
 import type { BudgetConfig } from './types';
 import { handleAdminRoute } from './admin';
 import { handleAgentRoute } from './agent-api';
-import { emitAuditLog, startTimer } from './audit';
+import { emitAuditLog, storeAuditEntry, startTimer } from './audit';
 import type { AuditAction } from './audit';
 
 // ── Worker Export ──
@@ -65,18 +65,19 @@ export default {
       return jsonResponse({
         status: 'ok',
         service: 'vouch-gateway',
-        version: '0.4.0',
+        version: '0.6.0',
         providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
         autoRoute: true,
         authModes: ['transparent', 'private', 'agent-key'],
-        features: ['model-policies', 'budget-caps', 'admin-api', 'agent-self-service'],
+        capabilities: ['fast', 'code', 'smart', 'reasoning'],
+        features: ['model-policies', 'budget-caps', 'admin-api', 'agent-self-service', 'audit-trail', 'capability-routing', 'local-inference'],
       });
     }
 
     // Discovery endpoint — returns gateway capabilities
     if (url.pathname === '/.well-known/vouch-gateway') {
       return jsonResponse({
-        version: '0.4.0',
+        version: '0.6.0',
         protocol: 'vouch-nip-98',
         providers: (env.SUPPORTED_PROVIDERS ?? 'anthropic,openai,openrouter').split(','),
         tiers: Object.entries(TIER_CONFIGS).map(([name, config]) => ({
@@ -105,6 +106,13 @@ export default {
           private: 'prepaid-batch',
         },
       });
+    }
+
+    // Safety: prevent DEV_MODE in production — MUST run before any route dispatch
+    // to ensure admin/agent routes also respect this guard.
+    if (env.DEV_MODE === 'true' && env.ENVIRONMENT === 'production') {
+      console.error('[FATAL] DEV_MODE=true in production environment');
+      return errorResponse(500, 'CONFIG_ERROR', 'Service misconfigured');
     }
 
     // CORS preflight
@@ -141,12 +149,6 @@ export default {
       return errorResponse(404, 'NOT_FOUND', `Unknown agent endpoint: ${url.pathname}`);
     }
 
-    // Safety: prevent DEV_MODE in production
-    if (env.DEV_MODE === 'true' && env.ENVIRONMENT === 'production') {
-      console.error('[FATAL] DEV_MODE=true in production environment');
-      return errorResponse(500, 'CONFIG_ERROR', 'Service misconfigured');
-    }
-
     // ── 0. Request Body Size Limit ──
 
     const contentLength = parseInt(request.headers.get('Content-Length') ?? '0', 10);
@@ -181,7 +183,7 @@ export default {
     // ── 2. Extract Identity (Dual Auth) ──
 
     const clientIp = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-    const { identity, nostrEvent, agentKeyToken } = resolveAuthIdentity(request.headers, clientIp);
+    const { identity, nostrEvent, agentKeyToken } = await resolveAuthIdentity(request.headers, clientIp, env);
 
     let tier: TrustTier = 'restricted';
     let score = 0;
@@ -230,7 +232,9 @@ export default {
       const entry = await env.VOUCH_AGENT_KEYS.get<AgentKeyEntry>(kvKey, 'json');
 
       if (!entry || typeof entry.pubkey !== 'string' || typeof entry.agentId !== 'string') {
-        emitAuditLog({ timestamp: new Date().toISOString(), action: 'auth:failed', authMode: 'agent-key', pubkey: '', status: 401, reason: 'Agent key not found or revoked', durationMs: elapsed() });
+        const failEntry = { timestamp: new Date().toISOString(), action: 'auth:failed' as const, authMode: 'agent-key', pubkey: '', status: 401, reason: 'Agent key not found or revoked', durationMs: elapsed() };
+        emitAuditLog(failEntry);
+        ctx.waitUntil(storeAuditEntry(failEntry, env).catch(() => {}));
         return errorResponse(401, 'INVALID_AGENT_KEY', 'Agent key not found or revoked');
       }
 
@@ -264,7 +268,9 @@ export default {
     } else if (identity.mode === 'anonymous') {
       // Anonymous users cannot use inference — they must authenticate.
       // This prevents unauthorized consumption of API credits.
-      emitAuditLog({ timestamp: new Date().toISOString(), action: 'auth:failed', authMode: 'anonymous', pubkey: identity.pubkey, status: 401, reason: 'No authentication provided', durationMs: elapsed() });
+      const anonEntry = { timestamp: new Date().toISOString(), action: 'auth:failed' as const, authMode: 'anonymous', pubkey: identity.pubkey, status: 401, reason: 'No authentication provided', durationMs: elapsed() };
+      emitAuditLog(anonEntry);
+      ctx.waitUntil(storeAuditEntry(anonEntry, env).catch(() => {}));
       return errorResponse(401, 'AUTH_REQUIRED', 'Authentication required. Provide NIP-98 or PrivacyToken in X-Vouch-Auth header.');
     }
 
@@ -274,7 +280,9 @@ export default {
 
     const rateResult = await enforceRateLimit(identity.pubkey, tierConfig.rateLimit, env);
     if (!rateResult.allowed) {
-      emitAuditLog({ timestamp: new Date().toISOString(), action: 'rate:limited', authMode: identity.mode, pubkey: identity.pubkey, status: 429, tier, reason: `Limit ${tierConfig.rateLimit} req/min`, durationMs: elapsed() });
+      const rateEntry = { timestamp: new Date().toISOString(), action: 'rate:limited' as const, authMode: identity.mode, pubkey: identity.pubkey, status: 429, tier, reason: `Limit ${tierConfig.rateLimit} req/min`, durationMs: elapsed() };
+      emitAuditLog(rateEntry);
+      ctx.waitUntil(storeAuditEntry(rateEntry, env).catch(() => {}));
       return errorResponse(
         429,
         'RATE_LIMITED',
@@ -352,7 +360,9 @@ export default {
         });
 
         if (!allowed) {
-          emitAuditLog({ timestamp: new Date().toISOString(), action: 'model:blocked', authMode: identity.mode, pubkey: identity.pubkey, agentId: agentKeyEntry.agentId, model, status: 403, reason: `Not in allowlist: ${allowedModels.join(', ')}`, durationMs: elapsed() });
+          const modelEntry = { timestamp: new Date().toISOString(), action: 'model:blocked' as const, authMode: identity.mode, pubkey: identity.pubkey, agentId: agentKeyEntry.agentId, model, status: 403, reason: `Not in allowlist: ${allowedModels.join(', ')}`, durationMs: elapsed() };
+          emitAuditLog(modelEntry);
+          ctx.waitUntil(storeAuditEntry(modelEntry, env).catch(() => {}));
           return errorResponse(403, 'MODEL_NOT_ALLOWED',
             `Model "${model}" is not in this agent's allowed models. Allowed: ${allowedModels.join(', ')}`);
         }
@@ -369,7 +379,9 @@ export default {
       if (!budgetResult.allowed) {
         const periodDays = agentKeyEntry.budget.periodDays;
         const periodLabel = periodDays === 30 ? 'monthly' : periodDays === 7 ? 'weekly' : `${periodDays}-day`;
-        emitAuditLog({ timestamp: new Date().toISOString(), action: 'budget:exceeded', authMode: identity.mode, pubkey: identity.pubkey, agentId: agentKeyEntry.agentId, model: model ?? undefined, status: 402, costSats: budgetResult.spentSats, reason: `${budgetResult.spentSats}/${agentKeyEntry.budget.maxSats} sats (${periodLabel})`, durationMs: elapsed() });
+        const budgetEntry = { timestamp: new Date().toISOString(), action: 'budget:exceeded' as const, authMode: identity.mode, pubkey: identity.pubkey, agentId: agentKeyEntry.agentId, model: model ?? undefined, status: 402, costSats: budgetResult.spentSats, reason: `${budgetResult.spentSats}/${agentKeyEntry.budget.maxSats} sats (${periodLabel})`, durationMs: elapsed() };
+        emitAuditLog(budgetEntry);
+        ctx.waitUntil(storeAuditEntry(budgetEntry, env).catch(() => {}));
         return errorResponse(402, 'BUDGET_EXCEEDED',
           `Agent budget exhausted. ${budgetResult.spentSats} / ${agentKeyEntry.budget.maxSats} sats spent this ${periodLabel} period.`,
           {
@@ -388,6 +400,8 @@ export default {
       // For auto-routing, determine the correct API path based on provider
       if (provider.id === 'anthropic') {
         upstreamPath = '/v1/messages';
+      } else if (provider.id === 'ollama') {
+        upstreamPath = '/v1/chat/completions';
       } else {
         upstreamPath = '/v1/chat/completions';
       }
@@ -423,17 +437,19 @@ export default {
     // NEVER forward identity headers to providers
     // X-Forwarded-For, User-Agent, cookies, X-Vouch-Auth — all stripped
 
-    // Set provider API key
-    const apiKey = getProviderApiKey(provider, env);
-    if (!apiKey) {
-      return errorResponse(503, 'PROVIDER_NOT_CONFIGURED', `Provider "${provider.id}" API key not configured`);
-    }
+    // Set provider API key (Ollama doesn't need one)
+    if (provider.id !== 'ollama') {
+      const apiKey = getProviderApiKey(provider, env);
+      if (!apiKey) {
+        return errorResponse(503, 'PROVIDER_NOT_CONFIGURED', `Provider "${provider.id}" API key not configured`);
+      }
 
-    if (provider.id === 'anthropic') {
-      upstreamHeaders.set('x-api-key', apiKey);
-    } else {
-      // OpenAI and OpenRouter both use Bearer auth
-      upstreamHeaders.set('Authorization', `Bearer ${apiKey}`);
+      if (provider.id === 'anthropic') {
+        upstreamHeaders.set('x-api-key', apiKey);
+      } else {
+        // OpenAI and OpenRouter both use Bearer auth
+        upstreamHeaders.set('Authorization', `Bearer ${apiKey}`);
+      }
     }
 
     // OpenRouter: add site/app headers for attribution
@@ -600,20 +616,20 @@ export default {
     }
     // Private mode: minimal headers (no identity, no per-request cost)
 
-    // CORS headers
+    // CORS headers — token-based auth (AgentKey/NIP-98) so origin doesn't matter for security
     const allowedOrigins = (env.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
     const requestOrigin = request.headers.get('Origin') ?? '';
-    if (allowedOrigins.length > 0 && allowedOrigins.includes(requestOrigin)) {
+    if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
       responseHeaders.set('Access-Control-Allow-Origin', requestOrigin);
-    } else if (allowedOrigins.length === 0) {
-      responseHeaders.delete('Access-Control-Allow-Origin');
+    } else {
+      responseHeaders.set('Access-Control-Allow-Origin', '*');
     }
 
     // ── 10. Audit Log ──
 
-    emitAuditLog({
+    const auditEntry = {
       timestamp: new Date().toISOString(),
-      action: 'inference',
+      action: 'inference' as const,
       authMode: identity.mode,
       pubkey: identity.pubkey,
       agentId: agentKeyEntry?.agentId,
@@ -625,7 +641,14 @@ export default {
       costSats: costSats || undefined,
       tier,
       durationMs: elapsed(),
-    });
+    };
+
+    emitAuditLog(auditEntry);
+    ctx.waitUntil(
+      storeAuditEntry(auditEntry, env).catch((err) => {
+        console.error('[audit] Failed to store audit entry:', err);
+      }),
+    );
 
     return new Response(responseBodyForClient, {
       status: upstreamResponse.status,
@@ -640,6 +663,7 @@ export default {
 function jsonResponse(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
     ...extraHeaders,
   };
   return new Response(JSON.stringify(data, null, 2), { status, headers });
@@ -660,13 +684,18 @@ function errorResponse(
 
 function corsResponse(env?: Env, requestOrigin?: string): Response {
   const allowedOrigins = (env?.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
-  const origin = (requestOrigin && allowedOrigins.includes(requestOrigin)) ? requestOrigin : '';
+  // If request origin is in the allowlist, reflect it. Otherwise default to '*'
+  // because Gateway auth is token-based (AgentKey/NIP-98), not cookie-based,
+  // so CORS origin restrictions don't add meaningful security.
+  const origin = (requestOrigin && allowedOrigins.includes(requestOrigin))
+    ? requestOrigin
+    : '*';
   const headers: Record<string, string> = {
+    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Vouch-Auth, Authorization, x-api-key, anthropic-version, anthropic-beta',
     'Access-Control-Max-Age': '86400',
   };
-  if (origin) headers['Access-Control-Allow-Origin'] = origin;
   return new Response(null, { status: 204, headers });
 }
 

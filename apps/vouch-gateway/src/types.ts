@@ -36,7 +36,7 @@ export const TIER_CONFIGS: Record<TrustTier, TierConfig> = {
 } as const;
 
 /** Supported AI provider identifiers */
-export type ProviderId = 'anthropic' | 'openai' | 'openrouter';
+export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'ollama';
 
 /** Provider routing configuration */
 export interface ProviderConfig {
@@ -175,6 +175,7 @@ export interface Env {
   ANTHROPIC_UPSTREAM: string;
   OPENAI_UPSTREAM: string;
   OPENROUTER_UPSTREAM?: string;
+  OLLAMA_UPSTREAM?: string;
 
   // Provider API keys (secrets)
   ANTHROPIC_API_KEY: string;

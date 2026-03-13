@@ -10,7 +10,25 @@ import {
   validateNip98Structure,
   resolveAuthIdentity,
 } from '../src/auth';
-import type { NostrEvent } from '../src/types';
+import type { NostrEvent, Env } from '../src/types';
+
+/** Minimal mock env for resolveAuthIdentity tests */
+function mockEnv(): Env {
+  const store = new Map<string, string>();
+  return {
+    VOUCH_RATE_LIMITS: {
+      get: (key: string, format?: string) => {
+        const val = store.get(key);
+        if (!val) return Promise.resolve(null);
+        return Promise.resolve(format === 'json' ? JSON.parse(val) : val);
+      },
+      put: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+      list: () => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }),
+      getWithMetadata: () => Promise.resolve({ value: null, metadata: null, cacheStatus: null }),
+    } as unknown as KVNamespace,
+  } as unknown as Env;
+}
 
 // ── Test Fixtures ──
 
@@ -330,10 +348,12 @@ describe('extractAgentKey', () => {
 // ── resolveAuthIdentity — agent-key mode ──
 
 describe('resolveAuthIdentity — agent-key mode', () => {
-  it('resolves to agent-key mode for valid AgentKey header', () => {
+  const env = mockEnv();
+
+  it('resolves to agent-key mode for valid AgentKey header', async () => {
     const token = 'a1b2c3d4'.repeat(8);
     const headers = new Headers({ 'X-Vouch-Auth': `AgentKey ${token}` });
-    const { identity, nostrEvent, agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+    const { identity, nostrEvent, agentKeyToken } = await resolveAuthIdentity(headers, '1.2.3.4', env);
 
     expect(identity.mode).toBe('agent-key');
     expect(identity.pubkey).toBe('');
@@ -341,29 +361,29 @@ describe('resolveAuthIdentity — agent-key mode', () => {
     expect(agentKeyToken).toBe(token);
   });
 
-  it('prefers NIP-98 over AgentKey', () => {
+  it('prefers NIP-98 over AgentKey', async () => {
     const event = makeValidEvent();
     const headers = new Headers({
       'X-Vouch-Auth': `Nostr ${encodeEvent(event)}`,
     });
-    const { identity, nostrEvent, agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+    const { identity, nostrEvent, agentKeyToken } = await resolveAuthIdentity(headers, '1.2.3.4', env);
 
     expect(identity.mode).toBe('transparent');
     expect(nostrEvent).not.toBeNull();
     expect(agentKeyToken).toBeNull();
   });
 
-  it('falls back to anonymous when AgentKey token is invalid format', () => {
+  it('falls back to anonymous when AgentKey token is invalid format', async () => {
     const headers = new Headers({ 'X-Vouch-Auth': 'AgentKey not-valid-hex!' });
-    const { identity, agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+    const { identity, agentKeyToken } = await resolveAuthIdentity(headers, '1.2.3.4', env);
 
     expect(identity.mode).toBe('anonymous');
     expect(agentKeyToken).toBeNull();
   });
 
-  it('returns agentKeyToken as null for non-agent-key modes', () => {
+  it('returns agentKeyToken as null for non-agent-key modes', async () => {
     const headers = new Headers();
-    const { agentKeyToken } = resolveAuthIdentity(headers, '1.2.3.4');
+    const { agentKeyToken } = await resolveAuthIdentity(headers, '1.2.3.4', env);
     expect(agentKeyToken).toBeNull();
   });
 });

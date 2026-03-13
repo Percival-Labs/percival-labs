@@ -7,9 +7,12 @@
 //   GET /agent/v1/me           — Agent's own key entry (models, tier, budget config)
 //   GET /agent/v1/me/budget    — Current budget spend and remaining
 //   GET /agent/v1/me/usage     — Recent usage summary (from anomaly data)
+//   GET /agent/v1/me/audit     — Agent's own audit trail (query: ?action=inference&since=ISO&limit=50)
 //   GET /agent/v1/models       — List of models available to this agent
 
 import type { Env, AgentKeyEntry, BudgetState, AnomalyData } from './types';
+import { getAuditHistory } from './audit';
+import type { AuditAction } from './audit';
 
 // ── Route Handler ──
 
@@ -37,6 +40,8 @@ export async function handleAgentRoute(
       return handleMyBudget(agentKeyEntry, env);
     case '/me/usage':
       return handleMyUsage(agentKeyEntry, env);
+    case '/me/audit':
+      return handleMyAudit(agentKeyEntry, request, env);
     case '/models':
       return handleMyModels(agentKeyEntry, env);
     default:
@@ -132,6 +137,28 @@ async function handleMyUsage(entry: AgentKeyEntry, env: Env): Promise<Response> 
     avgPromptLength,
     windowStart: new Date(anomalyData.windowStart).toISOString(),
     hourlyBreakdown,
+  });
+}
+
+async function handleMyAudit(entry: AgentKeyEntry, request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const rawAction = url.searchParams.get('action');
+  const validActions: AuditAction[] = ['inference', 'admin:list', 'admin:get', 'admin:create', 'admin:update', 'admin:delete', 'agent:query', 'auth:failed', 'rate:limited', 'budget:exceeded', 'model:blocked', 'anomaly:flagged'];
+  const action = rawAction && validActions.includes(rawAction as AuditAction) ? rawAction as AuditAction : undefined;
+  const since = url.searchParams.get('since');
+  const rawLimit = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
+
+  const entries = await getAuditHistory(entry.pubkey, env, {
+    action,
+    since: since ?? undefined,
+    limit: Math.min(limit, 200),
+  });
+
+  return jsonResponse({
+    agentId: entry.agentId,
+    count: entries.length,
+    entries,
   });
 }
 

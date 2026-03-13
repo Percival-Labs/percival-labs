@@ -41,7 +41,42 @@ export const PROVIDER_CONFIGS: Record<ProviderId, ProviderConfig> = {
     apiKeyEnvVar: 'OPENROUTER_API_KEY',
     reasoningModels: [],
   },
+  ollama: {
+    id: 'ollama',
+    upstream: 'https://ollama.percival-labs.ai',
+    apiKeyHeader: '',     // no auth needed
+    apiKeyEnvVar: '',     // no API key
+    reasoningModels: [],
+  },
 } as const;
+
+// ── Capability-Level Routing ──
+// Agents request a capability level instead of a specific model.
+// Gateway picks the best model for the task at the lowest cost.
+
+export type CapabilityLevel = 'fast' | 'code' | 'smart' | 'reasoning';
+
+interface CapabilityRoute {
+  model: string;
+  provider: ProviderId;
+  format: 'anthropic' | 'openai';
+}
+
+const CAPABILITY_ROUTES: Record<CapabilityLevel, CapabilityRoute> = {
+  fast: { model: 'google/gemini-3-flash-preview', provider: 'openrouter', format: 'openai' },
+  code: { model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter', format: 'openai' },
+  smart: { model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter', format: 'openai' },
+  reasoning: { model: 'anthropic/claude-opus-4.6', provider: 'openrouter', format: 'openai' },
+};
+
+/**
+ * Check if a model name is a capability alias (fast, smart, reasoning, code).
+ * Returns the resolved route or null if not a capability alias.
+ */
+export function resolveCapability(model: string): CapabilityRoute | null {
+  const level = model.toLowerCase() as CapabilityLevel;
+  return CAPABILITY_ROUTES[level] ?? null;
+}
 
 // ── Model-to-Provider Mapping (for auto-routing) ──
 
@@ -58,9 +93,31 @@ export function resolveProviderForModel(model: string, env: Env): {
   upstreamModel: string;
   format: 'anthropic' | 'openai';
 } | null {
+  // ── Capability aliases (fast, smart, reasoning, code) ──
+  const capability = resolveCapability(model);
+  if (capability) {
+    const config = PROVIDER_CONFIGS[capability.provider];
+    // For Ollama, check that upstream is configured
+    if (capability.provider === 'ollama') {
+      if (!isOllamaAvailable(env)) return null;
+      return { provider: config, upstreamModel: capability.model, format: capability.format };
+    }
+    // For cloud providers, check API key
+    if (!getProviderApiKey(config, env)) return null;
+    return { provider: config, upstreamModel: capability.model, format: capability.format };
+  }
+
+  // ── Ollama models (contain ':' like qwen3:14b) ──
+  if (model.includes(':') && isOllamaAvailable(env)) {
+    return {
+      provider: PROVIDER_CONFIGS.ollama,
+      upstreamModel: model,
+      format: 'openai',
+    };
+  }
+
   // Models with explicit provider prefix (e.g., anthropic/claude-sonnet-4) are
   // OpenRouter's model naming convention. Always route to OpenRouter.
-  // The agent can use bare names (claude-sonnet-4) to go direct to a provider.
   if (model.includes('/')) {
     if (getProviderApiKey(PROVIDER_CONFIGS.openrouter, env)) {
       return {
@@ -142,7 +199,7 @@ export function getProviderConfig(path: string): ProviderConfig | 'auto' | null 
   if (providerSegment === 'auto') return 'auto';
 
   if (providerSegment in PROVIDER_CONFIGS) {
-    return PROVIDER_CONFIGS[providerSegment as ProviderId];
+    return PROVIDER_CONFIGS[providerSegment as keyof typeof PROVIDER_CONFIGS];
   }
 
   return null;
@@ -169,6 +226,8 @@ export function getUpstreamUrl(provider: ProviderConfig, env: Env): string {
       return env.OPENAI_UPSTREAM || provider.upstream;
     case 'openrouter':
       return env.OPENROUTER_UPSTREAM || provider.upstream;
+    case 'ollama':
+      return env.OLLAMA_UPSTREAM || provider.upstream;
     default:
       return provider.upstream;
   }
@@ -185,9 +244,19 @@ export function getProviderApiKey(provider: ProviderConfig, env: Env): string | 
       return env.OPENAI_API_KEY;
     case 'openrouter':
       return env.OPENROUTER_API_KEY;
+    case 'ollama':
+      // Ollama doesn't need an API key — return a sentinel so routing doesn't skip it
+      return isOllamaAvailable(env) ? 'ollama-local' : undefined;
     default:
       return undefined;
   }
+}
+
+/**
+ * Check if Ollama is available (upstream configured).
+ */
+function isOllamaAvailable(env: Env): boolean {
+  return !!(env.OLLAMA_UPSTREAM || PROVIDER_CONFIGS.ollama.upstream);
 }
 
 /**

@@ -185,11 +185,11 @@ interface PrivacyTokenPayload {
  * Format: `PrivacyToken <base64 JSON>`
  * The JSON contains: { batchHash, tokenHash, tokenBytes }
  *
- * Token cryptographic verification happens at the Vouch API level
- * when the gateway reports usage. The gateway trusts the token
- * structure and uses the batch_hash for billing.
+ * After format validation, the batch hash is verified against the gateway's
+ * KV store (VOUCH_RATE_LIMITS) to ensure it was registered by the Vouch API.
+ * This prevents forged tokens from consuming upstream API credits.
  */
-export function extractPrivacyToken(headers: Headers): PrivacyTokenPayload | null {
+export async function extractPrivacyToken(headers: Headers, env: Env): Promise<PrivacyTokenPayload | null> {
   const authHeader = headers.get('X-Vouch-Auth');
   if (!authHeader || !authHeader.startsWith('PrivacyToken ')) {
     return null;
@@ -209,6 +209,13 @@ export function extractPrivacyToken(headers: Headers): PrivacyTokenPayload | nul
     // Validate hash format — must be hex strings of reasonable length
     if (!/^[0-9a-f]{16,128}$/.test(payload.batchHash)) return null;
     if (!/^[0-9a-f]{16,128}$/.test(payload.tokenHash)) return null;
+
+    // Verify batch hash is registered in KV (set by Vouch API when issuing tokens)
+    const batchKey = `ptbatch:${payload.batchHash}`;
+    const batchData = await env.VOUCH_RATE_LIMITS.get(batchKey, 'json') as { budgetSats: number; spentSats: number } | null;
+    if (!batchData) {
+      return null; // Unknown batch — reject forged token
+    }
 
     return {
       batchHash: payload.batchHash,
@@ -250,12 +257,14 @@ export function extractAgentKey(headers: Headers): string | null {
  * Determine auth identity from request headers.
  * Tries NIP-98 first (transparent), then Privacy Token (private),
  * then AgentKey, then falls back to anonymous.
+ *
+ * Requires env for Privacy Token batch hash verification against KV.
  */
-export function resolveAuthIdentity(headers: Headers, clientIp: string): {
+export async function resolveAuthIdentity(headers: Headers, clientIp: string, env: Env): Promise<{
   identity: AuthIdentity;
   nostrEvent: NostrEvent | null;
   agentKeyToken: string | null;
-} {
+}> {
   // Try NIP-98 (transparent mode)
   const nostrEvent = extractNostrAuth(headers);
   if (nostrEvent) {
@@ -269,8 +278,8 @@ export function resolveAuthIdentity(headers: Headers, clientIp: string): {
     };
   }
 
-  // Try Privacy Token (private mode)
-  const privacyToken = extractPrivacyToken(headers);
+  // Try Privacy Token (private mode) — validates batch hash against KV
+  const privacyToken = await extractPrivacyToken(headers, env);
   if (privacyToken) {
     return {
       identity: {

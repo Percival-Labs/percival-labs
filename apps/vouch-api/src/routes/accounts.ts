@@ -8,6 +8,16 @@ import { eq } from 'drizzle-orm';
 import { success, error } from '../lib/response';
 
 const STRIPE_API_KEY = process.env.STRIPE_API_KEY || '';
+
+// ── HMAC token helper for account status verification ──
+
+export async function generateAccountStatusToken(email: string): Promise<string> {
+  const secret = process.env.ACCOUNT_STATUS_SECRET || process.env.ENCRYPTION_KEY || '';
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(email));
+  return Buffer.from(new Uint8Array(sig)).toString('hex');
+}
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 
 // ── Stripe REST helpers (no SDK, fetch-based) ──
@@ -130,9 +140,13 @@ app.post('/create', async (c) => {
       });
     }
 
+    // Generate HMAC token for status polling
+    const statusToken = await generateAccountStatusToken(email);
+
     return success(c, {
       accountId: existing.length > 0 && existing[0] ? existing[0].id : 'pending',
       checkoutUrl: session.url as string,
+      statusToken,
     }, 201);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -153,7 +167,29 @@ app.get('/status', async (c) => {
     return error(c, 400, 'VALIDATION_ERROR', 'email query parameter is required');
   }
 
+  const token = c.req.query('token');
+  if (!token) {
+    return error(c, 400, 'VALIDATION_ERROR', 'Verification token required');
+  }
+
+  // Verify HMAC token to prevent email enumeration
+  const secret = process.env.ACCOUNT_STATUS_SECRET || process.env.ENCRYPTION_KEY || '';
+  if (!secret) {
+    return error(c, 500, 'CONFIG_ERROR', 'Server not configured for account verification');
+  }
+
   const normalizedEmail = email.trim().toLowerCase();
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+  const expectedBytes = new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, encoder.encode(normalizedEmail))
+  );
+  const expectedToken = Buffer.from(expectedBytes).toString('hex');
+
+  if (token !== expectedToken) {
+    return error(c, 403, 'INVALID_TOKEN', 'Invalid verification token');
+  }
 
   try {
     const rows = await db.select()

@@ -7,7 +7,28 @@ import { describe, expect, it } from 'bun:test';
 import { extractAgentKey, extractPrivacyToken, parseNostrEvent } from '../src/auth';
 import { checkRateLimit, createRateLimitState } from '../src/rate-limiter';
 import { recordRequest, createAnomalyData, detectAnomalies } from '../src/anomaly';
-import type { BudgetConfig, BudgetState } from '../src/types';
+import type { BudgetConfig, BudgetState, Env } from '../src/types';
+
+/** Minimal mock env for extractPrivacyToken tests */
+function mockEnvWithBatch(batchHash?: string, data?: unknown): Env {
+  const store = new Map<string, string>();
+  if (batchHash && data) {
+    store.set(`ptbatch:${batchHash}`, JSON.stringify(data));
+  }
+  return {
+    VOUCH_RATE_LIMITS: {
+      get: (key: string, format?: string) => {
+        const val = store.get(key);
+        if (!val) return Promise.resolve(null);
+        return Promise.resolve(format === 'json' ? JSON.parse(val) : val);
+      },
+      put: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+      list: () => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }),
+      getWithMetadata: () => Promise.resolve({ value: null, metadata: null, cacheStatus: null }),
+    } as unknown as KVNamespace,
+  } as unknown as Env;
+}
 
 // ── Auth Input Validation ──
 
@@ -50,41 +71,53 @@ describe('AgentKey validation', () => {
 });
 
 describe('PrivacyToken validation', () => {
-  it('rejects non-hex batchHash', () => {
+  // Format-rejection tests use a mock env with no registered batches
+  const emptyEnv = mockEnvWithBatch();
+
+  it('rejects non-hex batchHash', async () => {
     const payload = { batchHash: 'not-valid-hex!', tokenHash: 'a'.repeat(64) };
     const encoded = btoa(JSON.stringify(payload));
     const headers = new Headers({ 'X-Vouch-Auth': `PrivacyToken ${encoded}` });
-    expect(extractPrivacyToken(headers)).toBeNull();
+    expect(await extractPrivacyToken(headers, emptyEnv)).toBeNull();
   });
 
-  it('rejects too-short hashes', () => {
+  it('rejects too-short hashes', async () => {
     const payload = { batchHash: 'abcd', tokenHash: 'a'.repeat(64) };
     const encoded = btoa(JSON.stringify(payload));
     const headers = new Headers({ 'X-Vouch-Auth': `PrivacyToken ${encoded}` });
-    expect(extractPrivacyToken(headers)).toBeNull();
+    expect(await extractPrivacyToken(headers, emptyEnv)).toBeNull();
   });
 
-  it('rejects too-long hashes (>128 chars)', () => {
+  it('rejects too-long hashes (>128 chars)', async () => {
     const payload = { batchHash: 'a'.repeat(130), tokenHash: 'b'.repeat(64) };
     const encoded = btoa(JSON.stringify(payload));
     const headers = new Headers({ 'X-Vouch-Auth': `PrivacyToken ${encoded}` });
-    expect(extractPrivacyToken(headers)).toBeNull();
+    expect(await extractPrivacyToken(headers, emptyEnv)).toBeNull();
   });
 
-  it('rejects non-string batchHash', () => {
+  it('rejects non-string batchHash', async () => {
     const payload = { batchHash: 12345, tokenHash: 'a'.repeat(64) };
     const encoded = btoa(JSON.stringify(payload));
     const headers = new Headers({ 'X-Vouch-Auth': `PrivacyToken ${encoded}` });
-    expect(extractPrivacyToken(headers)).toBeNull();
+    expect(await extractPrivacyToken(headers, emptyEnv)).toBeNull();
   });
 
-  it('accepts valid hex hashes', () => {
+  it('rejects valid format but unregistered batch hash', async () => {
     const payload = { batchHash: 'a'.repeat(64), tokenHash: 'b'.repeat(64) };
     const encoded = btoa(JSON.stringify(payload));
     const headers = new Headers({ 'X-Vouch-Auth': `PrivacyToken ${encoded}` });
-    const result = extractPrivacyToken(headers);
+    expect(await extractPrivacyToken(headers, emptyEnv)).toBeNull();
+  });
+
+  it('accepts valid hex hashes with registered batch', async () => {
+    const batchHash = 'a'.repeat(64);
+    const env = mockEnvWithBatch(batchHash, { budgetSats: 10000, spentSats: 0 });
+    const payload = { batchHash, tokenHash: 'b'.repeat(64) };
+    const encoded = btoa(JSON.stringify(payload));
+    const headers = new Headers({ 'X-Vouch-Auth': `PrivacyToken ${encoded}` });
+    const result = await extractPrivacyToken(headers, env);
     expect(result).not.toBeNull();
-    expect(result!.batchHash).toBe('a'.repeat(64));
+    expect(result!.batchHash).toBe(batchHash);
   });
 });
 

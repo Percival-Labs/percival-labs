@@ -17,10 +17,11 @@ custom_domain = true
 
 [vars]
 VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
-SUPPORTED_PROVIDERS = "anthropic,openai,openrouter"
+SUPPORTED_PROVIDERS = "anthropic,openai,openrouter,ollama"
 ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
 OPENAI_UPSTREAM = "https://api.openai.com"
 OPENROUTER_UPSTREAM = "https://openrouter.ai/api"
+OLLAMA_UPSTREAM = "https://ollama.percival-labs.ai"
 ENVIRONMENT = "production"
 STRIPE_METER_INPUT_ID = ""
 STRIPE_METER_OUTPUT_ID = ""

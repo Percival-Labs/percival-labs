@@ -4,13 +4,19 @@
 // Auth: GATEWAY_SECRET header — only the platform operator can manage keys.
 //
 // Routes (all under /admin/v1/):
-//   GET    /admin/v1/agents                — List all agent keys (paginated via prefix scan)
-//   GET    /admin/v1/agents/:token         — Get a specific agent key entry
-//   PUT    /admin/v1/agents/:token         — Create or update an agent key
-//   DELETE /admin/v1/agents/:token         — Revoke an agent key
-//   GET    /admin/v1/agents/:token/budget  — Get current budget spend for an agent
+//   GET    /admin/v1/agents                        — List all agent keys (paginated via prefix scan)
+//   GET    /admin/v1/agents/:token                 — Get a specific agent key entry
+//   PUT    /admin/v1/agents/:token                 — Create or update an agent key
+//   DELETE /admin/v1/agents/:token                 — Revoke an agent key
+//   GET    /admin/v1/agents/:token/budget          — Get current budget spend for an agent
+//   GET    /admin/v1/agents/:token/audit           — Get audit trail (query: ?action=inference&since=ISO&limit=50)
+//   PUT    /admin/v1/privacy-batches/:batchHash    — Register a privacy token batch (called by Vouch API)
+//   GET    /admin/v1/privacy-batches/:batchHash    — Get a privacy batch entry
+//   DELETE /admin/v1/privacy-batches/:batchHash    — Remove a privacy batch
 
 import type { Env, AgentKeyEntry, BudgetState, BudgetConfig } from './types';
+import { getAuditHistory } from './audit';
+import type { AuditAction } from './audit';
 
 // ── Auth ──
 
@@ -52,14 +58,36 @@ export async function handleAdminRoute(
     return handleListAgents(env);
   }
 
-  // Match /agents/:token and /agents/:token/budget
-  const agentMatch = subPath.match(/^\/agents\/([0-9a-f]{64})(\/budget)?$/);
+  // PUT /admin/v1/privacy-batches/:batchHash — Register a privacy token batch
+  // Called by Vouch API when issuing a new privacy token batch.
+  // Stores the batch hash in VOUCH_RATE_LIMITS so the gateway can verify tokens.
+  const batchMatch = subPath.match(/^\/privacy-batches\/([0-9a-f]{16,128})$/);
+  if (batchMatch) {
+    const batchHash = batchMatch[1]!;
+    if (request.method === 'PUT') {
+      return handlePutPrivacyBatch(batchHash, request, env);
+    }
+    if (request.method === 'GET') {
+      return handleGetPrivacyBatch(batchHash, env);
+    }
+    if (request.method === 'DELETE') {
+      return handleDeletePrivacyBatch(batchHash, env);
+    }
+    return jsonResponse({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Use PUT, GET, or DELETE' } }, 405);
+  }
+
+  // Match /agents/:token and /agents/:token/{budget,audit}
+  const agentMatch = subPath.match(/^\/agents\/([0-9a-f]{64})(\/budget|\/audit)?$/);
   if (agentMatch) {
     const token = agentMatch[1]!;
-    const isBudget = !!agentMatch[2];
+    const subRoute = agentMatch[2];
 
-    if (isBudget && request.method === 'GET') {
+    if (subRoute === '/budget' && request.method === 'GET') {
       return handleGetBudget(token, env);
+    }
+
+    if (subRoute === '/audit' && request.method === 'GET') {
+      return handleGetAudit(token, request, env);
     }
 
     switch (request.method) {
@@ -245,6 +273,84 @@ async function handleGetBudget(token: string, env: Env): Promise<Response> {
         : null,
     },
   });
+}
+
+async function handleGetAudit(token: string, request: Request, env: Env): Promise<Response> {
+  const entry = await env.VOUCH_AGENT_KEYS.get<AgentKeyEntry>(`agentkey:${token}`, 'json');
+  if (!entry) {
+    return jsonResponse({ error: { code: 'NOT_FOUND', message: 'Agent key not found' } }, 404);
+  }
+
+  // Parse and validate query params for filtering
+  const url = new URL(request.url);
+  const rawAction = url.searchParams.get('action');
+  const validActions: AuditAction[] = ['inference', 'admin:list', 'admin:get', 'admin:create', 'admin:update', 'admin:delete', 'agent:query', 'auth:failed', 'rate:limited', 'budget:exceeded', 'model:blocked', 'anomaly:flagged'];
+  const action = rawAction && validActions.includes(rawAction as AuditAction) ? rawAction as AuditAction : undefined;
+  const since = url.searchParams.get('since');
+  const rawLimit = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
+
+  const entries = await getAuditHistory(entry.pubkey, env, {
+    action,
+    since: since ?? undefined,
+    limit: Math.min(limit, 200),
+  });
+
+  return jsonResponse({
+    agent: entry.agentId,
+    count: entries.length,
+    entries,
+  });
+}
+
+// ── Privacy Batch Handlers ──
+
+async function handlePutPrivacyBatch(batchHash: string, request: Request, env: Env): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: { code: 'INVALID_BODY', message: 'Request body must be valid JSON' } }, 400);
+  }
+
+  if (typeof body !== 'object' || body === null) {
+    return jsonResponse({ error: { code: 'INVALID_BODY', message: 'Request body must be a JSON object' } }, 400);
+  }
+
+  const obj = body as Record<string, unknown>;
+
+  if (typeof obj.budgetSats !== 'number' || obj.budgetSats <= 0 || !Number.isFinite(obj.budgetSats)) {
+    return jsonResponse({ error: { code: 'INVALID_FIELD', message: 'budgetSats must be a positive number' } }, 400);
+  }
+
+  const batchData = {
+    budgetSats: obj.budgetSats,
+    spentSats: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  // Store with TTL — batches expire after 90 days if not refreshed
+  const TTL_SECONDS = 90 * 24 * 60 * 60;
+  await env.VOUCH_RATE_LIMITS.put(`ptbatch:${batchHash}`, JSON.stringify(batchData), { expirationTtl: TTL_SECONDS });
+
+  return jsonResponse({ ok: true, batchHash, ...batchData });
+}
+
+async function handleGetPrivacyBatch(batchHash: string, env: Env): Promise<Response> {
+  const data = await env.VOUCH_RATE_LIMITS.get(`ptbatch:${batchHash}`, 'json');
+  if (!data) {
+    return jsonResponse({ error: { code: 'NOT_FOUND', message: 'Privacy batch not found' } }, 404);
+  }
+  return jsonResponse({ batchHash, ...(data as Record<string, unknown>) });
+}
+
+async function handleDeletePrivacyBatch(batchHash: string, env: Env): Promise<Response> {
+  const existing = await env.VOUCH_RATE_LIMITS.get(`ptbatch:${batchHash}`);
+  if (!existing) {
+    return jsonResponse({ error: { code: 'NOT_FOUND', message: 'Privacy batch not found' } }, 404);
+  }
+  await env.VOUCH_RATE_LIMITS.delete(`ptbatch:${batchHash}`);
+  return jsonResponse({ ok: true, deleted: batchHash });
 }
 
 // ── Helpers ──

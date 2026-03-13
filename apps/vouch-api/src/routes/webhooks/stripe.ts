@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { schnorr } from '@noble/curves/secp256k1';
 import { bech32 } from '@scure/base';
+import { encrypt } from '../../lib/encryption';
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const GATEWAY_ADMIN_URL = process.env.GATEWAY_ADMIN_URL || 'https://gateway.percival-labs.ai';
@@ -299,6 +300,9 @@ app.post('/', async (c) => {
           const accountName = normalizedEmail.split('@')[0] || normalizedEmail;
           const result = await provisionAgentKey(normalizedEmail, plan, accountName);
 
+          // R2 fix: Encrypt nsec before storage (AES-256-GCM)
+          const encryptedNsec = await encrypt(result.vouchNsec);
+
           await db.insert(accounts).values({
             email: normalizedEmail,
             name: accountName,
@@ -306,7 +310,7 @@ app.post('/', async (c) => {
             agentKeyToken: result.token,
             agentKeyClaimed: false,
             vouchPubkey: result.vouchPubkey,
-            vouchNsec: result.vouchNsec,
+            vouchNsec: encryptedNsec,
             status: 'active',
             plan: plan as any,
           });
@@ -316,13 +320,16 @@ app.post('/', async (c) => {
           const accountName = rows[0]?.name || normalizedEmail.split('@')[0] || normalizedEmail;
           const result = await provisionAgentKey(normalizedEmail, plan, accountName);
 
+          // R2 fix: Encrypt nsec before storage (AES-256-GCM)
+          const encryptedNsec = await encrypt(result.vouchNsec);
+
           await db.update(accounts)
             .set({
               status: 'active',
               agentKeyToken: result.token,
               agentKeyClaimed: false,
               vouchPubkey: result.vouchPubkey,
-              vouchNsec: result.vouchNsec,
+              vouchNsec: encryptedNsec,
               plan: plan as any,
               stripeCustomerId: customerId,
               updatedAt: new Date(),

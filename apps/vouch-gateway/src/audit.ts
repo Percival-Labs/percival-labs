@@ -1,8 +1,7 @@
 // Vouch Gateway — Audit Log
 //
 // Structured audit trail for all gateway operations.
-// Logged to console (Cloudflare Workers Logs / Logpush) with
-// structured JSON for easy ingestion by any log aggregator.
+// Dual output: console.log (CF Workers Logs) + KV storage (queryable API).
 //
 // Audit events are append-only, immutable, and include:
 // - Who (identity/pubkey, auth mode)
@@ -12,6 +11,8 @@
 //
 // NO request/response bodies are logged — only metadata.
 // This is critical for privacy (we never see prompt content).
+
+import type { Env } from './types';
 
 export type AuditAction =
   | 'inference'
@@ -59,6 +60,82 @@ export function emitAuditLog(entry: AuditEntry): void {
   };
 
   console.log(`[audit] ${JSON.stringify(sanitized)}`);
+}
+
+/**
+ * Store an audit entry in KV for queryable API access.
+ * Rolling buffer per pubkey — keeps the last MAX_ENTRIES entries.
+ * 30-day TTL ensures automatic cleanup.
+ *
+ * NOTE: KV is eventually consistent. Concurrent requests for the same
+ * pubkey can cause a lost-write (last writer wins, dropping one entry).
+ * This is the same tradeoff documented in budget.ts — acceptable for
+ * audit logging where occasional dropped entries don't compromise security.
+ * For strict audit requirements, migrate to Durable Objects.
+ */
+const MAX_AUDIT_ENTRIES = 200;
+const AUDIT_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+export async function storeAuditEntry(entry: AuditEntry, env: Env): Promise<void> {
+  // Truncate pubkey in stored entry — same privacy as console logs.
+  // Full pubkey is available via agent key lookup if forensics are needed.
+  const sanitized: AuditEntry = {
+    ...entry,
+    pubkey: entry.pubkey ? entry.pubkey.slice(0, 16) : 'unknown',
+  };
+
+  const pubkey = entry.pubkey || 'unknown';
+  const kvKey = `audit:${pubkey}`;
+
+  // Read existing entries
+  const existing = await env.VOUCH_ANOMALY.get<AuditEntry[]>(kvKey, 'json');
+  const entries = existing ?? [];
+
+  // Append sanitized entry, trim to max
+  entries.push(sanitized);
+  if (entries.length > MAX_AUDIT_ENTRIES) {
+    entries.splice(0, entries.length - MAX_AUDIT_ENTRIES);
+  }
+
+  await env.VOUCH_ANOMALY.put(kvKey, JSON.stringify(entries), {
+    expirationTtl: AUDIT_TTL_SECONDS,
+  });
+}
+
+/**
+ * Retrieve audit history for a given pubkey.
+ * Optional filters: action type, date range, limit.
+ */
+export async function getAuditHistory(
+  pubkey: string,
+  env: Env,
+  options?: {
+    action?: AuditAction;
+    since?: string;   // ISO 8601
+    limit?: number;
+  },
+): Promise<AuditEntry[]> {
+  const kvKey = `audit:${pubkey}`;
+  const entries = await env.VOUCH_ANOMALY.get<AuditEntry[]>(kvKey, 'json');
+  if (!entries) return [];
+
+  let filtered = entries;
+
+  if (options?.action) {
+    filtered = filtered.filter(e => e.action === options.action);
+  }
+
+  if (options?.since) {
+    const sinceTime = new Date(options.since).getTime();
+    if (!Number.isNaN(sinceTime)) {
+      filtered = filtered.filter(e => new Date(e.timestamp).getTime() >= sinceTime);
+    }
+    // Invalid date strings are silently ignored — returns unfiltered results
+  }
+
+  const limit = options?.limit ?? 50;
+  // Return most recent first
+  return filtered.slice(-limit).reverse();
 }
 
 /**
