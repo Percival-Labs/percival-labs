@@ -11,9 +11,7 @@
   },
   "files": ["src", "README.md"],
   "scripts": {
-    "test": "bun test",
-    "build": "tsc",
-    "prepublishOnly": "bun run build"
+    "test": "bun test"
   },
   "keywords": [
     "x402",
@@ -35,7 +33,7 @@
     }
   },
   "devDependencies": {
-    "@x402/core": "^0.1.0",
+    "@x402/core": "^2.5.0",
     "typescript": "^5.8.3",
     "@types/node": "^22.15.0"
   }

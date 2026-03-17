@@ -24,6 +24,10 @@
     "x:queue": "bun scripts/x/post.ts --queue",
     "x:preview": "bun scripts/x/post.ts --queue --dry-run"
   },
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.0"
+  },
   "devDependencies": {
     "twitter-api-v2": "^1.29.0"
   }

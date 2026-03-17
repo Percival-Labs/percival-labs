@@ -66,11 +66,11 @@ export class AgentPanel {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
         <div style="width:10px;height:10px;border-radius:50%;background:${agent.color};flex-shrink:0;"></div>
         <div>
-          <div style="font-size:13px;font-weight:bold;color:${agent.color};">${agent.name}</div>
-          <div style="font-size:9px;color:#94a3b8;">${agent.role}</div>
+          <div style="font-size:13px;font-weight:bold;color:${agent.color};">${this.escapeHtml(agent.name)}</div>
+          <div style="font-size:9px;color:#94a3b8;">${this.escapeHtml(agent.role)}</div>
         </div>
         <div style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:4px;background:${state.status === 'working' ? 'rgba(251,191,36,0.2)' : 'rgba(52,211,153,0.2)'};color:${state.status === 'working' ? '#fbbf24' : '#34d399'};">
-          ${state.status}
+          ${this.escapeHtml(state.status)}
         </div>
       </div>
 

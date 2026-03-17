@@ -2475,8 +2475,8 @@ function generateOverlayJS(): string {
       el.innerHTML = \`
         <div class="bubble-header">
           <div class="bubble-avatar" style="background: \${agent.color}"></div>
-          <span class="bubble-name" style="color: \${agent.color}">\${agent.name}</span>
-          <span class="bubble-role">\${roleText}</span>
+          <span class="bubble-name" style="color: \${agent.color}">\${escapeHtml(agent.name)}</span>
+          <span class="bubble-role">\${escapeHtml(roleText)}</span>
         </div>
         <div class="bubble-typing">
           <span></span><span></span><span></span>
