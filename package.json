@@ -30,5 +30,8 @@
   },
   "devDependencies": {
     "twitter-api-v2": "^1.29.0"
+  },
+  "dependencies": {
+    "@getalby/sdk": "^7.0.0"
   }
 }
