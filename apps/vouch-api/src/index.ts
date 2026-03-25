@@ -33,6 +33,9 @@ import privacyRoutes from './routes/privacy';
 import inferenceRoutes from './routes/inference';
 import accountRoutes from './routes/accounts';
 import stripeWebhookRoutes from './routes/webhooks/stripe';
+import acpSellerRoutes from './routes/acp-seller';
+import stripeBridgeRoutes from './routes/stripe-bridge';
+import mcpTRoutes from './routes/mcp-t';
 import { initTreasury, reconcileTreasury, runTreasuryRebalance, checkYieldReinvestment } from './services/treasury-service';
 import { cleanupExpiredPendingStakes } from './services/staking-service';
 import { processRetentionReleases } from './services/contract-service';
@@ -135,8 +138,20 @@ app.use('/v1/webhooks/*', rateLimiter('global'));
 app.route('/v1/webhooks', webhookRoutes);
 app.route('/webhooks/stripe', stripeWebhookRoutes);
 
+// ── ACP seller checkout (mounted BEFORE auth middleware — external ACP buyers, no Vouch auth) ──
+app.use('/v1/acp/checkout/*', rateLimiter('public'));
+app.route('/v1/acp/checkout', acpSellerRoutes);
+
+// ── Stripe Bridge API (mounted BEFORE auth middleware — uses Stripe signature verification) ──
+app.use('/v1/stripe/*', rateLimiter('public'));
+app.route('/v1/stripe', stripeBridgeRoutes);
+
 // ── Account routes (public, no auth required — mounted before auth middleware) ──
 app.route('/v1/accounts', accountRoutes);
+
+// ── MCP-T Protocol (public, no auth — Level 0 read-only per MCP-T Section 9.1) ──
+app.use('/mcp-t/v1/*', rateLimiter('public'));
+app.route('/mcp-t/v1', mcpTRoutes);
 
 // ── Nostr NIP-98 auth for SDK routes ──
 // Applied before Ed25519 middleware. SDK routes use Authorization: Nostr header.
