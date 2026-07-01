@@ -2,7 +2,8 @@
 // Records task outcomes from performer and purchaser perspectives.
 // When both parties report with the same taskRef, outcomes are matched for full credit.
 
-import { pgTable, text, timestamp, boolean, integer, pgEnum, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, pgEnum, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 
 // ── Enums ──
@@ -42,4 +43,6 @@ export const outcomes = pgTable('outcomes', {
   index('idx_outcomes_agent_task_ref').on(table.agentPubkey, table.taskRef),
   // H7 fix: prevent duplicate outcome submissions per agent + task + role
   uniqueIndex('idx_outcomes_agent_task_role').on(table.agentPubkey, table.taskRef, table.role),
+  // #14 fix: rating is documented as 1-5 but had no DB-level enforcement.
+  check('check_rating_range', sql`${table.rating} IS NULL OR ${table.rating} BETWEEN 1 AND 5`),
 ]);

@@ -76,6 +76,10 @@ export const stakes = pgTable('stakes', {
   // This must also be created via migration:
   //   CREATE UNIQUE INDEX unique_one_active_stake_per_staker ON stakes (pool_id, staker_id) WHERE status = 'active';
   index('idx_active_stakes_lookup').on(table.poolId, table.stakerId),
+  // #14 fix: (pool_id, staker_id) doesn't help "all positions for a staker"
+  // queries (positions() in the SDK filters by staker_id alone) — leftmost
+  // prefix rules mean the composite index above can't serve that lookup.
+  index('idx_stakes_staker').on(table.stakerId),
 ]);
 
 // ── Yield Distributions (periodic batch) ──
@@ -147,7 +151,10 @@ export const vouchScoreHistory = pgTable('vouch_score_history', {
   communityComponent: integer('community_component').notNull(),
   snapshotReason: snapshotReasonEnum('snapshot_reason').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => [
+  // #14 fix: hot-path — score history lookups filter by subject and sort by time.
+  index('idx_vouch_score_history_subject_created').on(table.subjectId, table.createdAt),
+]);
 
 // ── Community Treasury ──
 

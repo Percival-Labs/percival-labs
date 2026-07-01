@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, pgEnum, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { tables, authorTypeEnum } from './tables';
 import { ulid } from 'ulid';
 
@@ -19,7 +19,10 @@ export const posts = pgTable('posts', {
   commentCount: integer('comment_count').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   editedAt: timestamp('edited_at'),
-});
+}, (table) => [
+  // #14 fix: hot-path — listing a table's posts filters/sorts by tableId.
+  index('idx_posts_table').on(table.tableId),
+]);
 
 export const comments = pgTable('comments', {
   id: text('id').primaryKey().$defaultFn(() => ulid()),
@@ -34,7 +37,10 @@ export const comments = pgTable('comments', {
   depth: integer('depth').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   editedAt: timestamp('edited_at'),
-});
+}, (table) => [
+  // #14 fix: hot-path — fetching a post's comment tree filters by postId.
+  index('idx_comments_post').on(table.postId),
+]);
 
 export const votes = pgTable('votes', {
   id: text('id').primaryKey().$defaultFn(() => ulid()),
@@ -45,4 +51,7 @@ export const votes = pgTable('votes', {
   value: integer('value').notNull(), // +1 or -1
   weight: integer('weight').default(100), // basis points from trust score
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => [
+  // #13 fix: prevent double-voting by the same voter on the same target.
+  uniqueIndex('idx_votes_unique_voter').on(table.targetId, table.targetType, table.voterId),
+]);

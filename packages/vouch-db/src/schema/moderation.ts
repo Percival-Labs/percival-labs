@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, pgEnum, index } from 'drizzle-orm/pg-core';
 import { tables, authorTypeEnum } from './tables';
 import { ulid } from 'ulid';
 
@@ -50,7 +50,10 @@ export const trustEvents = pgTable('trust_events', {
   delta: integer('delta').notNull(),
   reason: text('reason'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => [
+  // #14 fix: hot-path — trust event history lookups filter by subjectId.
+  index('idx_trust_events_subject').on(table.subjectId),
+]);
 
 export const flags = pgTable('flags', {
   id: text('id').primaryKey().$defaultFn(() => ulid()),

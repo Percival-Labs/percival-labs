@@ -60,6 +60,16 @@ export const behavioralTraces = pgTable('behavioral_traces', {
   eventId: text('event_id'),
   /** Who submitted this trace (verifier pubkey or provider ID) */
   issuerId: text('issuer_id'),
+  /**
+   * Cross-track (MCP-T) addition: Ed25519/Schnorr signature over the trace
+   * payload, so a consumer can verify-on-read instead of trusting the row at
+   * face value. Nullable — existing rows and any producer that hasn't been
+   * updated yet won't have one; MCP-T's read path should treat a missing
+   * signature as unverified, not as invalid.
+   */
+  signature: text('signature'),
+  /** Hex pubkey of the party that produced `signature`, for verify-on-read. */
+  reporterPubkey: text('reporter_pubkey'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [
   index('idx_bt_agent').on(table.agentPubkey),

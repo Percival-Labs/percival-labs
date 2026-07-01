@@ -17,10 +17,19 @@ export const accounts = pgTable('accounts', {
   email: text('email').unique().notNull(),
   name: text('name').notNull(),
   stripeCustomerId: text('stripe_customer_id').unique(),
-  agentKeyToken: text('agent_key_token'),
+  // C3 fix: `agentKeyToken` / `vouchNsec` below are legacy PLAINTEXT columns.
+  // The `*Encrypted` columns are the AES-256-GCM (crypto/envelope.ts) targets
+  // for the eventual cutover — see docs/RUNBOOK-C3-NSEC-ENCRYPTION.md. Both
+  // plaintext and encrypted columns exist simultaneously so the migration can
+  // be applied without a backfill/rotation window happening in the same step;
+  // do NOT start writing to the encrypted columns until that runbook's
+  // provisioning steps have human sign-off.
+  agentKeyToken: text('agent_key_token'),  // TODO(C3): migrate to agentKeyTokenEncrypted, then drop
+  agentKeyTokenEncrypted: text('agent_key_token_encrypted'),
   agentKeyClaimed: boolean('agent_key_claimed').default(false).notNull(),
   vouchPubkey: text('vouch_pubkey'),
-  vouchNsec: text('vouch_nsec'),  // TODO: encrypt in production
+  vouchNsec: text('vouch_nsec'),  // TODO(C3): migrate to vouchNsecEncrypted, then drop
+  vouchNsecEncrypted: text('vouch_nsec_encrypted'),
   status: accountStatusEnum('status').default('pending').notNull(),
   plan: accountPlanEnum('plan'),
   createdAt: timestamp('created_at').defaultNow().notNull(),

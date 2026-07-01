@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 
 export const tableTypeEnum = pgEnum('table_type', ['public', 'private', 'paid']);
@@ -32,4 +32,7 @@ export const memberships = pgTable('memberships', {
   stripeSubscriptionId: text('stripe_subscription_id'),
   joinedAt: timestamp('joined_at').defaultNow().notNull(),
   expiresAt: timestamp('expires_at'),
-});
+}, (table) => [
+  // #13 fix: prevent duplicate membership rows for the same member+table.
+  uniqueIndex('idx_memberships_unique_member').on(table.tableId, table.memberId),
+]);
