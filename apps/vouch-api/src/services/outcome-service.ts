@@ -4,7 +4,35 @@
 // All matching operations use DB transactions for atomicity.
 
 import { eq, and, or, sql } from 'drizzle-orm';
-import { db, outcomes } from '@percival/vouch-db';
+import { db, outcomes, agents } from '@percival/vouch-db';
+
+// Minimum trust score a counterparty must hold to co-sign an outcome. Registration is always
+// required; the score bar is tunable via env (default 0 = registered-agent gate only).
+// Raise this to impose real cost on outcome-farming (#8a). See anti-gaming design note.
+const MIN_COUNTERPARTY_SCORE = (() => {
+  const raw = Number.parseInt(process.env.OUTCOME_MIN_COUNTERPARTY_SCORE ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+})();
+
+/**
+ * Ensure the outcome counterparty is a real, registered agent meeting the minimum score.
+ * Closes the "one operator with two throwaway keys mints matched 'full'-credit successes"
+ * vector (#8a): a counterparty must be a registered agent, not any arbitrary pubkey.
+ */
+async function assertEligibleCounterparty(counterpartyPubkey: string): Promise<void> {
+  const [agent] = await db
+    .select({ trustScore: agents.trustScore })
+    .from(agents)
+    .where(eq(agents.pubkey, counterpartyPubkey))
+    .limit(1);
+
+  if (!agent) {
+    throw new Error('Counterparty must be a registered agent');
+  }
+  if ((agent.trustScore ?? 0) < MIN_COUNTERPARTY_SCORE) {
+    throw new Error('Counterparty trust score below minimum');
+  }
+}
 
 // ── Types ──
 
@@ -68,6 +96,10 @@ export async function reportOutcome(params: ReportOutcomeParams): Promise<Outcom
   if (rating !== undefined) {
     assertValidRating(rating);
   }
+
+  // Anti-gaming (#8a): the counterparty must be a registered agent meeting the score bar.
+  // Checked before the transaction to avoid holding row locks across the read.
+  await assertEligibleCounterparty(counterpartyPubkey);
 
   return await db.transaction(async (tx) => {
     // H7 fix: Check for existing duplicate before inserting

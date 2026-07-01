@@ -1,7 +1,24 @@
 import { db, wotScoreCache } from '@percival/vouch-db';
 import { and, eq, gte } from 'drizzle-orm';
+// Shared, unit-tested WoT trust math lives in wot-math.ts. Import (and re-export for the
+// existing public surface) rather than duplicating — the duplication was a drift hazard on a
+// trust-granting path (#15).
+import {
+  clamp,
+  parseIntEnv,
+  normalizeWotCommunityScore,
+  blendCommunityWithWot,
+  computeWotVerificationBonus,
+  type SybilClassification,
+  type WotSnapshot,
+} from './wot-math';
 
-type SybilClassification = 'genuine' | 'likely_genuine' | 'suspicious' | 'likely_sybil';
+export {
+  normalizeWotCommunityScore,
+  blendCommunityWithWot,
+  computeWotVerificationBonus,
+  type WotSnapshot,
+};
 
 interface WotScoreResponse {
   score?: number;
@@ -19,29 +36,12 @@ interface WotSybilResponse {
 
 type WotCacheRow = typeof wotScoreCache.$inferSelect;
 
-export interface WotSnapshot {
-  pubkey: string;
-  score: number; // 0-100
-  rawScore: number | null;
-  found: boolean;
-  followers: number;
-  sybilScore: number | null;
-  sybilClassification: SybilClassification | null;
-  sybilConfidence: number | null;
-  fetchedAt: Date;
-  partial: boolean; // true if score or sybil data is missing/failed
-}
-
 const DEFAULT_WOT_BASE_URL = 'https://wot.klabo.world';
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CACHE_TTL_HOURS = 24;
-const DEFAULT_COMMUNITY_WEIGHT = 0.30;
-const DEFAULT_VERIFICATION_BONUS_MAX = 120;
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
+// clamp / parseIntEnv now come from wot-math (deduped). parseBoolEnv stays local — it has no
+// trust-math role and no wot-math consumer.
 function parseBoolEnv(name: string, fallback: boolean): boolean {
   const value = process.env[name];
   if (value === undefined) return fallback;
@@ -49,22 +49,6 @@ function parseBoolEnv(name: string, fallback: boolean): boolean {
   if (normalized === '1' || normalized === 'true' || normalized === 'yes') return true;
   if (normalized === '0' || normalized === 'false' || normalized === 'no') return false;
   return fallback;
-}
-
-function parseIntEnv(name: string, fallback: number, min: number, max: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (Number.isNaN(parsed)) return fallback;
-  return clamp(parsed, min, max);
-}
-
-function parseFloatEnv(name: string, fallback: number, min: number, max: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number.parseFloat(raw);
-  if (Number.isNaN(parsed)) return fallback;
-  return clamp(parsed, min, max);
 }
 
 function isValidHexPubkey(pubkey: string): boolean {
@@ -95,14 +79,6 @@ function wotCacheTtlHours(): number {
   return parseIntEnv('WOT_CACHE_TTL_HOURS', DEFAULT_CACHE_TTL_HOURS, 1, 168);
 }
 
-function wotCommunityWeight(): number {
-  return parseFloatEnv('WOT_COMMUNITY_WEIGHT', DEFAULT_COMMUNITY_WEIGHT, 0, 1);
-}
-
-function wotVerificationBonusMax(): number {
-  return parseIntEnv('WOT_VERIFICATION_BONUS_MAX', DEFAULT_VERIFICATION_BONUS_MAX, 0, 300);
-}
-
 const inflightRequests = new Map<string, Promise<WotSnapshot | null>>();
 
 function toErrorMessage(err: unknown): string {
@@ -110,7 +86,7 @@ function toErrorMessage(err: unknown): string {
   return String(err);
 }
 
-function mapRowToSnapshot(row: WotCacheRow): WotSnapshot {
+function mapRowToSnapshot(row: WotCacheRow): Omit<WotSnapshot, 'partial'> {
   return {
     pubkey: row.pubkey,
     score: clamp(row.score ?? 0, 0, 100),
@@ -145,45 +121,6 @@ async function fetchJson<T>(path: string, query: Record<string, string>, timeout
   } finally {
     clearTimeout(timer);
   }
-}
-
-export function normalizeWotCommunityScore(score: number): number {
-  return clamp(Math.round(score * 10), 0, 1000);
-}
-
-export function blendCommunityWithWot(localCommunity: number, snapshot: WotSnapshot): number {
-  const local = clamp(Math.round(localCommunity), 0, 1000);
-  const wot = normalizeWotCommunityScore(snapshot.score);
-  const weight = wotCommunityWeight();
-
-  let blended = Math.round((local * (1 - weight)) + (wot * weight));
-
-  // Penalize suspicious graph patterns in the community dimension.
-  if (snapshot.sybilClassification === 'likely_sybil') {
-    blended = Math.round(blended * 0.70);
-  } else if (snapshot.sybilClassification === 'suspicious') {
-    blended = Math.round(blended * 0.85);
-  }
-
-  return clamp(blended, 0, 1000);
-}
-
-export function computeWotVerificationBonus(snapshot: WotSnapshot): number {
-  if (snapshot.sybilClassification === 'likely_sybil') return 0;
-
-  const classificationFactor = snapshot.sybilClassification === 'genuine'
-    ? 1.0
-    : snapshot.sybilClassification === 'likely_genuine'
-      ? 0.8
-      : snapshot.sybilClassification === 'suspicious'
-        ? 0.3
-        : 0.0;
-
-  const confidence = clamp(snapshot.sybilConfidence ?? 0.5, 0, 1);
-  const trustStrength = normalizeWotCommunityScore(snapshot.score) / 1000;
-  const maxBonus = wotVerificationBonusMax();
-
-  return clamp(Math.round(maxBonus * trustStrength * confidence * classificationFactor), 0, maxBonus);
 }
 
 export async function getWotSnapshot(pubkey: string): Promise<WotSnapshot | null> {

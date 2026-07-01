@@ -1,4 +1,4 @@
-type SybilClassification = 'genuine' | 'likely_genuine' | 'suspicious' | 'likely_sybil';
+export type SybilClassification = 'genuine' | 'likely_genuine' | 'suspicious' | 'likely_sybil';
 
 export interface WotSnapshot {
   pubkey: string;
@@ -13,11 +13,11 @@ export interface WotSnapshot {
   partial: boolean;
 }
 
-function clamp(value: number, min: number, max: number): number {
+export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function parseIntEnv(name: string, fallback: number, min: number, max: number): number {
+export function parseIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
   const parsed = Number.parseInt(raw, 10);

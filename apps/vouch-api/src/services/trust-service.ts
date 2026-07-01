@@ -10,8 +10,8 @@ import {
   comments,
   votes,
   chivalryViolations,
-  skills,
   skillPurchases,
+  royaltyPayments,
 } from '@percival/vouch-db';
 import { eq, and, sql } from 'drizzle-orm';
 import {
@@ -112,18 +112,18 @@ async function getVoteStats(subjectId: string): Promise<{
 }
 
 /**
- * Check if an agent is both a skill creator AND a skill consumer.
- * Creator-consumers get a 1.5x performance multiplier (Phase 4 flywheel).
- * Returns 1.5 if both roles detected, 1.0 otherwise.
+ * Check if an agent is a genuine creator-consumer and award the 1.5x performance multiplier
+ * (Phase 4 flywheel). Returns 1.5 only when BOTH:
+ *   - the agent has consumed (purchased ≥1 skill), AND
+ *   - the agent's OWN created skills have generated real royalty-bearing usage
+ *     (≥1 royaltyPayments row to them as creator).
+ *
+ * Anti-gaming (#8d): the previous check awarded a permanent +25% for merely *listing* one
+ * skill and *buying* one skill — a one-time trivial buy. Gating on actual royalty-generating
+ * usage ties the boost to genuine flywheel participation, not the existence of rows. Returns
+ * 1.0 (no bonus) otherwise. Fail-closed: if royalty wiring is immature, no boost applies.
  */
 async function getCreatorConsumerMultiplier(agentPubkey: string): Promise<number> {
-  const [creatorCount] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(skills)
-    .where(eq(skills.creatorPubkey, agentPubkey));
-
-  if (Number(creatorCount?.count ?? 0) === 0) return 1.0;
-
   const [buyerCount] = await db
     .select({ count: sql<number>`count(*)` })
     .from(skillPurchases)
@@ -131,7 +131,15 @@ async function getCreatorConsumerMultiplier(agentPubkey: string): Promise<number
 
   if (Number(buyerCount?.count ?? 0) === 0) return 1.0;
 
-  return 1.5; // Creator-consumer flywheel bonus
+  // Creator role only counts when their skills actually earned royalties.
+  const [royaltyCount] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(royaltyPayments)
+    .where(eq(royaltyPayments.creatorPubkey, agentPubkey));
+
+  if (Number(royaltyCount?.count ?? 0) === 0) return 1.0;
+
+  return 1.5; // Creator-consumer flywheel bonus (royalty-verified)
 }
 
 async function getUpheldViolations(subjectId: string): Promise<number> {

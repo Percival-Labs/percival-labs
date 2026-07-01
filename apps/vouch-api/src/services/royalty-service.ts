@@ -13,6 +13,7 @@ import {
   skillPurchases,
   royaltyPayments,
 } from '@percival/vouch-db';
+import { resolveSubject } from '../lib/subject';
 
 // -- Constants --
 
@@ -267,6 +268,12 @@ export async function recordRoyalties(
  * On failure: update status to 'failed', log error.
  *
  * Non-blocking -- call after DB transaction completes (same pattern as executeYieldPayouts).
+ *
+ * TODO(follow-up): lib/settle-payouts.ts#settlePayouts dedups the NWC-pay + record loop for
+ * yield/staker payouts, but it writes new `paymentEvents` rows keyed by a pendingHash -- this
+ * function instead UPDATEs a pre-existing `royaltyPayments` row (paymentHash/paidAt/status) that
+ * already carries the skill/contract/milestone linkage. Not a drop-in swap without also changing
+ * where royalty payout state lives; revisit once royalties move onto a shared payout ledger.
  */
 export async function executeRoyaltyPayments(
   royaltyIds: string[],
@@ -302,8 +309,18 @@ export async function executeRoyaltyPayments(
       // For royalties, we need the creator's NWC connection
       // If the creator doesn't have one, we mark as failed and they can claim later
       try {
+        // creatorPubkey on royalty_payments can carry either identifier form
+        // (identifier soup -- see lib/subject.ts). Resolve to the canonical
+        // pubkey before looking up the wallet, or a stale/wrong ULID here would
+        // silently miss the real NWC connection and misroute the payout.
+        const subject = await resolveSubject(royalty.creatorPubkey);
+        if (!subject?.pubkey) {
+          console.warn(`[royalty] Creator ${royalty.creatorPubkey} has no resolvable pubkey, marking pending`);
+          continue;
+        }
+
         const { getActiveConnection } = await import('./nwc-service');
-        const creatorConn = await getActiveConnection(royalty.creatorPubkey);
+        const creatorConn = await getActiveConnection(subject.pubkey);
 
         if (!creatorConn) {
           console.warn(`[royalty] Creator ${royalty.creatorPubkey} has no active NWC connection, marking pending`);

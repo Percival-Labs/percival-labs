@@ -121,6 +121,15 @@ function computePerformance(
   return Math.max(0, Math.min(1000, Math.round(postScore + qualityScore + 300 - chivalryPenalty)));
 }
 
+/**
+ * ANTI-GAMING DESIGN NOTE (#8b — unaddressed here, needs redesign):
+ * `volumeScore` counts RAW votes (up to 500 at 5 pts/vote), so N cheap Sybil votes buy
+ * community score at near-zero cost. The principled fix is to trust-weight each vote by the
+ * VOTER's own composite score (a vote from a zero-trust account contributes ~nothing). That
+ * requires `getVoteStats` to join votes → voter trust and pass a pre-weighted aggregate in
+ * here, which is a larger change than this hardening pass. Tracked as a follow-up; do not
+ * treat the raw-volume component as Sybil-resistant until then.
+ */
 export function computeCommunityFromVotes(upvotes: number, downvotes: number, totalVotesReceived: number): number {
   const totalVotes = upvotes + downvotes;
   const ratioScore = totalVotes > 0
