@@ -122,10 +122,18 @@ export async function createStakeLock(
 
   // C2 fix: bind the claimed stake budget to real wallet funds at lock time. Previously
   // budgetSats was client-claimed and never checked, so "collateral" could be entirely phantom.
-  // get_balance is an upper bound on what the wallet can honour; reject if it can't even cover
-  // the claimed budget. (Full held-collateral via HODL invoices is the real fix — see design note.)
+  // get_balance is an upper bound on what the wallet can honour. This gate FAILS CLOSED: a stake
+  // whose collateral cannot be proven is rejected, because a wallet that simply doesn't expose
+  // get_balance would otherwise bypass the check entirely — the exact phantom-collateral hole this
+  // fix exists to close. (Full held-collateral via HODL invoices is the real fix — see design note.)
   const walletSats = await getWalletBalanceSats(connectionString);
-  if (walletSats !== null && walletSats < budgetSats) {
+  if (walletSats === null) {
+    throw new Error(
+      'NWC wallet does not support balance proof (get_balance), so its stake collateral cannot be ' +
+      'verified. Please connect a wallet that supports get_balance (or a hold invoice) to stake.',
+    );
+  }
+  if (walletSats < budgetSats) {
     throw new Error(`NWC wallet balance ${walletSats} sats is below the claimed stake budget of ${budgetSats} sats`);
   }
 
