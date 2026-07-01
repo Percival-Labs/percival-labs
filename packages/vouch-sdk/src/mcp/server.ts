@@ -222,6 +222,11 @@ export async function startMcpServer(): Promise<void> {
           break;
 
         case 'vouch_report_outcome':
+          // NOTE (FABLE finding, same class as MCP-T C6): this reports the
+          // caller's OWN outcome. The reporter's identity MUST be bound to the
+          // authenticated Vouch key server-side and self-reports weighted below
+          // counterparty confirmations — never trust `counterparty` to set who
+          // did the work. Enforced in the Vouch API, not in this client.
           result = await v.reportOutcome({
             counterparty: args.counterparty as string,
             role: args.role as 'performer' | 'purchaser',

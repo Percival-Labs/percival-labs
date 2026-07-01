@@ -24,6 +24,13 @@ export interface RecordBehavioralTraceParams {
   durationMs: number;
   eventId?: string;
   issuerId?: string;
+  /**
+   * Verified reporter signature over the trace event (Ed25519/JCS), if the
+   * reporter attached one. Persisted only when the schema exposes columns for
+   * it (feature-detected): `signature` (the raw signature value) and
+   * `reporterPubkey` (the signer's pubkey), so a consumer can verify-on-read.
+   */
+  reporterSignature?: { algorithm: string; public_key: string; value: string } | null;
 }
 
 export interface BehavioralTrace {
@@ -111,7 +118,7 @@ export async function recordBehavioralTrace(params: RecordBehavioralTraceParams)
   const undeclaredResources = params.resourcesAccessed.filter((ra) => !ra.declared).length;
   const fidelityRatio = computeFidelityRatio(totalToolCalls, undeclaredToolCalls, totalResources, undeclaredResources);
 
-  const [row] = await db.insert(behavioralTraces).values({
+  const values: Record<string, unknown> = {
     agentPubkey: params.agentPubkey,
     contractId: params.contractId ?? null,
     traceId: params.traceId,
@@ -126,7 +133,21 @@ export async function recordBehavioralTrace(params: RecordBehavioralTraceParams)
     fidelityRatio,
     eventId: params.eventId ?? null,
     issuerId: params.issuerId ?? null,
-  }).returning({ id: behavioralTraces.id });
+  };
+
+  // FIX #4 (verify-on-publish + store): persist the verified reporter signature
+  // when the schema supports it. Feature-detected against the actual column
+  // names (`signature` + `reporterPubkey`) so this stays safe if a deploy ever
+  // runs api code ahead of a schema version that lacks the columns.
+  if (params.reporterSignature && 'signature' in behavioralTraces && 'reporterPubkey' in behavioralTraces) {
+    values.signature = params.reporterSignature.value;
+    values.reporterPubkey = params.reporterSignature.public_key;
+  }
+
+  const [row] = await db
+    .insert(behavioralTraces)
+    .values(values as typeof behavioralTraces.$inferInsert)
+    .returning({ id: behavioralTraces.id });
 
   return { id: row!.id, fidelityRatio };
 }

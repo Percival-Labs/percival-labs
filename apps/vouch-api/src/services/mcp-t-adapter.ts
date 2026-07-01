@@ -6,6 +6,7 @@ import { calculateAgentTrust, calculateUserTrust, type VouchBreakdownResponse } 
 import { db, contractEvents, contracts, outcomes, behavioralTraces } from '@percival/vouch-db';
 import { eq, and, gte, lte, inArray, sql, desc } from 'drizzle-orm';
 import { recordBehavioralTrace, computeBehavioralFidelity } from './behavioral-trace-service';
+import { mcptSign, mcptProviderPublicKey, mcptVerify } from '../lib/mcp-t-signing';
 import { z } from 'zod';
 
 // ── MCP-T Constants ──
@@ -18,7 +19,6 @@ const PROVIDER_ENDPOINT = 'https://percivalvouch-api-production.up.railway.app/m
 const CONFORMANCE_LEVEL = 2; // Level 2: Economic
 const SUPPORTED_DOMAINS = ['general', 'code-execution'];
 const SCORE_VALIDITY_SECONDS = 3600; // 1 hour default
-const PROVIDER_PUBLIC_KEY = 'vouch-provider-key-placeholder'; // TODO: Replace with real Ed25519 key
 
 // Vouch dimension → MCP-T dimension mapping
 // Vouch uses 'backing' internally; MCP-T spec uses 'commitment'
@@ -128,14 +128,6 @@ function now(): string {
 
 function expiresAt(seconds: number): string {
   return new Date(Date.now() + seconds * 1000).toISOString();
-}
-
-function placeholderSignature() {
-  return {
-    algorithm: 'Ed25519' as const,
-    public_key: PROVIDER_PUBLIC_KEY,
-    value: 'signature-pending-key-setup',
-  };
 }
 
 function jsonRpcError(id: string | number, code: number, message: string, data?: unknown): JsonRpcResponse {
@@ -266,8 +258,9 @@ async function handleTrustQuery(id: string | number, params: Record<string, unkn
       vouch_vote_weight_bp: breakdown.vote_weight_bp,
     },
     authorized: true,
-    signature: placeholderSignature(),
+    signature: { algorithm: 'Ed25519', public_key: '', value: '' },
   };
+  trustScore.signature = mcptSign(trustScore as unknown as Record<string, unknown>);
 
   return jsonRpcResult(id, { trust_score: trustScore });
 }
@@ -363,10 +356,12 @@ async function handleTrustVerify(id: string | number, params: Record<string, unk
     confidence: Math.round(minConfidence * 100) / 100,
     checked_at: now(),
     valid_until: expiresAt(SCORE_VALIDITY_SECONDS),
-    signature: placeholderSignature(),
+    signature: { algorithm: 'Ed25519', public_key: '', value: '' },
   };
 
   if (nonce) result.nonce = nonce;
+  // Sign last so the nonce (and all fields) are covered by the signature.
+  result.signature = mcptSign(result);
 
   return jsonRpcResult(id, result);
 }
@@ -432,7 +427,7 @@ async function handleTrustHistory(id: string | number, params: Record<string, un
     if (mcptType.startsWith('contract.')) dimensionsAffected.push('performance', 'consistency');
     if (mcptType.startsWith('economic.')) dimensionsAffected.push('commitment');
 
-    mcptEvents.push({
+    const contractEvent: McptTrustEvent = {
       event_id: evt.id,
       event_type: mcptType,
       subject_id: subjectId,
@@ -444,23 +439,28 @@ async function handleTrustHistory(id: string | number, params: Record<string, un
         ...(evt.metadata as Record<string, unknown> || {}),
       },
       dimensions_affected: dimensionsAffected,
-      signature: placeholderSignature(),
-    });
+      signature: { algorithm: 'Ed25519', public_key: '', value: '' },
+    };
+    contractEvent.signature = mcptSign(contractEvent as unknown as Record<string, unknown>);
+    mcptEvents.push(contractEvent);
   }
 
   // Convert behavioral traces to MCP-T event format
   for (const trace of rawTraces) {
     if (eventTypes && !eventTypes.includes('behavior.trace')) continue;
 
-    mcptEvents.push({
+    // The provider is the issuer of the history attestation it signs; the original
+    // reporter (if any) is preserved in the payload as `reported_by` for provenance.
+    const traceEvent: McptTrustEvent = {
       event_id: trace.eventId || trace.id,
       event_type: 'behavior.trace',
       subject_id: subjectId,
-      issuer_id: trace.issuerId || PROVIDER_ID,
+      issuer_id: PROVIDER_ID,
       timestamp: trace.createdAt.toISOString(),
       payload: {
         trace_id: trace.traceId,
         contract_id: trace.contractId,
+        reported_by: trace.issuerId || null,
         fidelity_ratio: trace.fidelityRatio,
         total_tool_calls: trace.totalToolCalls,
         undeclared_tool_calls: trace.undeclaredToolCalls,
@@ -469,8 +469,10 @@ async function handleTrustHistory(id: string | number, params: Record<string, un
         duration_ms: trace.durationMs,
       },
       dimensions_affected: ['behavioral_fidelity'],
-      signature: placeholderSignature(),
-    });
+      signature: { algorithm: 'Ed25519', public_key: '', value: '' },
+    };
+    traceEvent.signature = mcptSign(traceEvent as unknown as Record<string, unknown>);
+    mcptEvents.push(traceEvent);
   }
 
   // Sort merged events by timestamp descending, then paginate
@@ -503,7 +505,7 @@ function handleTrustProviders(id: string | number): JsonRpcResponse {
         supported_domains: SUPPORTED_DOMAINS,
         dimensions: SCORED_DIMENSIONS,
         scoring_methodology_uri: 'https://percival-labs.ai/research',
-        public_key: PROVIDER_PUBLIC_KEY,
+        public_key: mcptProviderPublicKey(),
       },
     ],
   });
@@ -568,7 +570,17 @@ async function handleTrustPublish(id: string | number, params: Record<string, un
   if (eventType === 'behavior.trace') {
     const payload = event.payload as Record<string, unknown> | undefined;
     const subjectId = event.subject_id as string;
-    const issuerId = event.issuer_id as string | undefined;
+
+    // FIX C6: Bind the issuer to the AUTHENTICATED caller. The client-supplied
+    // `issuer_id` is untrusted (forgeable, omittable) and is deliberately IGNORED.
+    // This is what makes the attestation accountable and blocks the three
+    // caller≠issuer≠subject attacks (self-vouch, forged 3rd-party, victim poisoning).
+    const issuerId = callerPubkey;
+    if (event.issuer_id && event.issuer_id !== callerPubkey) {
+      console.warn(
+        `[mcp-t] Ignoring client-supplied issuer_id "${event.issuer_id}"; bound to caller ${callerPubkey}`,
+      );
+    }
 
     if (!payload || !subjectId) {
       return jsonRpcError(id, -32602, 'InvalidParams', {
@@ -576,9 +588,23 @@ async function handleTrustPublish(id: string | number, params: Record<string, un
       });
     }
 
-    // FIX 1: Self-vouching prevention — issuer cannot vouch for their own behavior
-    if (issuerId && issuerId === subjectId) {
-      return jsonRpcError(id, -32602, 'SelfVouchingProhibited', 'issuer_id cannot equal subject_id');
+    // FIX C6: Self-vouch prevention — the caller cannot attest to its OWN behavior.
+    // (NOTE: effective only once subject_id and callerPubkey share an identifier
+    // domain — see FABLE finding #7 / design note on canonical subject resolution.)
+    if (callerPubkey === subjectId) {
+      return jsonRpcError(id, -32602, 'SelfVouchingProhibited', 'caller cannot report a trace about itself');
+    }
+
+    // FIX #4: If the reporter attached a signature, it MUST verify. Reject an
+    // invalid signature rather than silently trusting the body. (A missing
+    // signature falls back to the NIP-98 transport binding on callerPubkey;
+    // requiring an in-payload reporter signature is the bigger attested-trace build.)
+    const reporterSignature = event.signature as { algorithm: string; public_key: string; value: string } | undefined;
+    if (reporterSignature) {
+      const signedView = { ...event };
+      if (!mcptVerify(signedView as Record<string, unknown>)) {
+        return jsonRpcError(id, -32602, 'InvalidSignature', 'reporter signature failed verification');
+      }
     }
 
     // FIX 3: Validate payload with Zod
@@ -592,17 +618,18 @@ async function handleTrustPublish(id: string | number, params: Record<string, un
     }
     const validatedPayload = parseResult.data;
 
-    // FIX 4: Per-agent rate limit — max 100 traces per agent per hour
+    // FIX #8: Rate limit keyed on the CALLER (issuer), not the subject. Keying on
+    // subject let an attacker exhaust a victim's quota by publishing about them.
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const [rateCheck] = await db
       .select({ count: sql<number>`count(*)` })
       .from(behavioralTraces)
       .where(and(
-        eq(behavioralTraces.agentPubkey, subjectId),
+        eq(behavioralTraces.issuerId, callerPubkey),
         gte(behavioralTraces.createdAt, oneHourAgo),
       ));
     if (Number(rateCheck?.count ?? 0) >= 100) {
-      return jsonRpcError(id, -32015, 'RateLimitExceeded', 'Maximum 100 traces per agent per hour');
+      return jsonRpcError(id, -32015, 'RateLimitExceeded', 'Maximum 100 traces per caller per hour');
     }
 
     try {
@@ -616,7 +643,23 @@ async function handleTrustPublish(id: string | number, params: Record<string, un
         durationMs: validatedPayload.duration_ms,
         eventId,
         issuerId,
+        reporterSignature: reporterSignature ?? null,
       });
+
+      // Signed receipt: the provider co-signs the (subject, issuer, trace,
+      // fidelity) tuple so a consumer can verify acceptance without trusting the
+      // transport. The signature travels WITH its signed fields (verify-able via
+      // mcptVerify), unlike a bare signature object.
+      const receipt: Record<string, unknown> = {
+        event_id: eventId,
+        subject_id: subjectId,
+        issuer_id: issuerId,
+        trace_id: result.id,
+        fidelity_ratio: result.fidelityRatio,
+        issued_at: now(),
+        signature: { algorithm: 'Ed25519', public_key: '', value: '' },
+      };
+      receipt.signature = mcptSign(receipt);
 
       return jsonRpcResult(id, {
         accepted: true,
@@ -624,6 +667,7 @@ async function handleTrustPublish(id: string | number, params: Record<string, un
         processing_status: 'processed',
         trace_id: result.id,
         fidelity_ratio: result.fidelityRatio,
+        receipt,
       });
     } catch (err) {
       console.error(`[mcp-t] Failed to record behavioral trace: ${err}`);
@@ -633,21 +677,14 @@ async function handleTrustPublish(id: string | number, params: Record<string, un
     }
   }
 
-  // Other behavioral event types — log and queue for future processing
-  if (eventType.startsWith('behavior.')) {
-    console.log(`[mcp-t] Queued behavioral event: ${eventType} (${eventId})`);
-    return jsonRpcResult(id, {
-      accepted: true,
-      event_id: eventId,
-      processing_status: 'queued',
-    });
-  }
-
-  // Non-behavioral events — accept and queue
+  // FIX #9: Do NOT acknowledge events we don't persist. Returning accepted:true
+  // for dropped events makes an "audit ledger" that silently discards data.
+  console.log(`[mcp-t] Unsupported event type (not persisted): ${eventType} (${eventId})`);
   return jsonRpcResult(id, {
-    accepted: true,
+    accepted: false,
     event_id: eventId,
-    processing_status: 'queued',
+    processing_status: 'unsupported',
+    message: `event_type "${eventType}" is not supported by this provider`,
   });
 }
 
