@@ -153,13 +153,13 @@ export function hexToNsec(hex: string): string {
 }
 
 export function npubToHex(npub: string): string {
-  const { prefix, words } = bech32.decode(npub);
+  const { prefix, words } = bech32.decode(npub as `${string}1${string}`);
   if (prefix !== 'npub') throw new Error(`Expected npub prefix, got ${prefix}`);
   return bytesToHex(new Uint8Array(bech32.fromWords(words)));
 }
 
 export function nsecToHex(nsec: string): string {
-  const { prefix, words } = bech32.decode(nsec);
+  const { prefix, words } = bech32.decode(nsec as `${string}1${string}`);
   if (prefix !== 'nsec') throw new Error(`Expected nsec prefix, got ${prefix}`);
   return bytesToHex(new Uint8Array(bech32.fromWords(words)));
 }
@@ -167,7 +167,7 @@ export function nsecToHex(nsec: string): string {
 // ── Internal Helpers ──
 
 async function sha256(data: Uint8Array): Promise<ArrayBuffer> {
-  return crypto.subtle.digest('SHA-256', data);
+  return crypto.subtle.digest('SHA-256', data as unknown as BufferSource);
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -177,6 +177,12 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 function hexToBytes(hex: string): Uint8Array {
+  // #10 fix: validate before parsing. An odd-length or non-hex string used to
+  // silently coerce to NaN -> 0 bytes, corrupting key material instead of failing.
+  if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) {
+    const preview = typeof hex === 'string' ? hex.slice(0, 16) : String(hex);
+    throw new Error(`Invalid hex string: expected non-empty, even-length hex characters, got "${preview}${typeof hex === 'string' && hex.length > 16 ? '…' : ''}"`);
+  }
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
     bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);

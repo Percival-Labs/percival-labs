@@ -114,6 +114,13 @@ export interface ProveResult {
 
 // ── Score Tier Thresholds ──
 
+// #6 fix: encode every interpolated path segment. Unencoded ids let a caller
+// (or attacker-controlled string) confuse the signed route the server
+// actually authorizes against the NIP-98 `u` tag.
+function enc(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 function scoreTier(score: number): TrustResult['tier'] {
   if (score >= 850) return 'diamond';
   if (score >= 700) return 'gold';
@@ -122,10 +129,133 @@ function scoreTier(score: number): TrustResult['tier'] {
   return 'unranked';
 }
 
+// ── Static Trust Check (Zero-Config) ──
+
+const DEFAULT_API = 'https://percivalvouch-api-production.up.railway.app';
+
+/**
+ * Check an agent's trust score. No identity required.
+ * This is the "7 lines of code" entry point.
+ *
+ * @example
+ * ```ts
+ * import { trust } from '@percival-labs/vouch-sdk';
+ *
+ * // Binary check: is this agent trusted?
+ * const ok = await trust.check('npub1...', { min: 600 });
+ *
+ * // Full score lookup
+ * const score = await trust.score('npub1...');
+ * console.log(score.composite, score.dimensions);
+ * ```
+ */
+export const trust = {
+  /**
+   * Binary trust check. Returns true if the agent's composite score >= min.
+   * Zero-config — no keys, no setup, one line.
+   */
+  async check(npub: string, opts: { min?: number; domain?: string; apiUrl?: string } = {}): Promise<boolean> {
+    const threshold = opts.min ?? 400;
+    const score = await trust.score(npub, { apiUrl: opts.apiUrl });
+    return score.composite >= threshold;
+  },
+
+  /**
+   * Get full trust score for any agent by npub. No auth required.
+   */
+  async score(npub: string, opts: { apiUrl?: string } = {}): Promise<{
+    composite: number;
+    tier: string;
+    dimensions: Record<string, number>;
+    backed: boolean;
+    confidence: number;
+  }> {
+    if (!npub || typeof npub !== 'string') {
+      throw new Error('npub is required and must be a string');
+    }
+    const api = opts.apiUrl ?? DEFAULT_API;
+    let hexPubkey: string;
+    try {
+      hexPubkey = npubToHex(npub);
+    } catch {
+      throw new Error(`Invalid npub format: ${npub.slice(0, 20)}...`);
+    }
+    // Validate hex is actually hex (prevents path injection)
+    if (!/^[0-9a-f]{64}$/i.test(hexPubkey)) {
+      throw new Error('npub decoded to invalid public key');
+    }
+    const res = await fetch(`${api}/v1/sdk/agents/${hexPubkey}/score`);
+
+    if (!res.ok) {
+      if (res.status === 404) {
+        return { composite: 0, tier: 'unranked', dimensions: {}, backed: false, confidence: 0 };
+      }
+      throw new Error(`Vouch API error ${res.status}`);
+    }
+
+    const json = await res.json() as { data: {
+      score: number;
+      dimensions: Record<string, number>;
+      backed: boolean;
+      pool_sats: number;
+      staker_count: number;
+      performance: { success_rate: number; total_outcomes: number };
+    }};
+    const d = json.data;
+    const evidenceCount = d.performance.total_outcomes;
+
+    return {
+      composite: d.score,
+      tier: d.score >= 850 ? 'diamond' : d.score >= 700 ? 'gold' : d.score >= 400 ? 'silver' : d.score >= 200 ? 'bronze' : 'unranked',
+      dimensions: d.dimensions,
+      backed: d.backed,
+      confidence: Math.min(1, evidenceCount / 50), // confidence ramps to 1.0 at 50 outcomes
+    };
+  },
+};
+
+/**
+ * Trust gate middleware. Drop this into any request handler to gate on trust.
+ *
+ * @example
+ * ```ts
+ * import { trustGate } from '@percival-labs/vouch-sdk';
+ *
+ * // Gate an API endpoint
+ * const gate = trustGate({ min: 600 });
+ * const result = await gate(request.headers.get('x-agent-npub'));
+ * if (!result.ok) return new Response('Untrusted', { status: 403 });
+ * ```
+ */
+export function trustGate(opts: { min?: number; domain?: string; apiUrl?: string } = {}) {
+  const threshold = opts.min ?? 400;
+
+  return async (npub: string | null | undefined): Promise<{ ok: boolean; score: number; tier: string; reason?: string }> => {
+    if (!npub) {
+      return { ok: false, score: 0, tier: 'unranked', reason: 'no agent identity provided' };
+    }
+
+    try {
+      const result = await trust.score(npub, { apiUrl: opts.apiUrl });
+      if (result.composite >= threshold) {
+        return { ok: true, score: result.composite, tier: result.tier };
+      }
+      return { ok: false, score: result.composite, tier: result.tier, reason: `score ${result.composite} below threshold ${threshold}` };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, score: 0, tier: 'unranked', reason: `trust check failed: ${msg}` };
+    }
+  };
+}
+
 // ── Main Class ──
 
 export class Vouch {
-  readonly identity: NostrIdentity;
+  // #3/#4 fix: the identity (and its secret key material) is a true JS
+  // private field, not a public `readonly` property. `JSON.stringify`,
+  // `console.log`, and `Object.keys` cannot reach it — only `npub`/`pubkey`
+  // (public, safe) and `exportNsec()` (explicit, deliberate) can.
+  readonly #identity: NostrIdentity;
   readonly relay: string;
   readonly apiUrl: string;
 
@@ -134,27 +264,75 @@ export class Vouch {
   private static readonly CACHE_TTL_MS = 60_000; // 1 minute
 
   constructor(opts: VouchOptions = {}) {
+    // #4 fix: an explicitly-passed-but-falsy key (e.g. `{ nsec: process.env.VOUCH_NSEC }`
+    // when the env var is unset) used to silently fall through to auto-generation,
+    // minting a brand-new identity and orphaning any existing reputation. Distinguish
+    // "key omitted" (fine, auto-generate) from "key explicitly passed but empty" (an
+    // error — the caller almost certainly expected an existing identity to load).
+    if ('nsec' in opts && !opts.nsec) {
+      throw new Error(
+        'Vouch: `nsec` was explicitly passed but is empty/undefined. ' +
+        'Omit the option entirely to auto-generate a new identity, or use Vouch.generate().',
+      );
+    }
+    if ('secretKeyHex' in opts && !opts.secretKeyHex) {
+      throw new Error(
+        'Vouch: `secretKeyHex` was explicitly passed but is empty/undefined. ' +
+        'Omit the option entirely to auto-generate a new identity, or use Vouch.generate().',
+      );
+    }
+
     // Initialize identity
     if (opts.nsec) {
-      this.identity = identityFromNsec(opts.nsec);
+      this.#identity = identityFromNsec(opts.nsec);
     } else if (opts.secretKeyHex) {
-      this.identity = identityFromHex(opts.secretKeyHex);
+      this.#identity = identityFromHex(opts.secretKeyHex);
     } else {
-      this.identity = generateNostrKeypair();
+      this.#identity = generateNostrKeypair();
     }
 
     this.relay = opts.relay ?? 'wss://relay.vouch.xyz';
-    this.apiUrl = opts.apiUrl ?? 'https://percivalvouch-api-production.up.railway.app';
+    this.apiUrl = opts.apiUrl ?? DEFAULT_API;
+  }
+
+  /**
+   * Explicitly create a Vouch instance with a freshly-generated identity.
+   * Equivalent to `new Vouch()` with no key options, but makes the intent
+   * ("I want a brand-new identity") unambiguous at the call site.
+   */
+  static generate(opts: Omit<VouchOptions, 'nsec' | 'secretKeyHex'> = {}): Vouch {
+    return new Vouch(opts);
   }
 
   /** The agent's npub (bech32 Nostr public key) */
   get npub(): string {
-    return this.identity.npub;
+    return this.#identity.npub;
   }
 
   /** The agent's hex pubkey */
   get pubkey(): string {
-    return this.identity.pubkeyHex;
+    return this.#identity.pubkeyHex;
+  }
+
+  /**
+   * Explicitly export the private key (bech32 nsec format). Handle with the
+   * same care as a password — never log it, never serialize it implicitly.
+   */
+  exportNsec(): string {
+    return this.#identity.nsec;
+  }
+
+  /**
+   * Redacted representation for logging/serialization. Never includes key
+   * material — use `exportNsec()` explicitly when you need the private key.
+   */
+  toJSON(): { npub: string; pubkey: string; relay: string; apiUrl: string } {
+    return {
+      npub: this.npub,
+      pubkey: this.pubkey,
+      relay: this.relay,
+      apiUrl: this.apiUrl,
+    };
   }
 
   // ── Core API ──
@@ -165,8 +343,8 @@ export class Vouch {
    */
   async register(opts: RegisterOptions): Promise<RegisterResult> {
     const body: Record<string, unknown> = {
-      pubkey: this.identity.pubkeyHex,
-      npub: this.identity.npub,
+      pubkey: this.pubkey,
+      npub: this.npub,
       name: opts.name,
       model: opts.model,
       capabilities: opts.capabilities,
@@ -207,7 +385,7 @@ export class Vouch {
     const hexPubkey = npubToHex(npub);
 
     // Fetch from API (faster, more complete than relay query for now)
-    const res = await this.fetch('GET', `/v1/sdk/agents/${hexPubkey}/score`);
+    const res = await this.fetch('GET', `/v1/sdk/agents/${encodeURIComponent(hexPubkey)}/score`);
     const data = res as {
       score: number;
       dimensions: TrustResult['dimensions'];
@@ -258,7 +436,7 @@ export class Vouch {
     const counterpartyHex = npubToHex(opts.counterparty);
 
     // Prevent self-play: cannot report outcomes with yourself as counterparty
-    if (counterpartyHex.toLowerCase() === this.identity.pubkeyHex.toLowerCase()) {
+    if (counterpartyHex.toLowerCase() === this.pubkey.toLowerCase()) {
       throw new Error('Cannot report outcome with yourself as counterparty');
     }
 
@@ -342,7 +520,7 @@ export class Vouch {
    * Get full contract detail including milestones, change orders, and events.
    */
   async getContract(contractId: string): Promise<import('./types.js').ContractDetail> {
-    const res = await this.signedFetch('GET', `/v1/contracts/${contractId}`, undefined);
+    const res = await this.signedFetch('GET', `/v1/contracts/${enc(contractId)}`, undefined);
     return res as import('./types.js').ContractDetail;
   }
 
@@ -350,7 +528,7 @@ export class Vouch {
    * Activate a draft contract (customer only).
    */
   async activateContract(contractId: string): Promise<{ status: string }> {
-    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/activate`, {});
+    const res = await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/activate`, {});
     return res as { status: string };
   }
 
@@ -358,7 +536,7 @@ export class Vouch {
    * Submit a milestone deliverable (agent only).
    */
   async submitMilestone(contractId: string, milestoneId: string, opts?: { deliverableUrl?: string; deliverableNotes?: string }): Promise<void> {
-    await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/submit`, {
+    await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/milestones/${enc(milestoneId)}/submit`, {
       deliverable_url: opts?.deliverableUrl,
       deliverable_notes: opts?.deliverableNotes,
     });
@@ -368,7 +546,7 @@ export class Vouch {
    * Accept a submitted milestone (customer only). Triggers payment release.
    */
   async acceptMilestone(contractId: string, milestoneId: string): Promise<{ milestoneAccepted: boolean; contractCompleted: boolean }> {
-    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/accept`, {});
+    const res = await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/milestones/${enc(milestoneId)}/accept`, {});
     return res as { milestoneAccepted: boolean; contractCompleted: boolean };
   }
 
@@ -376,14 +554,14 @@ export class Vouch {
    * Reject a submitted milestone (customer only). Agent can re-submit.
    */
   async rejectMilestone(contractId: string, milestoneId: string, reason: string): Promise<void> {
-    await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/reject`, { reason });
+    await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/milestones/${enc(milestoneId)}/reject`, { reason });
   }
 
   /**
    * Propose a change order (either party on active contract).
    */
   async proposeChangeOrder(contractId: string, opts: import('./types.js').ChangeOrderOptions): Promise<{ changeOrderId: string; sequence: number }> {
-    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/change-orders`, {
+    const res = await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/change-orders`, {
       title: opts.title,
       description: opts.description,
       cost_delta_sats: opts.costDeltaSats ?? 0,
@@ -396,21 +574,21 @@ export class Vouch {
    * Approve a change order (the other party).
    */
   async approveChangeOrder(contractId: string, changeOrderId: string): Promise<void> {
-    await this.signedFetch('POST', `/v1/contracts/${contractId}/change-orders/${changeOrderId}/approve`, {});
+    await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/change-orders/${enc(changeOrderId)}/approve`, {});
   }
 
   /**
    * Reject a change order (the other party).
    */
   async rejectChangeOrder(contractId: string, changeOrderId: string, reason?: string): Promise<void> {
-    await this.signedFetch('POST', `/v1/contracts/${contractId}/change-orders/${changeOrderId}/reject`, { reason });
+    await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/change-orders/${enc(changeOrderId)}/reject`, { reason });
   }
 
   /**
    * Rate the other party after contract completion.
    */
   async rateContract(contractId: string, rating: number, review?: string): Promise<{ rated: boolean; bothRated: boolean }> {
-    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/rate`, { rating, review });
+    const res = await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/rate`, { rating, review });
     return res as { rated: boolean; bothRated: boolean };
   }
 
@@ -418,7 +596,7 @@ export class Vouch {
    * Cancel a draft/awaiting contract.
    */
   async cancelContract(contractId: string, reason: string): Promise<void> {
-    await this.signedFetch('POST', `/v1/contracts/${contractId}/cancel`, { reason });
+    await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/cancel`, { reason });
   }
 
   // ── ISC (Ideal State Criteria) API ──
@@ -428,7 +606,7 @@ export class Vouch {
    * Returns null if no ISC criteria are set.
    */
   async getMilestoneISC(contractId: string, milestoneId: string): Promise<import('./types.js').MilestoneISC | null> {
-    const res = await this.signedFetch('GET', `/v1/contracts/${contractId}/milestones/${milestoneId}/isc`, undefined);
+    const res = await this.signedFetch('GET', `/v1/contracts/${enc(contractId)}/milestones/${enc(milestoneId)}/isc`, undefined);
     return (res as { isc: import('./types.js').MilestoneISC | null }).isc;
   }
 
@@ -443,7 +621,7 @@ export class Vouch {
     evidence: Record<string, string>,
     opts?: { deliverableUrl?: string; deliverableNotes?: string },
   ): Promise<void> {
-    await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/submit`, {
+    await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/milestones/${enc(milestoneId)}/submit`, {
       deliverable_url: opts?.deliverableUrl,
       deliverable_notes: opts?.deliverableNotes,
       isc_evidence: evidence,
@@ -460,7 +638,7 @@ export class Vouch {
     milestoneId: string,
     overrides?: Record<string, { status: 'passed' | 'failed'; note?: string }>,
   ): Promise<{ milestoneAccepted: boolean; contractCompleted: boolean }> {
-    const res = await this.signedFetch('POST', `/v1/contracts/${contractId}/milestones/${milestoneId}/accept`, {
+    const res = await this.signedFetch('POST', `/v1/contracts/${enc(contractId)}/milestones/${enc(milestoneId)}/accept`, {
       isc_overrides: overrides,
     });
     return res as { milestoneAccepted: boolean; contractCompleted: boolean };
@@ -472,7 +650,7 @@ export class Vouch {
    * Sign a Nostr event with this agent's key.
    */
   async sign(event: UnsignedEvent): Promise<NostrEvent> {
-    return signEvent(event, this.identity.secretKeyHex);
+    return signEvent(event, this.#identity.secretKeyHex);
   }
 
   /**
@@ -508,14 +686,14 @@ export class Vouch {
     }
 
     const authEvent: UnsignedEvent = {
-      pubkey: this.identity.pubkeyHex,
+      pubkey: this.#identity.pubkeyHex,
       created_at: Math.floor(Date.now() / 1000),
       kind: 27235, // NIP-98 HTTP Auth
       tags,
       content: '',
     };
 
-    const signedAuth = await signEvent(authEvent, this.identity.secretKeyHex);
+    const signedAuth = await signEvent(authEvent, this.#identity.secretKeyHex);
     const authHeader = `Nostr ${btoa(JSON.stringify(signedAuth))}`;
 
     const headers: Record<string, string> = {
