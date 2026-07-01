@@ -171,47 +171,60 @@ export async function createDeposit(userNpub: string, amountSats: number): Promi
  * Requires the requesting user's npub to verify ownership.
  */
 export async function confirmDeposit(depositId: string, requestingNpub: string): Promise<CreditBalance> {
+  // Read the deposit (no lock) to verify ownership and get the payment hash.
+  const [deposit] = await db.select().from(creditDeposits)
+    .where(and(
+      eq(creditDeposits.id, depositId),
+      eq(creditDeposits.status, 'pending'),
+    ))
+    .limit(1);
+
+  if (!deposit) {
+    throw new Error('Deposit not found or already processed');
+  }
+
+  // Verify the requesting user owns this deposit
+  if (deposit.userNpub !== requestingNpub) {
+    throw new Error('Deposit not found or already processed');
+  }
+
+  // M6 fix: Verify the Lightning invoice was actually paid before crediting balance.
+  // #6 fix: this network I/O runs OUTSIDE the DB transaction so we never hold row locks
+  // across a Lightning round-trip.
+  if (deposit.paymentHash) {
+    const { lookupInvoice } = await import('./albyhub-service');
+    const invoice = await lookupInvoice(deposit.paymentHash);
+    if (!invoice) {
+      throw new Error('Unable to verify payment — invoice not found or Lightning node unreachable');
+    }
+    if (!invoice.settled) {
+      throw new Error('Invoice not yet paid — please complete the Lightning payment first');
+    }
+    if (invoice.amountSats > 0 && invoice.amountSats < deposit.amountSats) {
+      throw new Error('Invoice amount mismatch — partial payment not accepted');
+    }
+  }
+
+  const feeSats = Math.ceil(deposit.amountSats * DEPOSIT_FEE_BPS / 10000);
+  const netCreditSats = deposit.amountSats - feeSats;
+
   return db.transaction(async (tx) => {
-    const [deposit] = await tx.select().from(creditDeposits)
+    // #6 fix: atomic gate — the conditional UPDATE ... WHERE status='pending' RETURNING is
+    // the single winner of a double-confirm race. Two concurrent confirms both verified the
+    // invoice above, but only one flips 'pending' -> 'confirmed'; the loser gets 0 rows.
+    const gated = await tx.update(creditDeposits)
+      .set({ status: 'confirmed', confirmedAt: new Date() })
       .where(and(
         eq(creditDeposits.id, depositId),
         eq(creditDeposits.status, 'pending'),
       ))
-      .limit(1);
+      .returning({ id: creditDeposits.id });
 
-    if (!deposit) {
+    if (gated.length === 0) {
       throw new Error('Deposit not found or already processed');
     }
 
-    // Verify the requesting user owns this deposit
-    if (deposit.userNpub !== requestingNpub) {
-      throw new Error('Deposit not found or already processed');
-    }
-
-    // M6 fix: Verify the Lightning invoice was actually paid before crediting balance
-    if (deposit.paymentHash) {
-      const { lookupInvoice } = await import('./albyhub-service');
-      const invoice = await lookupInvoice(deposit.paymentHash);
-      if (!invoice) {
-        throw new Error('Unable to verify payment — invoice not found or Lightning node unreachable');
-      }
-      if (!invoice.settled) {
-        throw new Error('Invoice not yet paid — please complete the Lightning payment first');
-      }
-      if (invoice.amountSats > 0 && invoice.amountSats < deposit.amountSats) {
-        throw new Error('Invoice amount mismatch — partial payment not accepted');
-      }
-    }
-
-    const feeSats = Math.ceil(deposit.amountSats * DEPOSIT_FEE_BPS / 10000);
-    const netCreditSats = deposit.amountSats - feeSats;
-
-    // Mark deposit confirmed
-    await tx.update(creditDeposits)
-      .set({ status: 'confirmed', confirmedAt: new Date() })
-      .where(eq(creditDeposits.id, depositId));
-
-    // Credit user's balance
+    // Credit user's balance (only the confirm that won the gate reaches here)
     await tx.update(creditBalances)
       .set({
         balanceSats: sql`${creditBalances.balanceSats} + ${netCreditSats}`,
@@ -439,11 +452,16 @@ export async function purchaseBatch(
     });
   });
 
-  // Activity fee on batch purchase (non-blocking)
+  // Activity fee on batch purchase (non-blocking).
+  // C1: backed by collected sats — the batch budget was just debited from the user's
+  // credit balance (funded by a settled deposit), so this fee is eligible for real payout.
   const feeSats = Math.ceil(budgetSats * DEPOSIT_FEE_BPS / 10000);
   if (feeSats > 0) {
     try {
-      await recordActivityFee('inference-proxy', 'batch_purchase', budgetSats);
+      await recordActivityFee('inference-proxy', 'batch_purchase', budgetSats, {
+        collected: true,
+        sourcePaymentHash: batchHash,
+      });
     } catch (e) {
       console.error('[credit-service] Batch activity fee recording failed:', e);
     }

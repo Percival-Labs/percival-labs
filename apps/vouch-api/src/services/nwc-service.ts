@@ -83,6 +83,23 @@ async function nwcRequest(
   }
 }
 
+/**
+ * Best-effort read of a wallet's spendable balance (in sats) via NWC get_balance.
+ * Returns null when the wallet does not support get_balance or is unreachable — callers
+ * treat null as "cannot verify" rather than "zero balance".
+ */
+async function getWalletBalanceSats(connectionString: string): Promise<number | null> {
+  try {
+    const resp = await nwcRequest(connectionString, 'get_balance', {});
+    const msats = Number((resp as { balance?: number }).balance ?? 0);
+    if (!Number.isFinite(msats) || msats < 0) return null;
+    return Math.floor(msats / 1000); // NWC reports balance in millisats
+  } catch (err) {
+    console.warn('[nwc] get_balance unavailable:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── Stake Lock Operations ──
 
 /**
@@ -101,6 +118,15 @@ export async function createStakeLock(
     console.log(`[nwc] Verified connection for ${userNpub}:`, info);
   } catch (err) {
     throw new Error(`NWC connection verification failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // C2 fix: bind the claimed stake budget to real wallet funds at lock time. Previously
+  // budgetSats was client-claimed and never checked, so "collateral" could be entirely phantom.
+  // get_balance is an upper bound on what the wallet can honour; reject if it can't even cover
+  // the claimed budget. (Full held-collateral via HODL invoices is the real fix — see design note.)
+  const walletSats = await getWalletBalanceSats(connectionString);
+  if (walletSats !== null && walletSats < budgetSats) {
+    throw new Error(`NWC wallet balance ${walletSats} sats is below the claimed stake budget of ${budgetSats} sats`);
   }
 
   // Parse to extract methods (for audit trail)
@@ -148,12 +174,22 @@ export async function verifyStakeLock(connectionId: string): Promise<{
 
   const remainingSats = conn.budgetSats - conn.spentSats;
 
-  // Optionally verify wallet is still responsive
+  // Verify wallet is still responsive AND still holds enough to honour the remaining budget.
+  // C2 fix: a wallet that drained below its remaining stake budget is phantom collateral.
+  let decrypted: string;
   try {
-    const decrypted = await decrypt(conn.connectionString);
+    decrypted = await decrypt(conn.connectionString);
     await nwcRequest(decrypted, 'get_info', {});
   } catch {
     console.warn(`[nwc] Wallet for connection ${connectionId} is unresponsive`);
+    return { valid: false, budgetSats: conn.budgetSats, spentSats: conn.spentSats, remainingSats };
+  }
+
+  const walletSats = await getWalletBalanceSats(decrypted);
+  if (walletSats !== null && walletSats < remainingSats) {
+    console.warn(
+      `[nwc] Connection ${connectionId} is under-collateralized: wallet ${walletSats} sats < remaining budget ${remainingSats} sats`,
+    );
     return { valid: false, budgetSats: conn.budgetSats, spentSats: conn.spentSats, remainingSats };
   }
 
@@ -163,6 +199,39 @@ export async function verifyStakeLock(connectionId: string): Promise<{
     spentSats: conn.spentSats,
     remainingSats,
   };
+}
+
+/**
+ * Periodically re-verify active NWC stake locks (C2: phantom collateral surfacing).
+ * Wires the previously-dead verifyStakeLock into a background job. Reports how many active
+ * connections no longer back their stakes. Does NOT auto-revoke — that is a product decision
+ * (a wallet may be transiently low); see the C2 design note. Surfacing is the minimal fix.
+ */
+export async function revalidateActiveStakeLocks(sampleLimit = 100): Promise<{
+  checked: number;
+  invalid: number;
+}> {
+  const active = await db
+    .select({ id: nwcConnections.id })
+    .from(nwcConnections)
+    .where(eq(nwcConnections.status, 'active'))
+    .limit(sampleLimit);
+
+  let invalid = 0;
+  for (const conn of active) {
+    try {
+      const result = await verifyStakeLock(conn.id);
+      if (!result.valid) invalid++;
+    } catch (err) {
+      console.warn(`[nwc] revalidate failed for ${conn.id}:`, err instanceof Error ? err.message : err);
+      invalid++;
+    }
+  }
+
+  if (invalid > 0) {
+    console.warn(`[nwc] Stake-lock revalidation: ${invalid}/${active.length} active connections are under-collateralized or unreachable`);
+  }
+  return { checked: active.length, invalid };
 }
 
 /**

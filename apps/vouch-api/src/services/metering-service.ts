@@ -1,7 +1,7 @@
 // Metering Service — usage recording, cost calculation, and activity fee tracking.
 // Called by the gateway after each inference request.
 
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, usageRecords, modelPricing } from '@percival/vouch-db';
 import { recordActivityFee } from './staking-service';
 import { debit, debitBatch } from './credit-service';
@@ -74,32 +74,27 @@ async function loadPricing(): Promise<Map<string, PricingEntry>> {
 }
 
 // ── BTC Price ──
+//
+// #7 fix: previously queried btc_price_snapshots ORDER BY created_at, but the column
+// is captured_at — the query always threw, was swallowed, and every inference was priced
+// at the $85k fallback (silent systematic mispricing). Delegate to price-service, which
+// fetches from CoinGecko and caches correctly. The fallback now only fires when the price
+// oracle is genuinely unavailable, and it alerts loudly.
 
-let btcPriceUsd = 85000; // Fallback default
-let btcPriceAge = 0;
-const BTC_PRICE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const BTC_PRICE_FALLBACK_USD = 85000; // last-resort default when the price oracle is down
 
 async function getBtcPriceUsd(): Promise<number> {
-  if (Date.now() - btcPriceAge < BTC_PRICE_CACHE_TTL_MS) {
-    return btcPriceUsd;
+  const { getCurrentBtcPrice } = await import('./price-service');
+  const price = await getCurrentBtcPrice();
+  if (price !== null && price > 0) {
+    return price;
   }
 
-  try {
-    // Try to get from our existing price snapshots table
-    const result = await db.execute(
-      sql`SELECT price_usd FROM btc_price_snapshots ORDER BY created_at DESC LIMIT 1`,
-    );
-    const rows = (result as any)?.rows ?? result;
-    const snapshot = Array.isArray(rows) ? rows[0] : null;
-    if (snapshot && snapshot.price_usd) {
-      btcPriceUsd = Number(snapshot.price_usd);
-      btcPriceAge = Date.now();
-    }
-  } catch {
-    // Use cached/default value
-  }
-
-  return btcPriceUsd;
+  // Alert on fallback — if this fires repeatedly, billing is systematically mispriced (#7).
+  console.error(
+    `[metering] BTC price oracle unavailable — pricing inference at $${BTC_PRICE_FALLBACK_USD} fallback. Billing may be inaccurate.`,
+  );
+  return BTC_PRICE_FALLBACK_USD;
 }
 
 /**
@@ -182,11 +177,16 @@ export async function recordUsage(report: UsageReport): Promise<{ usageRecordId:
     await debitBatch(report.batchHash, cost.costSats);
   }
 
-  // Record 1% activity fee for staking yield (non-blocking)
+  // Record 1% activity fee for staking yield (non-blocking).
+  // C1: this fee is backed by collected sats — the user's credit/batch balance (funded by a
+  // settled Lightning deposit) was just debited above — so it is eligible for real payout.
   const feeSats = Math.ceil(cost.costSats * ACTIVITY_FEE_BPS / 10000);
   if (feeSats > 0) {
     try {
-      await recordActivityFee('inference-proxy', 'inference', cost.costSats);
+      await recordActivityFee('inference-proxy', 'inference', cost.costSats, {
+        collected: true,
+        sourcePaymentHash: usageRecordId,
+      });
     } catch (e) {
       console.error('[metering] Activity fee recording failed (non-blocking):', e);
     }

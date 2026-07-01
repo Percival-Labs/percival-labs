@@ -33,7 +33,7 @@ import {
   computeBackingComponent,
 } from '../services/staking-service';
 import { createStakeLock, getActiveConnection } from '../services/nwc-service';
-import { getVoterWeight } from '../services/trust-service';
+import { calculateUserTrust, calculateAgentTrust } from '../services/trust-service';
 import { getCurrentBtcPrice, satsToUsd, getPriceHistory } from '../services/price-service';
 import { db, stakes, treasury } from '@percival/vouch-db';
 import { eq, and, sql } from 'drizzle-orm';
@@ -149,7 +149,13 @@ app.post('/pools/:id/stake', async (c) => {
       return error(c, 403, 'FORBIDDEN', 'Agents cannot stake in their own pool');
     }
 
-    const stakerTrust = await getVoterWeight(stakerId, stakerType as 'user' | 'agent');
+    // #5 fix: stakerTrustAtStake must be the 0-1000 composite trust score, not the
+    // 50-300bp vote weight. computeBackingComponent consumes this as a 0-1000 score;
+    // passing vote weight deflated real stakers' quality contribution 3-6x.
+    const trustBreakdown = stakerType === 'agent'
+      ? await calculateAgentTrust(stakerId)
+      : await calculateUserTrust(stakerId);
+    const stakerTrust = trustBreakdown?.composite ?? 0;
 
     // Initiate stake — returns pending stake, client must connect NWC wallet
     const result = await initiateStake(poolId, stakerId, stakerType as 'user' | 'agent', body.amount_sats, stakerTrust);
@@ -430,6 +436,59 @@ app.post('/pools/:id/distribute', async (c) => {
     }
     console.error('[vouch-api] POST /pools/:id/distribute error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to distribute yield');
+  }
+});
+
+// ── Slashing Routes ──
+
+/**
+ * POST /pools/:id/slash — Slash a pool for agent misconduct (#10 fix: slashPool was
+ * imported but unreachable — no route or job called it, so the core C>D deterrent was dead).
+ * Admin-only, guarded by TREASURY_ADMIN_PUBKEY. Optionally links an upheld violation.
+ */
+app.post('/pools/:id/slash', async (c) => {
+  const callerId = c.get('verifiedAgentId');
+  const adminPubkey = process.env.TREASURY_ADMIN_PUBKEY;
+  if (!adminPubkey || callerId !== adminPubkey) {
+    return error(c, 403, 'FORBIDDEN', 'Slashing requires admin access');
+  }
+
+  try {
+    const poolId = c.req.param('id');
+    const raw = await c.req.json();
+    const reason = typeof raw?.reason === 'string' ? raw.reason.trim() : '';
+    const evidenceHash = typeof raw?.evidence_hash === 'string' ? raw.evidence_hash.trim() : '';
+    const slashBps = raw?.slash_bps;
+    const violationId = typeof raw?.violation_id === 'string' ? raw.violation_id : undefined;
+
+    if (!reason) {
+      return error(c, 400, 'VALIDATION_ERROR', 'reason is required');
+    }
+    if (!evidenceHash) {
+      return error(c, 400, 'VALIDATION_ERROR', 'evidence_hash is required');
+    }
+    if (!Number.isInteger(slashBps) || slashBps < 1 || slashBps > 10000) {
+      return error(c, 400, 'VALIDATION_ERROR', 'slash_bps must be an integer between 1 and 10000');
+    }
+
+    const targetPool = await getPoolSummary(poolId);
+    if (!targetPool) {
+      return error(c, 404, 'NOT_FOUND', 'Pool not found');
+    }
+
+    const result = await slashPool(poolId, reason, evidenceHash, slashBps, violationId);
+    return success(c, {
+      pool_id: poolId,
+      total_slashed_sats: result.totalSlashed,
+      affected_stakers: result.affectedStakers,
+    }, 201);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not found') || msg.includes('slashBps')) {
+      return error(c, 400, 'BAD_REQUEST', msg);
+    }
+    console.error('[vouch-api] POST /pools/:id/slash error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to slash pool');
   }
 });
 

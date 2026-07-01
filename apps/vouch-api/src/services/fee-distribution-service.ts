@@ -283,86 +283,31 @@ async function executeStakerPayouts(
   distributionId: string,
   payouts: Array<{ stake: { id: string; poolId: string; stakerId: string; stakerType: string; nwcConnectionId: string | null }; sats: number }>,
 ): Promise<{ paid: number; pending: number; failed: number }> {
-  let paid = 0;
-  let pending = 0;
-  let failed = 0;
-
   try {
-    const { payYield } = await import('./nwc-service');
+    // #8: delegate to the shared payout executor (one place for pay + record + retry).
+    const { settlePayouts } = await import('../lib/settle-payouts');
 
-    for (const { stake, sats } of payouts) {
-      if (sats <= 0) continue;
+    const result = await settlePayouts(
+      payouts.map(({ stake, sats }) => ({
+        amountSats: sats,
+        poolId: stake.poolId,
+        stakeId: stake.id,
+        stakerId: stake.stakerId,
+        nwcConnectionId: stake.nwcConnectionId,
+        purpose: 'yield' as const,
+        pendingHash: `fee-yield-${distributionId}-${stake.id}`,
+        metadata: { distributionId, type: 'fee_pool_yield' },
+      })),
+    );
 
-      if (stake.nwcConnectionId) {
-        try {
-          const result = await payYield(stake.nwcConnectionId, sats);
-
-          await db.insert(paymentEvents).values({
-            paymentHash: result.paymentHash,
-            amountSats: sats,
-            purpose: 'yield',
-            status: 'paid',
-            poolId: stake.poolId,
-            stakeId: stake.id,
-            stakerId: stake.stakerId,
-            nwcConnectionId: stake.nwcConnectionId,
-            webhookReceivedAt: new Date(),
-            metadata: { distributionId, type: 'fee_pool_yield' },
-          });
-
-          paid++;
-        } catch (err) {
-          console.error(
-            `[fee-distribution] NWC payout failed for staker ${stake.stakerId}:`,
-            err instanceof Error ? err.message : err,
-          );
-
-          await db.insert(paymentEvents).values({
-            paymentHash: `fee-yield-${distributionId}-${stake.id}`,
-            amountSats: sats,
-            purpose: 'yield',
-            status: 'pending',
-            poolId: stake.poolId,
-            stakeId: stake.id,
-            stakerId: stake.stakerId,
-            nwcConnectionId: stake.nwcConnectionId,
-            metadata: {
-              distributionId,
-              type: 'fee_pool_yield',
-              error: err instanceof Error ? err.message : String(err),
-            },
-          });
-
-          failed++;
-        }
-      } else {
-        // No NWC connection — record as pending for later claim
-        await db.insert(paymentEvents).values({
-          paymentHash: `fee-yield-${distributionId}-${stake.id}`,
-          amountSats: sats,
-          purpose: 'yield',
-          status: 'pending',
-          poolId: stake.poolId,
-          stakeId: stake.id,
-          stakerId: stake.stakerId,
-          metadata: {
-            distributionId,
-            type: 'fee_pool_yield',
-            reason: 'no_nwc_connection',
-          },
-        });
-        pending++;
-      }
-    }
+    console.log(
+      `[fee-distribution] Payouts for dist ${distributionId}: ${result.paid} paid, ${result.pending} pending, ${result.failed} failed`,
+    );
+    return result;
   } catch (err) {
     console.warn('[fee-distribution] NWC payouts unavailable:', err instanceof Error ? err.message : err);
+    return { paid: 0, pending: 0, failed: 0 };
   }
-
-  console.log(
-    `[fee-distribution] Payouts for dist ${distributionId}: ${paid} paid, ${pending} pending, ${failed} failed`,
-  );
-
-  return { paid, pending, failed };
 }
 
 // ── Distribution History ──

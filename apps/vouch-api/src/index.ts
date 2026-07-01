@@ -36,8 +36,11 @@ import stripeWebhookRoutes from './routes/webhooks/stripe';
 import acpSellerRoutes from './routes/acp-seller';
 import stripeBridgeRoutes from './routes/stripe-bridge';
 import mcpTRoutes from './routes/mcp-t';
+import insuranceRoutes from './routes/insurance';
 import { initTreasury, reconcileTreasury, runTreasuryRebalance, checkYieldReinvestment } from './services/treasury-service';
-import { cleanupExpiredPendingStakes } from './services/staking-service';
+import { cleanupExpiredPendingStakes, retryPendingSlashCharges } from './services/staking-service';
+import { revalidateActiveStakeLocks } from './services/nwc-service';
+import { retryOrphanedPayouts } from './lib/settle-payouts';
 import { processRetentionReleases } from './services/contract-service';
 import { takePriceSnapshot } from './services/price-service';
 import { expireTokenBatches } from './services/credit-service';
@@ -179,6 +182,7 @@ app.use('/v1/staking/stakes/*/unstake', agentRateLimiter('financial'));
 app.use('/v1/staking/stakes/*/withdraw', agentRateLimiter('financial'));
 app.use('/v1/staking/fees', agentRateLimiter('financial'));
 app.use('/v1/staking/pools/*/distribute', agentRateLimiter('financial'));
+app.use('/v1/staking/pools/*/slash', agentRateLimiter('financial')); // #10: admin slash endpoint
 app.use('/v1/trust/refresh/*', agentRateLimiter('trust_refresh'));
 app.use('/v1/contracts/*/fund', agentRateLimiter('financial'));
 app.use('/v1/contracts/*/milestones/*/accept', agentRateLimiter('financial'));
@@ -200,6 +204,7 @@ app.route('/v1/agents', agentRoutes);
 app.route('/v1/tables', tableRoutes);
 app.route('/v1/trust', trustRoutes);
 app.route('/v1/staking', stakingRoutes);
+app.route('/v1/insurance', insuranceRoutes);   // Agent insurance layer (flagged: INSURANCE_ENABLED)
 app.route('/v1/contracts', contractRoutes);    // Contract work agreements (NIP-98 auth)
 app.route('/v1/skills', skillRoutes);          // Skill marketplace (NIP-98 auth)
 app.route('/v1/storefronts', storefrontRoutes); // Storefront commerce (NIP-98 auth)
@@ -335,6 +340,45 @@ const feeDistributionInterval = setInterval(async () => {
 }, 7 * 24 * 60 * 60 * 1000); // 7 days (604,800,000ms) — safe for 32-bit setInterval
 if (feeDistributionInterval && typeof feeDistributionInterval === 'object' && 'unref' in feeDistributionInterval) {
   feeDistributionInterval.unref();
+}
+
+// ── Slash charge retry (every 10 minutes, C2 fix) ──
+// Re-attempts NWC slash charges that failed the first time instead of dropping the debt.
+const slashRetryInterval = setInterval(async () => {
+  try {
+    await retryPendingSlashCharges();
+  } catch (e) {
+    console.error('[vouch-api] Slash charge retry error:', e);
+  }
+}, 10 * 60 * 1000);
+if (slashRetryInterval && typeof slashRetryInterval === 'object' && 'unref' in slashRetryInterval) {
+  slashRetryInterval.unref();
+}
+
+// ── Orphaned payout retry (hourly, #8 fix) ──
+// Re-attempts pending yield payouts that have an NWC connection but were never settled.
+const orphanPayoutInterval = setInterval(async () => {
+  try {
+    await retryOrphanedPayouts();
+  } catch (e) {
+    console.error('[vouch-api] Orphaned payout retry error:', e);
+  }
+}, 60 * 60 * 1000);
+if (orphanPayoutInterval && typeof orphanPayoutInterval === 'object' && 'unref' in orphanPayoutInterval) {
+  orphanPayoutInterval.unref();
+}
+
+// ── Stake-lock revalidation (hourly, C2 fix) ──
+// Surfaces phantom/under-collateralized NWC stake locks by re-verifying wallet budgets.
+const stakeLockRevalidateInterval = setInterval(async () => {
+  try {
+    await revalidateActiveStakeLocks();
+  } catch (e) {
+    console.error('[vouch-api] Stake-lock revalidation error:', e);
+  }
+}, 60 * 60 * 1000);
+if (stakeLockRevalidateInterval && typeof stakeLockRevalidateInterval === 'object' && 'unref' in stakeLockRevalidateInterval) {
+  stakeLockRevalidateInterval.unref();
 }
 
 // ── Start server ──
