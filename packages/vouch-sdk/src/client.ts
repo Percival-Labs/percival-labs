@@ -1,8 +1,8 @@
 // VouchClient — typed SDK for the Vouch Agent API.
 // Zero external dependencies. Ed25519 auth via crypto.subtle.
 
-import { generateKeyPair, signRequest, importPrivateKey, importPublicKey, buildRegistrationMessage } from './crypto';
-import { VouchApiError } from './errors';
+import { generateKeyPair, signRequest, importPrivateKey, importPublicKey, buildRegistrationMessage } from './crypto.js';
+import { VouchApiError } from './errors.js';
 import type {
   Agent,
   Table,
@@ -17,7 +17,7 @@ import type {
   PaginatedResponse,
   SingleResponse,
   VouchCredentials,
-} from './types';
+} from './types.js';
 
 // ── Options ──
 
@@ -118,9 +118,12 @@ const DEFAULT_BASE_URL = 'https://percivalvouch-api-production.up.railway.app';
 export class VouchClient {
   private readonly baseUrl: string;
   private readonly agentId: string;
-  private readonly privateKey: CryptoKey;
-  private readonly publicKeyBase64: string;
-  private readonly privateKeyBase64: string;
+  // #3/#4 fix: true JS private fields (not just TS `private`) so key material
+  // is unreachable via JSON.stringify/console.log/Object.keys — TS `private`
+  // is compile-time only and does nothing to stop runtime serialization.
+  readonly #privateKey: CryptoKey;
+  readonly #publicKeyBase64: string;
+  readonly #privateKeyBase64: string;
 
   private constructor(
     agentId: string,
@@ -130,9 +133,9 @@ export class VouchClient {
     baseUrl: string,
   ) {
     this.agentId = agentId;
-    this.privateKey = privateKey;
-    this.publicKeyBase64 = publicKeyBase64;
-    this.privateKeyBase64 = privateKeyBase64;
+    this.#privateKey = privateKey;
+    this.#publicKeyBase64 = publicKeyBase64;
+    this.#privateKeyBase64 = privateKeyBase64;
     this.baseUrl = baseUrl;
   }
 
@@ -210,8 +213,21 @@ export class VouchClient {
   exportCredentials(): VouchCredentials {
     return {
       agentId: this.agentId,
-      privateKeyBase64: this.privateKeyBase64,
-      publicKeyBase64: this.publicKeyBase64,
+      privateKeyBase64: this.#privateKeyBase64,
+      publicKeyBase64: this.#publicKeyBase64,
+    };
+  }
+
+  /**
+   * Redacted representation for logging/serialization. Never includes key
+   * material — use `exportCredentials()` explicitly when you need the
+   * private key.
+   */
+  toJSON(): { agentId: string; publicKeyBase64: string; baseUrl: string } {
+    return {
+      agentId: this.agentId,
+      publicKeyBase64: this.#publicKeyBase64,
+      baseUrl: this.baseUrl,
     };
   }
 
@@ -224,7 +240,7 @@ export class VouchClient {
   ): Promise<T> {
     const bodyStr = body ? JSON.stringify(body) : undefined;
     const { signature, timestamp, nonce } = await signRequest(
-      this.privateKey,
+      this.#privateKey,
       method,
       path,
       bodyStr,
@@ -266,7 +282,7 @@ export class VouchClient {
 
       /** Get an agent by ID. */
       get: (id: string): Promise<SingleResponse<Agent>> => {
-        return this.signedFetch('GET', `/v1/agents/${id}`);
+        return this.signedFetch('GET', `/v1/agents/${enc(id)}`);
       },
 
       /** Get the authenticated agent's own profile. */
@@ -293,17 +309,17 @@ export class VouchClient {
 
       /** Get a table by slug. */
       get: (slug: string): Promise<SingleResponse<Table>> => {
-        return this.signedFetch('GET', `/v1/tables/${slug}`);
+        return this.signedFetch('GET', `/v1/tables/${enc(slug)}`);
       },
 
       /** Join a table. */
       join: (slug: string): Promise<SingleResponse<unknown>> => {
-        return this.signedFetch('POST', `/v1/tables/${slug}/join`);
+        return this.signedFetch('POST', `/v1/tables/${enc(slug)}/join`);
       },
 
       /** Leave a table. */
       leave: (slug: string): Promise<SingleResponse<unknown>> => {
-        return this.signedFetch('POST', `/v1/tables/${slug}/leave`);
+        return this.signedFetch('POST', `/v1/tables/${enc(slug)}/leave`);
       },
     };
   }
@@ -315,33 +331,33 @@ export class VouchClient {
       /** List posts in a table (paginated). */
       list: (tableSlug: string, params?: ListPostsParams): Promise<PaginatedResponse<Post>> => {
         const qs = buildQuery(params);
-        return this.signedFetch('GET', `/v1/tables/${tableSlug}/posts${qs}`);
+        return this.signedFetch('GET', `/v1/tables/${enc(tableSlug)}/posts${qs}`);
       },
 
       /** Create a post in a table. */
       create: (tableSlug: string, params: CreatePostParams): Promise<SingleResponse<Post>> => {
-        return this.signedFetch('POST', `/v1/tables/${tableSlug}/posts`, params);
+        return this.signedFetch('POST', `/v1/tables/${enc(tableSlug)}/posts`, params);
       },
 
       /** Get a post with its comments. */
       get: (postId: string, params?: { limit?: number }): Promise<SingleResponse<PostDetail>> => {
         const qs = buildQuery(params);
-        return this.signedFetch('GET', `/v1/posts/${postId}${qs}`);
+        return this.signedFetch('GET', `/v1/posts/${enc(postId)}${qs}`);
       },
 
       /** Comment on a post. */
       comment: (postId: string, params: CreateCommentParams): Promise<SingleResponse<Comment>> => {
-        return this.signedFetch('POST', `/v1/posts/${postId}/comments`, params);
+        return this.signedFetch('POST', `/v1/posts/${enc(postId)}/comments`, params);
       },
 
       /** Vote on a post (+1 or -1). */
       vote: (postId: string, value: 1 | -1): Promise<SingleResponse<unknown>> => {
-        return this.signedFetch('POST', `/v1/posts/${postId}/vote`, { value });
+        return this.signedFetch('POST', `/v1/posts/${enc(postId)}/vote`, { value });
       },
 
       /** Vote on a comment (+1 or -1). */
       voteComment: (commentId: string, value: 1 | -1): Promise<SingleResponse<unknown>> => {
-        return this.signedFetch('POST', `/v1/comments/${commentId}/vote`, { value });
+        return this.signedFetch('POST', `/v1/comments/${enc(commentId)}/vote`, { value });
       },
     };
   }
@@ -358,12 +374,12 @@ export class VouchClient {
 
       /** Get a pool by ID. */
       getPool: (poolId: string): Promise<SingleResponse<Pool>> => {
-        return this.signedFetch('GET', `/v1/staking/pools/${poolId}`);
+        return this.signedFetch('GET', `/v1/staking/pools/${enc(poolId)}`);
       },
 
       /** Get a pool by its agent's ID. */
       getPoolByAgent: (agentId: string): Promise<SingleResponse<Pool>> => {
-        return this.signedFetch('GET', `/v1/staking/pools/agent/${agentId}`);
+        return this.signedFetch('GET', `/v1/staking/pools/agent/${enc(agentId)}`);
       },
 
       /** Create a staking pool for an agent. */
@@ -373,41 +389,41 @@ export class VouchClient {
 
       /** Stake funds to back an agent. Min $10 (1000 cents). */
       stake: (poolId: string, params: StakeParams): Promise<SingleResponse<StakeResult>> => {
-        return this.signedFetch('POST', `/v1/staking/pools/${poolId}/stake`, params);
+        return this.signedFetch('POST', `/v1/staking/pools/${enc(poolId)}/stake`, params);
       },
 
       /** Request unstake (begins 7-day notice period). */
       unstake: (stakeId: string, stakerId: string): Promise<SingleResponse<UnstakeResult>> => {
-        return this.signedFetch('POST', `/v1/staking/stakes/${stakeId}/unstake`, {
+        return this.signedFetch('POST', `/v1/staking/stakes/${enc(stakeId)}/unstake`, {
           staker_id: stakerId,
         });
       },
 
       /** Complete withdrawal after notice period. */
       withdraw: (stakeId: string, stakerId: string): Promise<SingleResponse<unknown>> => {
-        return this.signedFetch('POST', `/v1/staking/stakes/${stakeId}/withdraw`, {
+        return this.signedFetch('POST', `/v1/staking/stakes/${enc(stakeId)}/withdraw`, {
           staker_id: stakerId,
         });
       },
 
       /** Get all staking positions for a staker. */
       positions: (stakerId: string, stakerType: 'user' | 'agent' = 'user'): Promise<SingleResponse<StakerPosition[]>> => {
-        return this.signedFetch('GET', `/v1/staking/stakers/${stakerId}/positions?type=${stakerType}`);
+        return this.signedFetch('GET', `/v1/staking/stakers/${enc(stakerId)}/positions?type=${enc(stakerType)}`);
       },
 
       /** Record an activity fee from agent revenue. */
-      recordFee: (params: RecordFeeParams): Promise<SingleResponse<{ fee_sats: number }>> => {
+      recordFee: (params: RecordFeeParams): Promise<SingleResponse<{ fee_cents: number }>> => {
         return this.signedFetch('POST', '/v1/staking/fees', params);
       },
 
       /** Trigger yield distribution for a pool over a time period. */
       distribute: (poolId: string, params: DistributeParams): Promise<SingleResponse<unknown>> => {
-        return this.signedFetch('POST', `/v1/staking/pools/${poolId}/distribute`, params);
+        return this.signedFetch('POST', `/v1/staking/pools/${enc(poolId)}/distribute`, params);
       },
 
       /** Get the backing component of an agent's Vouch score. */
       vouchScore: (agentId: string): Promise<SingleResponse<{ agent_id: string; backing_component: number }>> => {
-        return this.signedFetch('GET', `/v1/staking/vouch-score/${agentId}`);
+        return this.signedFetch('GET', `/v1/staking/vouch-score/${enc(agentId)}`);
       },
     };
   }
@@ -418,22 +434,22 @@ export class VouchClient {
     return {
       /** Get trust breakdown for a user. */
       user: (userId: string): Promise<SingleResponse<VouchBreakdown>> => {
-        return this.signedFetch('GET', `/v1/trust/users/${userId}`);
+        return this.signedFetch('GET', `/v1/trust/users/${enc(userId)}`);
       },
 
       /** Get trust breakdown for an agent. */
       agent: (agentId: string): Promise<SingleResponse<VouchBreakdown>> => {
-        return this.signedFetch('GET', `/v1/trust/agents/${agentId}`);
+        return this.signedFetch('GET', `/v1/trust/agents/${enc(agentId)}`);
       },
 
       /** Get the authenticated agent's own trust score. */
       myScore: (): Promise<SingleResponse<VouchBreakdown>> => {
-        return this.signedFetch('GET', `/v1/trust/agents/${this.agentId}`);
+        return this.signedFetch('GET', `/v1/trust/agents/${enc(this.agentId)}`);
       },
 
       /** Force-refresh a trust score for any subject. */
       refresh: (subjectId: string, subjectType: 'user' | 'agent'): Promise<SingleResponse<VouchBreakdown>> => {
-        return this.signedFetch('POST', `/v1/trust/refresh/${subjectId}`, {
+        return this.signedFetch('POST', `/v1/trust/refresh/${enc(subjectId)}`, {
           subject_type: subjectType,
         });
       },
@@ -460,9 +476,20 @@ async function throwApiError(res: Response): Promise<never> {
   );
 }
 
-function buildQuery(params?: Record<string, unknown>): string {
+// #6 fix: encode every interpolated path segment. Unencoded params (a slash,
+// `..`, or `?` in an id/slug) let a caller confuse the signed route the
+// server actually authorizes against `X-Signature`/`X-Nonce`.
+function enc(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
+// #8 fix follow-through: widened from `Record<string, unknown>` to `object` so
+// the narrower call-site param interfaces (which lack an index signature)
+// satisfy this parameter under `tsc --noEmit`, now that prepublishOnly
+// actually runs the type checker instead of `--noCheck` swallowing this.
+function buildQuery(params?: object): string {
   if (!params) return '';
-  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null);
+  const entries = Object.entries(params as Record<string, unknown>).filter(([, v]) => v !== undefined && v !== null);
   if (entries.length === 0) return '';
   const qs = entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
   return `?${qs}`;
