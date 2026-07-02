@@ -1,11 +1,11 @@
 // Agent Insurance API Routes — quote, bind, activate, claim, adjudicate.
 //
 // Ships DISABLED behind INSURANCE_ENABLED. Amounts are in sats.
-// Authorization (#4): bind/claim are caller-bound (verifiedAgentId must equal the
-// policyholder/claimant); activate/adjudicate are admin/oracle-gated via INSURANCE_ADMIN_ID.
-// Coverage binds as `quoted` and only activates once a settled premium exists.
-// STILL REQUIRED before the flag flips: wiring the premium invoice/settlement that writes the
-// `insurance_premium` paymentEvents row activatePolicy checks for (money-track follow-up).
+// Authorization (#4): bind/claim/premium-invoice/premium-invoice-confirm are caller-bound
+// (verifiedAgentId must equal the policyholder/claimant); activate/adjudicate are admin/oracle-
+// gated via INSURANCE_ADMIN_ID.
+// Coverage binds as `quoted`, collects its premium via premium-invoice + premium-invoice/confirm,
+// and only activates (a separate admin/oracle call) once that premium has settled.
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -20,6 +20,8 @@ import {
   fileClaim,
   getClaim,
   adjudicateClaim,
+  createPremiumInvoice,
+  confirmPremiumPayment,
   COVERED_EVENT_TYPES,
 } from '../services/insurance-service';
 
@@ -105,6 +107,62 @@ app.post('/policies', async (c) => {
   } catch (err) {
     console.error('[vouch-api] POST /insurance/policies error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to bind policy');
+  }
+});
+
+/**
+ * POST /policies/:id/premium-invoice — policyholder: create (or re-fetch the still-pending)
+ * Lightning invoice for the quoted premium.
+ */
+app.post('/policies/:id/premium-invoice', async (c) => {
+  try {
+    const callerId = c.get('verifiedAgentId');
+    if (!callerId) return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
+    const policyId = c.req.param('id');
+    const policy = await getPolicy(policyId);
+    if (!policy) return error(c, 404, 'NOT_FOUND', 'Policy not found');
+    // Same caller-binding rule as bind/claim (#4): only the policyholder may invoice their own premium.
+    if (policy.policyholderType !== 'agent' || policy.policyholderId !== callerId) {
+      return error(c, 403, 'FORBIDDEN', 'Caller must be the policyholder');
+    }
+    const result = await createPremiumInvoice(policyId);
+    if (!result.ok) return error(c, 422, 'CANNOT_INVOICE', result.reason);
+    return success(c, {
+      policy_id: result.invoice.policyId,
+      payment_hash: result.invoice.paymentHash,
+      bolt11: result.invoice.bolt11,
+      amount_sats: result.invoice.amountSats,
+    }, 201);
+  } catch (err) {
+    console.error('[vouch-api] POST /insurance/policies/:id/premium-invoice error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to create premium invoice');
+  }
+});
+
+/**
+ * POST /policies/:id/premium-invoice/confirm — policyholder: confirm the premium invoice was
+ * paid. Does NOT activate coverage — that stays a separate admin/oracle call to `activate`.
+ */
+app.post('/policies/:id/premium-invoice/confirm', async (c) => {
+  try {
+    const callerId = c.get('verifiedAgentId');
+    if (!callerId) return error(c, 401, 'AUTH_REQUIRED', 'Authentication required');
+    const policyId = c.req.param('id');
+    const policy = await getPolicy(policyId);
+    if (!policy) return error(c, 404, 'NOT_FOUND', 'Policy not found');
+    if (policy.policyholderType !== 'agent' || policy.policyholderId !== callerId) {
+      return error(c, 403, 'FORBIDDEN', 'Caller must be the policyholder');
+    }
+    const result = await confirmPremiumPayment(policyId);
+    if (!result.ok) return error(c, 422, 'CANNOT_CONFIRM', result.reason);
+    return success(c, {
+      policy_id: result.settlement.policyId,
+      status: result.settlement.status,
+      amount_sats: result.settlement.amountSats,
+    });
+  } catch (err) {
+    console.error('[vouch-api] POST /insurance/policies/:id/premium-invoice/confirm error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to confirm premium payment');
   }
 });
 

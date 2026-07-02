@@ -92,8 +92,32 @@ class UpdateQuery {
   constructor(t: any) { this.table = t.__table; }
   set(v: Row) { this.value = v; return this; }
   where(p: any) {
-    for (const r of store[this.table] ?? []) if (matchRow(r, p)) Object.assign(r, this.value);
-    return Promise.resolve();
+    const matched: Row[] = [];
+    for (const r of store[this.table] ?? []) {
+      if (matchRow(r, p)) {
+        Object.assign(r, this.value);
+        matched.push(r);
+      }
+    }
+    return new UpdateResult(matched);
+  }
+}
+
+// Supports the atomic `UPDATE ... WHERE ... RETURNING` gate pattern (credit-service's
+// confirmDeposit / insurance-service's confirmPremiumPayment): awaiting the where() result
+// directly resolves to `undefined` like the old mock, but `.returning(proj)` projects the rows
+// the WHERE clause actually matched — that row count IS the race-winner signal.
+class UpdateResult implements PromiseLike<undefined> {
+  constructor(private matched: Row[]) {}
+  returning(proj: Row) {
+    return Promise.resolve(this.matched.map((r) => {
+      const o: Row = {};
+      for (const k of Object.keys(proj)) o[k] = r[proj[k]];
+      return o;
+    }));
+  }
+  then(resolve: (v: undefined) => any, reject: (e: unknown) => any) {
+    return Promise.resolve(undefined).then(resolve, reject);
   }
 }
 
@@ -124,7 +148,10 @@ const insuranceClaims = table('insurance_claims', [
 const behavioralTraces = table('behavioral_traces', [
   'id', 'agentPubkey', 'eventId', 'undeclaredToolCalls', 'undeclaredResources', 'fidelityRatio',
 ]);
-const paymentEvents = table('payment_events', ['id', 'status', 'amountSats', 'metadata']);
+const paymentEvents = table('payment_events', [
+  'id', 'status', 'amountSats', 'metadata', 'paymentHash', 'bolt11', 'purpose',
+  'webhookReceivedAt', 'updatedAt', 'createdAt',
+]);
 const agents = table('agents', ['id', 'pubkey']);
 
 mock.module('@percival/vouch-db', () => ({
@@ -149,9 +176,20 @@ const mockComputeBehavioralFidelity = mock(async (_pk: string) => ({
 }));
 const mockGetPoolByAgent = mock(async (_id: string) => ({ totalStakedSats: 2_000_000 }));
 
+// Alby Hub (Lightning) is mocked so premium invoice create/confirm run without real network
+// I/O. lookupInvoice defaults to "settled" — individual tests override with
+// mockImplementationOnce to exercise the unpaid/underpaid paths.
+let invoiceSeq = 0;
+const mockCreateInvoice = mock(async (amountSats: number, _memo: string) => {
+  invoiceSeq += 1;
+  return { paymentHash: `hash-${invoiceSeq}`, paymentRequest: `lnbc-${amountSats}-${invoiceSeq}` };
+});
+const mockLookupInvoice = mock(async (_paymentHash: string) => ({ settled: true, amountSats: 999_999_999 }));
+
 mock.module('./trust-service', () => ({ calculateAgentTrust: mockCalculateAgentTrust }));
 mock.module('./behavioral-trace-service', () => ({ computeBehavioralFidelity: mockComputeBehavioralFidelity }));
 mock.module('./staking-service', () => ({ getPoolByAgent: mockGetPoolByAgent }));
+mock.module('./albyhub-service', () => ({ createInvoice: mockCreateInvoice, lookupInvoice: mockLookupInvoice }));
 
 const svc = await import('./insurance-service');
 
@@ -169,6 +207,19 @@ function reset() {
   store.agents = [{ id: ULID, pubkey: PUBKEY }];
   mockCalculateAgentTrust.mockClear();
   mockComputeBehavioralFidelity.mockClear();
+  mockCreateInvoice.mockClear();
+  mockLookupInvoice.mockClear();
+  mockLookupInvoice.mockImplementation(async (_paymentHash: string) => ({ settled: true, amountSats: 999_999_999 }));
+}
+
+/** Bind a quoted policy held by ULID, covering scope_violation. */
+async function bindQuotedPolicy() {
+  const bind = await svc.bindPolicy({
+    agentId: ULID, coverageSats: 1_000_000, termDays: 30,
+    policyholderId: ULID, policyholderType: 'agent', coveredEvents: ['scope_violation'],
+  });
+  if (!bind.ok) throw new Error('bind failed');
+  return bind;
 }
 
 describe('insurance pipeline (#3 id/pubkey, #4 premium gating)', () => {
@@ -255,5 +306,115 @@ describe('insurance pipeline (#3 id/pubkey, #4 premium gating)', () => {
     if (!adj.ok) throw new Error('adjudicate failed');
     expect(adj.status).toBe('denied');
     expect(adj.payoutSats).toBe(0);
+  });
+});
+
+describe('premium collection (createPremiumInvoice / confirmPremiumPayment)', () => {
+  beforeEach(reset);
+
+  test('quoted policy -> premium invoice created -> settlement writes the paymentEvents row activatePolicy expects -> activate succeeds', async () => {
+    const bind = await bindQuotedPolicy();
+    const policy = await svc.getPolicy(bind.policyId);
+
+    const invoiced = await svc.createPremiumInvoice(bind.policyId);
+    expect(invoiced.ok).toBe(true);
+    if (!invoiced.ok) throw new Error('invoice failed');
+    expect(invoiced.invoice.amountSats).toBe(policy!.premiumSats);
+    expect(invoiced.invoice.paymentHash).toBeTruthy();
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
+    expect(mockCreateInvoice).toHaveBeenCalledWith(policy!.premiumSats, expect.stringContaining(bind.policyId));
+
+    // Not activatable until the invoice is actually settled.
+    expect(await svc.activatePolicy(bind.policyId)).toEqual({ ok: false, reason: 'premium_not_settled' });
+
+    const confirmed = await svc.confirmPremiumPayment(bind.policyId);
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) throw new Error('confirm failed');
+    expect(confirmed.settlement).toEqual({ policyId: bind.policyId, status: 'paid', amountSats: policy!.premiumSats });
+
+    // Exactly the shape activatePolicy queries for: a 'paid' paymentEvents row tagged
+    // { type: 'insurance_premium', policyId }.
+    const row = store.payment_events!.find((p) => p.paymentHash === invoiced.invoice.paymentHash);
+    expect(row).toMatchObject({
+      status: 'paid',
+      amountSats: policy!.premiumSats,
+      metadata: { type: 'insurance_premium', policyId: bind.policyId },
+    });
+
+    expect(await svc.activatePolicy(bind.policyId)).toEqual({ ok: true, status: 'active' });
+  });
+
+  test('createPremiumInvoice is idempotent — a second call while pending reuses the same invoice instead of double-charging', async () => {
+    const bind = await bindQuotedPolicy();
+
+    const first = await svc.createPremiumInvoice(bind.policyId);
+    const second = await svc.createPremiumInvoice(bind.policyId);
+    if (!first.ok || !second.ok) throw new Error('invoice failed');
+
+    expect(second.invoice.paymentHash).toBe(first.invoice.paymentHash);
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(1); // no duplicate Lightning invoice minted
+    expect(store.payment_events!.filter((p) => (p.metadata as any)?.policyId === bind.policyId)).toHaveLength(1);
+  });
+
+  test('confirmPremiumPayment fails closed when the invoice is not yet settled — no activation, no charge recorded as paid', async () => {
+    const bind = await bindQuotedPolicy();
+    await svc.createPremiumInvoice(bind.policyId);
+
+    mockLookupInvoice.mockImplementationOnce(async () => ({ settled: false, amountSats: 0 }));
+    const confirmed = await svc.confirmPremiumPayment(bind.policyId);
+    expect(confirmed).toEqual({ ok: false, reason: 'invoice_not_paid' });
+
+    expect(await svc.activatePolicy(bind.policyId)).toEqual({ ok: false, reason: 'premium_not_settled' });
+    expect(store.payment_events!.every((p) => p.status !== 'paid')).toBe(true);
+  });
+
+  test('a settled premium cannot be confirmed twice — second confirm does not re-settle or re-charge', async () => {
+    const bind = await bindQuotedPolicy();
+    await svc.createPremiumInvoice(bind.policyId);
+
+    const first = await svc.confirmPremiumPayment(bind.policyId);
+    expect(first.ok).toBe(true);
+
+    const second = await svc.confirmPremiumPayment(bind.policyId);
+    expect(second).toEqual({ ok: false, reason: 'no_pending_premium_invoice' });
+
+    // Still exactly one paymentEvents row for this policy, and it's 'paid' — no duplicate charge.
+    const rows = store.payment_events!.filter((p) => (p.metadata as any)?.policyId === bind.policyId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('paid');
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
+  });
+
+  test('createPremiumInvoice refuses to re-invoice a policy whose premium already settled', async () => {
+    const bind = await bindQuotedPolicy();
+    await svc.createPremiumInvoice(bind.policyId);
+    await svc.confirmPremiumPayment(bind.policyId);
+
+    const reinvoice = await svc.createPremiumInvoice(bind.policyId);
+    expect(reinvoice).toEqual({ ok: false, reason: 'premium_already_settled' });
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(1); // still just the original invoice
+  });
+
+  test('confirmPremiumPayment rejects an underpaid invoice', async () => {
+    const bind = await bindQuotedPolicy();
+    const invoiced = await svc.createPremiumInvoice(bind.policyId);
+    if (!invoiced.ok) throw new Error('invoice failed');
+
+    mockLookupInvoice.mockImplementationOnce(async () => ({
+      settled: true,
+      amountSats: invoiced.invoice.amountSats - 1,
+    }));
+    const confirmed = await svc.confirmPremiumPayment(bind.policyId);
+    expect(confirmed).toEqual({ ok: false, reason: 'invoice_amount_mismatch' });
+    expect(await svc.activatePolicy(bind.policyId)).toEqual({ ok: false, reason: 'premium_not_settled' });
+  });
+
+  test('createPremiumInvoice on an unknown policy fails closed', async () => {
+    expect(await svc.createPremiumInvoice('nope')).toEqual({ ok: false, reason: 'policy_not_found' });
+  });
+
+  test('confirmPremiumPayment with no invoice ever created fails closed', async () => {
+    const bind = await bindQuotedPolicy();
+    expect(await svc.confirmPremiumPayment(bind.policyId)).toEqual({ ok: false, reason: 'no_pending_premium_invoice' });
   });
 });

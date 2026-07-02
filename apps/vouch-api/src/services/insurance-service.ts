@@ -9,9 +9,11 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, insurancePolicies, insuranceClaims, behavioralTraces, paymentEvents } from '@percival/vouch-db';
 
 type BehavioralTraceRow = typeof behavioralTraces.$inferSelect;
+type PaymentEventRow = typeof paymentEvents.$inferSelect;
 import { calculateAgentTrust } from './trust-service';
 import { computeBehavioralFidelity } from './behavioral-trace-service';
 import { getPoolByAgent } from './staking-service';
+import { createInvoice, lookupInvoice } from './albyhub-service';
 import { resolveSubject } from '../lib/subject';
 import { quoteUnderwriting, type UnderwritingInputs, type UnderwritingQuote } from './underwriting';
 
@@ -174,8 +176,8 @@ export async function bindPolicy(req: BindRequest): Promise<
  * so no free coverage is ever granted.
  *
  * The premium is matched via `paymentEvents.metadata` ({ type: 'insurance_premium',
- * policyId }) so no schema change is required. Wiring the premium invoice/settlement belongs
- * to the money track (see follow-up note).
+ * policyId }) so no schema change is required. `createPremiumInvoice` / `confirmPremiumPayment`
+ * below are what write that row.
  */
 export async function activatePolicy(policyId: string): Promise<
   { ok: true; status: 'active' } | { ok: false; reason: string }
@@ -210,6 +212,138 @@ export async function activatePolicy(policyId: string): Promise<
 export async function getPolicy(id: string) {
   const [row] = await db.select().from(insurancePolicies).where(eq(insurancePolicies.id, id)).limit(1);
   return row ?? null;
+}
+
+// ── Premium Collection ──
+//
+// Mirrors credit-service's deposit create/confirm pair (createDeposit/confirmDeposit): a
+// platform-side Lightning invoice via Alby Hub, recorded as a `paymentEvents` row and settled
+// only once the invoice is verified paid. No dedicated `insurance_premium` payment purpose
+// exists in the `payment_purpose` enum yet (follow-up: add one + an index on
+// `metadata->>'policyId'` once the money-track schema is touched) — for now we reuse
+// `treasury_fee` as the generic incoming-to-platform bucket, the same convention
+// staking-service (`activity_fee_backing`) and fee-distribution-service
+// (`fee_distribution_record`) use for non-treasury-fee-literal collections, sub-classified via
+// `metadata.type`. `activatePolicy` above only inspects `metadata`, so this reuse is transparent
+// to it.
+
+/** Find the (at most one) premium paymentEvents row for a policy in a given status. Same
+ * defensive JS-side filter on jsonb metadata that `activatePolicy` uses above. */
+async function findPremiumPaymentEvent(
+  policyId: string,
+  status: 'pending' | 'paid',
+): Promise<PaymentEventRow | null> {
+  const rows = await db.select().from(paymentEvents).where(eq(paymentEvents.status, status));
+  const match = rows.find((p) => {
+    const meta = (p.metadata ?? {}) as Record<string, unknown>;
+    return meta.type === 'insurance_premium' && meta.policyId === policyId;
+  });
+  return match ?? null;
+}
+
+export interface PremiumInvoice {
+  policyId: string;
+  paymentHash: string;
+  bolt11: string;
+  amountSats: number;
+}
+
+/**
+ * Create (or, if one is already pending, return) the Lightning invoice for a quoted policy's
+ * premium. Idempotent so a retried request doesn't mint a new invoice — and a new pending
+ * `paymentEvents` row — every time.
+ */
+export async function createPremiumInvoice(policyId: string): Promise<
+  { ok: true; invoice: PremiumInvoice } | { ok: false; reason: string }
+> {
+  const policy = await getPolicy(policyId);
+  if (!policy) return { ok: false, reason: 'policy_not_found' };
+  if (policy.status !== 'quoted') return { ok: false, reason: 'policy_not_quoted' };
+  if (new Date() > policy.termEnd) return { ok: false, reason: 'policy_expired' };
+
+  // A settled premium awaiting admin activation must not be re-invoiced/double-charged.
+  if (await findPremiumPaymentEvent(policyId, 'paid')) {
+    return { ok: false, reason: 'premium_already_settled' };
+  }
+
+  const pending = await findPremiumPaymentEvent(policyId, 'pending');
+  if (pending) {
+    return {
+      ok: true,
+      invoice: {
+        policyId,
+        paymentHash: pending.paymentHash,
+        bolt11: pending.bolt11 ?? '',
+        amountSats: pending.amountSats,
+      },
+    };
+  }
+
+  const invoice = await createInvoice(policy.premiumSats, `Vouch insurance premium — policy ${policyId}`);
+
+  await db.insert(paymentEvents).values({
+    paymentHash: invoice.paymentHash,
+    bolt11: invoice.paymentRequest,
+    amountSats: policy.premiumSats,
+    purpose: 'treasury_fee',
+    status: 'pending',
+    metadata: { type: 'insurance_premium', policyId },
+  });
+
+  return {
+    ok: true,
+    invoice: { policyId, paymentHash: invoice.paymentHash, bolt11: invoice.paymentRequest, amountSats: policy.premiumSats },
+  };
+}
+
+export interface PremiumSettlement {
+  policyId: string;
+  status: 'paid';
+  amountSats: number;
+}
+
+/**
+ * Confirm a premium invoice after Lightning payment. Verifies the invoice was actually paid
+ * (network call runs OUTSIDE any DB transaction/lock — same #6 fix as credit-service's
+ * confirmDeposit) then atomically flips the `paymentEvents` row `pending` -> `paid`. The
+ * conditional `UPDATE ... WHERE status = 'pending' RETURNING` is the single winner of a
+ * double-confirm race, reusing confirmDeposit's idempotency pattern so a premium can never be
+ * settled twice. Coverage activation itself stays a separate admin/oracle step
+ * (`activatePolicy`) — this only records that the premium was paid.
+ */
+export async function confirmPremiumPayment(policyId: string): Promise<
+  { ok: true; settlement: PremiumSettlement } | { ok: false; reason: string }
+> {
+  const policy = await getPolicy(policyId);
+  if (!policy) return { ok: false, reason: 'policy_not_found' };
+  if (policy.status !== 'quoted') return { ok: false, reason: 'policy_not_quoted' };
+
+  const event = await findPremiumPaymentEvent(policyId, 'pending');
+  if (!event) return { ok: false, reason: 'no_pending_premium_invoice' };
+
+  const invoice = await lookupInvoice(event.paymentHash);
+  if (!invoice) {
+    return { ok: false, reason: 'invoice_unverifiable' };
+  }
+  if (!invoice.settled) {
+    return { ok: false, reason: 'invoice_not_paid' };
+  }
+  if (invoice.amountSats > 0 && invoice.amountSats < event.amountSats) {
+    return { ok: false, reason: 'invoice_amount_mismatch' };
+  }
+
+  const gated = await db
+    .update(paymentEvents)
+    .set({ status: 'paid', webhookReceivedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(paymentEvents.id, event.id), eq(paymentEvents.status, 'pending')))
+    .returning({ id: paymentEvents.id, amountSats: paymentEvents.amountSats });
+
+  if (gated.length === 0) {
+    // Lost the race to a concurrent confirm (or already settled) — not a new failure mode.
+    return { ok: false, reason: 'premium_already_settled' };
+  }
+
+  return { ok: true, settlement: { policyId, status: 'paid', amountSats: gated[0]!.amountSats } };
 }
 
 export interface FileClaimRequest {

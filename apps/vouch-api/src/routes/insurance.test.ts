@@ -11,15 +11,31 @@ const mockBind = mock(async () => ({ ok: true as const, policyId: 'p1', status: 
 const mockFileClaim = mock(async () => ({ ok: true as const, claimId: 'c1' }));
 const mockAdjudicate = mock(async () => ({ ok: true as const, status: 'approved' as const, provenanceVerified: true, payoutSats: 1, notes: '' }));
 const mockActivate = mock(async () => ({ ok: true as const, status: 'active' as const }));
+const mockCreatePremiumInvoice = mock(async () => ({
+  ok: true as const,
+  invoice: { policyId: 'p1', paymentHash: 'hash1', bolt11: 'lnbc1', amountSats: 500 },
+}));
+const mockConfirmPremiumPayment = mock(async () => ({
+  ok: true as const,
+  settlement: { policyId: 'p1', status: 'paid' as const, amountSats: 500 },
+}));
+
+// getPolicy is used by the premium-invoice/confirm routes for caller-binding, so it needs a
+// realistic per-test return — default to a policy held by 'me'.
+const mockGetPolicy = mock(async (_id: string) => ({
+  id: 'p1', policyholderId: 'me', policyholderType: 'agent' as const,
+}));
 
 mock.module('../services/insurance-service', () => ({
   quotePolicyForAgent: mock(async () => null),
   bindPolicy: mockBind,
   activatePolicy: mockActivate,
-  getPolicy: mock(async () => null),
+  getPolicy: mockGetPolicy,
   fileClaim: mockFileClaim,
   getClaim: mock(async () => null),
   adjudicateClaim: mockAdjudicate,
+  createPremiumInvoice: mockCreatePremiumInvoice,
+  confirmPremiumPayment: mockConfirmPremiumPayment,
   COVERED_EVENT_TYPES: ['scope_violation'],
 }));
 
@@ -59,6 +75,9 @@ describe('insurance route authorization (#4)', () => {
     mockFileClaim.mockClear();
     mockAdjudicate.mockClear();
     mockActivate.mockClear();
+    mockCreatePremiumInvoice.mockClear();
+    mockConfirmPremiumPayment.mockClear();
+    mockGetPolicy.mockClear();
   });
 
   test('bind rejects when caller is not the policyholder', async () => {
@@ -101,5 +120,38 @@ describe('insurance route authorization (#4)', () => {
     const res = await appAs('me').request('/insurance/policies/p1/activate', { method: 'POST' });
     expect(res.status).toBe(403);
     expect(mockActivate).not.toHaveBeenCalled();
+  });
+
+  test('premium-invoice rejects when caller is not the policyholder', async () => {
+    const res = await appAs('attacker').request('/insurance/policies/p1/premium-invoice', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(mockCreatePremiumInvoice).not.toHaveBeenCalled();
+  });
+
+  test('premium-invoice succeeds when caller is the policyholder', async () => {
+    const res = await appAs('me').request('/insurance/policies/p1/premium-invoice', { method: 'POST' });
+    expect(res.status).toBe(201);
+    expect(mockCreatePremiumInvoice).toHaveBeenCalledTimes(1);
+    expect(mockCreatePremiumInvoice).toHaveBeenCalledWith('p1');
+  });
+
+  test('premium-invoice 404s when the policy does not exist', async () => {
+    mockGetPolicy.mockImplementationOnce(async () => null as any);
+    const res = await appAs('me').request('/insurance/policies/missing/premium-invoice', { method: 'POST' });
+    expect(res.status).toBe(404);
+    expect(mockCreatePremiumInvoice).not.toHaveBeenCalled();
+  });
+
+  test('premium-invoice/confirm rejects when caller is not the policyholder', async () => {
+    const res = await appAs('attacker').request('/insurance/policies/p1/premium-invoice/confirm', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(mockConfirmPremiumPayment).not.toHaveBeenCalled();
+  });
+
+  test('premium-invoice/confirm succeeds when caller is the policyholder', async () => {
+    const res = await appAs('me').request('/insurance/policies/p1/premium-invoice/confirm', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(mockConfirmPremiumPayment).toHaveBeenCalledTimes(1);
+    expect(mockConfirmPremiumPayment).toHaveBeenCalledWith('p1');
   });
 });
