@@ -5,6 +5,7 @@
 // NON-CUSTODIAL: Stake locks = NWC budget authorizations. Funds stay in user wallets.
 
 import { eq, and, sql, isNull } from 'drizzle-orm';
+import { cappedDistributableSats } from '../lib/payout-math';
 import {
   db,
   vouchPools,
@@ -518,11 +519,27 @@ export async function getStakeStatus(stakeId: string) {
 
 // ── Activity Fees ──
 
+/**
+ * Backing proof for an activity fee.
+ * Present ONLY when the caller collected real sats into the platform node for this fee
+ * (e.g. a settled credit deposit or a debit from an already-funded credit balance).
+ * `sourcePaymentHash` links to the settled money-in for audit.
+ *
+ * C1 fix: fees WITHOUT backing are "unverified" (self-reported gross revenue via POST /fees).
+ * Unverified fees are still recorded for analytics but are excluded from payout math — they
+ * never write a settled backing row, so distributeYield cannot pay real sats against them.
+ */
+export interface FeeBacking {
+  collected: boolean;
+  sourcePaymentHash?: string;
+}
+
 /** Record an activity fee from an agent's revenue. Validates pool is active. */
 export async function recordActivityFee(
   agentId: string,
   actionType: string,
   grossRevenueSats: number,
+  backing?: FeeBacking,
 ): Promise<number> {
   assertPositiveInt(grossRevenueSats, 'gross_revenue_sats', MAX_FEE_SATS);
 
@@ -533,12 +550,36 @@ export async function recordActivityFee(
   const feeSats = Math.round((grossRevenueSats * pool.activityFeeRateBps) / 10000);
   if (feeSats <= 0) return 0;
 
-  await db.insert(activityFees).values({
-    poolId: pool.id,
-    agentId,
-    actionType,
-    grossRevenueSats,
-    feeSats,
+  await db.transaction(async (tx) => {
+    const [fee] = await tx
+      .insert(activityFees)
+      .values({
+        poolId: pool.id,
+        agentId,
+        actionType,
+        grossRevenueSats,
+        feeSats,
+      })
+      .returning({ id: activityFees.id });
+
+    // C1 fix (money-in-before-money-out): only fees backed by actually-collected sats get a
+    // settled backing row. distributeYield pays real sats only up to the sum of these rows,
+    // so unbacked self-reported fees cannot drain the treasury node.
+    if (backing?.collected) {
+      await tx.insert(paymentEvents).values({
+        paymentHash: `fee-backing-${fee!.id}`,
+        amountSats: feeSats,
+        purpose: 'treasury_fee',
+        status: 'paid',
+        poolId: pool.id,
+        webhookReceivedAt: new Date(),
+        metadata: {
+          type: 'activity_fee_backing',
+          activityFeeId: fee!.id,
+          sourcePaymentHash: backing.sourcePaymentHash ?? null,
+        },
+      });
+    }
   });
 
   return feeSats;
@@ -580,7 +621,29 @@ export async function distributeYield(
         ),
       );
 
-    const totalAmountSats = feeSumRows[0]?.total ?? 0;
+    const claimedFeeSats = feeSumRows[0]?.total ?? 0;
+    if (claimedFeeSats <= 0) return null;
+
+    // C1 fix (money-in-before-money-out): cap the distribution to the settled, collected
+    // backing for this pool. Backing rows are settled paymentEvents written by recordActivityFee
+    // ONLY for fees backed by real collected sats. Self-reported (unverified) fees have no
+    // backing row, so claimedFeeSats may exceed backedFeeSats — we only ever pay the backed part.
+    const backingRows = await tx
+      .select({ id: paymentEvents.id, amountSats: paymentEvents.amountSats })
+      .from(paymentEvents)
+      .where(
+        and(
+          eq(paymentEvents.poolId, poolId),
+          eq(paymentEvents.purpose, 'treasury_fee'),
+          eq(paymentEvents.status, 'paid'),
+          sql`${paymentEvents.metadata}->>'type' = 'activity_fee_backing'`,
+          sql`${paymentEvents.metadata}->>'consumedByDistribution' IS NULL`,
+        ),
+      )
+      .for('update');
+
+    const backedFeeSats = backingRows.reduce((sum, r) => sum + r.amountSats, 0);
+    const totalAmountSats = cappedDistributableSats(claimedFeeSats, backedFeeSats);
     if (totalAmountSats <= 0) return null;
 
     const platformFeeSats = Math.round((totalAmountSats * PLATFORM_FEE_BPS) / 10000);
@@ -625,6 +688,21 @@ export async function distributeYield(
           sql`${activityFees.createdAt} < ${periodEnd}`,
         ),
       );
+
+    // C1 fix: consume backing rows up to the distributed amount so the same collected sats
+    // cannot back a second distribution. Greedy consumption (locked FOR UPDATE above).
+    let backingToConsume = totalAmountSats;
+    for (const row of backingRows) {
+      if (backingToConsume <= 0) break;
+      await tx
+        .update(paymentEvents)
+        .set({
+          metadata: sql`COALESCE(${paymentEvents.metadata}, '{}'::jsonb) || ${JSON.stringify({ consumedByDistribution: distId })}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(eq(paymentEvents.id, row.id));
+      backingToConsume -= row.amountSats;
+    }
 
     // Integer-only largest-remainder distribution (H11 fix)
     const shares = activeStakes.map((s) => {
@@ -703,90 +781,46 @@ async function executeYieldPayouts(
   poolId: string,
   platformFeeSats: number,
 ): Promise<{ paid: number; pending: number; failed: number }> {
-  let paid = 0;
-  let pending = 0;
-  let failed = 0;
-
   try {
-    const { payYield } = await import('./nwc-service');
+    const { settlePayouts } = await import('../lib/settle-payouts');
 
     // Get all yield receipts for this distribution with stake + NWC info
     const receipts = await db
       .select({
-        receiptId: yieldReceipts.id,
         stakeId: yieldReceipts.stakeId,
         amountSats: yieldReceipts.amountSats,
         stakerId: stakes.stakerId,
-        stakerType: stakes.stakerType,
         nwcConnectionId: stakes.nwcConnectionId,
       })
       .from(yieldReceipts)
       .innerJoin(stakes, eq(stakes.id, yieldReceipts.stakeId))
       .where(eq(yieldReceipts.distributionId, distributionId));
 
-    for (const receipt of receipts) {
-      if (receipt.amountSats <= 0) continue;
+    // #8: delegate to the shared payout executor (one place for pay + record + retry).
+    const result = await settlePayouts(
+      receipts.map((r) => ({
+        amountSats: r.amountSats,
+        poolId,
+        stakeId: r.stakeId,
+        stakerId: r.stakerId,
+        nwcConnectionId: r.nwcConnectionId,
+        purpose: 'yield' as const,
+        pendingHash: `yield-${distributionId}-${r.stakeId}`,
+        metadata: { distributionId },
+      })),
+    );
 
-      if (receipt.nwcConnectionId) {
-        try {
-          const result = await payYield(receipt.nwcConnectionId, receipt.amountSats);
-
-          await db.insert(paymentEvents).values({
-            paymentHash: result.paymentHash,
-            amountSats: receipt.amountSats,
-            purpose: 'yield',
-            status: 'paid',
-            poolId,
-            stakeId: receipt.stakeId,
-            stakerId: receipt.stakerId,
-            nwcConnectionId: receipt.nwcConnectionId,
-            webhookReceivedAt: new Date(),
-          });
-
-          paid++;
-        } catch (err) {
-          console.error(`[staking] NWC yield payout failed for staker ${receipt.stakerId}:`, err instanceof Error ? err.message : err);
-          await db.insert(paymentEvents).values({
-            paymentHash: `yield-${distributionId}-${receipt.stakeId}`,
-            amountSats: receipt.amountSats,
-            purpose: 'yield',
-            status: 'pending',
-            poolId,
-            stakeId: receipt.stakeId,
-            stakerId: receipt.stakerId,
-            nwcConnectionId: receipt.nwcConnectionId,
-            metadata: { error: err instanceof Error ? err.message : String(err) },
-          });
-          failed++;
-        }
-      } else {
-        // No NWC connection — record as pending for later claim
-        await db.insert(paymentEvents).values({
-          paymentHash: `yield-${distributionId}-${receipt.stakeId}`,
-          amountSats: receipt.amountSats,
-          purpose: 'yield',
-          status: 'pending',
-          poolId,
-          stakeId: receipt.stakeId,
-          stakerId: receipt.stakerId,
-          metadata: { reason: 'no_nwc_connection' },
-        });
-        pending++;
-      }
-    }
-
-    // Platform fee goes to treasury (Alby Hub node balance)
-    // Already recorded in DB by distributeYield(); no Lightning transfer needed
-    // since treasury IS the Alby Hub node.
+    // Platform fee already recorded in treasury by distributeYield() — treasury IS the node.
     if (platformFeeSats > 0) {
       console.log(`[staking] Platform fee ${platformFeeSats} sats recorded in treasury`);
     }
+
+    console.log(`[staking] Yield payouts for dist ${distributionId}: ${result.paid} paid, ${result.pending} pending, ${result.failed} failed`);
+    return result;
   } catch (err) {
     console.warn('[staking] NWC yield payouts unavailable:', err instanceof Error ? err.message : err);
+    return { paid: 0, pending: 0, failed: 0 };
   }
-
-  console.log(`[staking] Yield payouts for dist ${distributionId}: ${paid} paid, ${pending} pending, ${failed} failed`);
-  return { paid, pending, failed };
 }
 
 // ── Slashing ──
@@ -804,7 +838,7 @@ export async function slashPool(
     throw new Error('slashBps must be an integer between 1 and 10000');
   }
 
-  return await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     // Lock pool row
     const [pool] = await tx
       .select()
@@ -819,22 +853,25 @@ export async function slashPool(
     const totalSlashedSats = Math.min(rawSlashSats, maxSlashSats);
 
     if (totalSlashedSats <= 0) {
-      return { totalSlashed: 0, affectedStakers: 0 };
+      return null;
     }
 
     const toAffectedSats = Math.round((totalSlashedSats * SLASH_TO_AFFECTED_BPS) / 10000);
     const toTreasurySats = totalSlashedSats - toAffectedSats;
 
     // Record slash event
-    await tx.insert(slashEvents).values({
-      poolId,
-      reason,
-      evidenceHash,
-      totalSlashedSats,
-      toAffectedSats,
-      toTreasurySats,
-      violationId,
-    });
+    const [slashRow] = await tx
+      .insert(slashEvents)
+      .values({
+        poolId,
+        reason,
+        evidenceHash,
+        totalSlashedSats,
+        toAffectedSats,
+        toTreasurySats,
+        violationId,
+      })
+      .returning({ id: slashEvents.id });
 
     // Lock and reduce each active stake proportionally
     const activeStakes = await tx
@@ -867,19 +904,57 @@ export async function slashPool(
     // Revenue comes from 1% activity fees on good behavior, not from bad events.
     // This aligns incentives with C > D: PL profits when agents work well.
 
-    // Execute slash charges via NWC (non-blocking, after DB transaction)
-    // The DB records the slash proportionally; actual Lightning charges happen asynchronously
-    executeSlashCharges(activeStakes, slashBps, reason).catch((err) => {
-      console.error('[staking] executeSlashCharges error:', err);
-    });
+    // C2 fix: earmark the affected-party payout instead of silently dropping it.
+    // Recorded as a pending liability so it is auditable and settleable once the affected
+    // party's wallet is resolved (see C2 design note — recipient resolution is a follow-up).
+    if (toAffectedSats > 0) {
+      await tx.insert(paymentEvents).values({
+        paymentHash: `affected-${slashRow!.id}`,
+        amountSats: toAffectedSats,
+        purpose: 'agent_payout',
+        status: 'pending',
+        poolId,
+        metadata: {
+          type: 'affected_party_payout',
+          slashId: slashRow!.id,
+          violationId: violationId ?? null,
+          reason,
+        },
+      });
+    }
 
-    return { totalSlashed: totalSlashedSats, affectedStakers: activeStakes.length };
+    return {
+      totalSlashedSats,
+      affectedStakers: activeStakes.length,
+      // Snapshot pre-slash amounts for the NWC charge computation (captured before commit).
+      slashedStakes: activeStakes.map((s) => ({
+        id: s.id,
+        stakerId: s.stakerId,
+        amountSats: s.amountSats,
+        nwcConnectionId: s.nwcConnectionId,
+      })),
+    };
   });
+
+  if (!outcome) {
+    return { totalSlashed: 0, affectedStakers: 0 };
+  }
+
+  // #9 fix: execute NWC slash charges AFTER the transaction commits — mirrors the yield path.
+  // Previously these fired inside the tx callback, so a commit failure could still charge real
+  // sats with no DB record.
+  executeSlashCharges(outcome.slashedStakes, slashBps, reason).catch((err) => {
+    console.error('[staking] executeSlashCharges error:', err);
+  });
+
+  return { totalSlashed: outcome.totalSlashedSats, affectedStakers: outcome.affectedStakers };
 }
 
 /**
  * Charge stakers via NWC after a slash event.
  * Non-blocking — DB state is already updated, this moves actual sats.
+ * C2 fix: failed charges are recorded as pending paymentEvents so retryPendingSlashCharges
+ * can re-attempt them instead of dropping the debt on the floor.
  */
 async function executeSlashCharges(
   slashedStakes: Array<{ id: string; stakerId: string; amountSats: number; nwcConnectionId: string | null }>,
@@ -903,11 +978,101 @@ async function executeSlashCharges(
         console.log(`[staking] Slash charge: ${chargeAmount} sats from staker ${s.stakerId}, hash: ${result.paymentHash}`);
       } catch (err) {
         console.error(`[staking] Slash charge failed for staker ${s.stakerId}:`, err instanceof Error ? err.message : err);
+        // C2 fix: record the failed charge for retry rather than dropping it.
+        await recordPendingSlashCharge(s.id, s.stakerId, s.nwcConnectionId, chargeAmount, reason);
       }
     }
   } catch (err) {
     console.warn('[staking] NWC slash charges unavailable:', err instanceof Error ? err.message : err);
   }
+}
+
+/** Record a failed slash charge as a pending paymentEvent for later retry (C2). */
+async function recordPendingSlashCharge(
+  stakeId: string,
+  stakerId: string,
+  nwcConnectionId: string,
+  chargeAmount: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.insert(paymentEvents).values({
+      paymentHash: `slash-retry-${stakeId}-${Date.now()}`,
+      amountSats: chargeAmount,
+      purpose: 'treasury_fee',
+      status: 'pending',
+      stakeId,
+      stakerId,
+      nwcConnectionId,
+      metadata: { type: 'slash_charge_retry', reason, attempts: 1 },
+    });
+  } catch (err) {
+    console.error('[staking] Failed to record pending slash charge:', err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Retry slash charges that previously failed (C2). Called by a periodic cron.
+ * Re-attempts executeSlash for each pending 'slash_charge_retry' paymentEvent; marks 'paid'
+ * on success, bumps the attempt counter (and gives up after MAX attempts) on failure.
+ */
+const MAX_SLASH_RETRY_ATTEMPTS = 5;
+
+export async function retryPendingSlashCharges(limit = 50): Promise<{ retried: number; paid: number; failed: number }> {
+  const pending = await db
+    .select({
+      id: paymentEvents.id,
+      amountSats: paymentEvents.amountSats,
+      nwcConnectionId: paymentEvents.nwcConnectionId,
+      stakerId: paymentEvents.stakerId,
+      metadata: paymentEvents.metadata,
+    })
+    .from(paymentEvents)
+    .where(
+      and(
+        eq(paymentEvents.purpose, 'treasury_fee'),
+        eq(paymentEvents.status, 'pending'),
+        sql`${paymentEvents.metadata}->>'type' = 'slash_charge_retry'`,
+      ),
+    )
+    .limit(limit);
+
+  if (pending.length === 0) return { retried: 0, paid: 0, failed: 0 };
+
+  const { executeSlash } = await import('./nwc-service');
+  let paid = 0;
+  let failed = 0;
+
+  for (const row of pending) {
+    if (!row.nwcConnectionId) continue;
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    const attempts = Number(meta.attempts ?? 1);
+    const reason = String(meta.reason ?? 'slash retry');
+
+    try {
+      const result = await executeSlash(row.nwcConnectionId, row.amountSats, reason);
+      await db
+        .update(paymentEvents)
+        .set({ status: 'paid', paymentHash: result.paymentHash, webhookReceivedAt: new Date(), updatedAt: new Date() })
+        .where(eq(paymentEvents.id, row.id));
+      paid++;
+    } catch (err) {
+      const nextAttempts = attempts + 1;
+      const giveUp = nextAttempts > MAX_SLASH_RETRY_ATTEMPTS;
+      await db
+        .update(paymentEvents)
+        .set({
+          status: giveUp ? 'failed' : 'pending',
+          metadata: sql`COALESCE(${paymentEvents.metadata}, '{}'::jsonb) || ${JSON.stringify({ attempts: nextAttempts, lastError: err instanceof Error ? err.message : String(err) })}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(eq(paymentEvents.id, row.id));
+      failed++;
+    }
+  }
+
+  console.log(`[staking] Slash charge retry: ${paid} paid, ${failed} still failing (of ${pending.length})`);
+  return { retried: pending.length, paid, failed };
 }
 
 // ── Vouch Score (Enhanced Trust Score) ──
