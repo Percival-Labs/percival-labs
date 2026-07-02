@@ -8,6 +8,8 @@ import { loadIdentities, type AgentIdentity } from './identity/loader';
 import { TaskDAG, type TaskNode, type TaskStatus, MAX_SUBTASKS_PER_DECOMPOSITION, WatcherBlockedError } from './tasks/dag';
 import { createEvidence, type Evidence } from './tasks/evidence';
 import { scoreAndReport } from './tasks/vouch-reporter';
+import { scoreAndPublish } from './tasks/mcp-t-reporter';
+import { resolveAgentTier, isToolAllowedAtTier } from './policy/trust-gate';
 import { matchTaskToAgent } from './tasks/scheduler';
 import { executeAgentTask, type AgentExecutionResult } from './agent';
 import { initMemoryDatabase } from '@percival/agent-memory';
@@ -551,6 +553,11 @@ export class AgentTeam {
       }
     }
 
+    // FIX #3: Resolve the agent's trust tier ONCE, before execution, so the
+    // tool callback can enforce access synchronously. Falls back to the declared
+    // tier if MCP-T is unreachable (fail to the least-privileged declared tier).
+    const resolvedTier = await resolveAgentTier(agentId, agent.trustTier);
+
     const onToolUse = (toolName: string, input: Record<string, string>) => {
       eventBus.publish('tool_use', {
         agentName: routedAgent.name,
@@ -558,6 +565,24 @@ export class AgentTeam {
         toolName,
         input,
       });
+
+      // FIX #3: BLOCKING pre-execution gate. `onToolUse` fires synchronously in
+      // providers.ts immediately BEFORE the tool executes, so throwing here aborts
+      // the tool call (and the task) before any side effect — the gate is now
+      // enforced, not merely logged after the fact.
+      if (!isToolAllowedAtTier(resolvedTier, toolName)) {
+        console.warn(
+          `[trust-gate] BLOCKED tool "${toolName}" for agent "${agentId}" (tier: ${resolvedTier})`,
+        );
+        eventBus.publish('watcher_blocked', {
+          taskId: task.id,
+          actor: agentId,
+          rule: `trust-gate: tool "${toolName}" requires higher tier than "${resolvedTier}"`,
+        });
+        throw new Error(
+          `trust-gate: tool "${toolName}" is not permitted at tier "${resolvedTier}"`,
+        );
+      }
     };
 
     const result = await executeAgentTask(
@@ -601,9 +626,12 @@ export class AgentTeam {
           summary: evidence.summary,
         });
 
-        // Score evidence and report to Vouch (async, non-blocking)
+        // Score evidence and report to Vouch + MCP-T (async, non-blocking)
         scoreAndReport(evidence).catch((err) => {
-          console.warn(`[team] Evidence scoring failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+          console.warn(`[team] Vouch evidence scoring failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+        });
+        scoreAndPublish(evidence).catch((err) => {
+          console.warn(`[team] MCP-T publish failed (non-blocking): ${err instanceof Error ? err.message : err}`);
         });
       } catch (err) {
         if (err instanceof WatcherBlockedError) {
