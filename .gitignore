@@ -23,3 +23,27 @@ $HOME/
 scripts/clawstr/
 scripts/x/
 infrastructure/litellm/.env
+data/discrawl/
+tools/discrawl/
+
+# Private documents — financial, legal, internal strategy, outreach
+# NEVER commit business strategy, financial models, partner comms, or outreach drafts
+.private-docs/
+docs/financial-architecture.md
+docs/ian-briefing.md
+docs/staker-economics.md
+docs/vouch-response-to-ian.md
+docs/nsr-data-staking-proposal.md
+docs/nsr-protocol-spec-draft.md
+docs/nsr-implementation-scope.md
+docs/anthropic-*.md
+docs/openai-*.md
+docs/deepmind-*.md
+docs/meta-email.md
+docs/xai-email.md
+docs/nate-jones-*.md
+docs/neuron-collaboration-proposal.md
+docs/gateway-budget-analysis.md
+outreach/
+logs/
+.worktrees/
