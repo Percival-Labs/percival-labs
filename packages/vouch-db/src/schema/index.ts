@@ -18,3 +18,6 @@ export * from './agentscore';
 export * from './acp-checkout';
 export * from './stripe';
 export * from './behavioral-traces';
+export * from './trust-contagion';
+export * from './ai-bom';
+export * from './insurance';
