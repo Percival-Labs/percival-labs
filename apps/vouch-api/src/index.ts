@@ -37,6 +37,7 @@ import acpSellerRoutes from './routes/acp-seller';
 import stripeBridgeRoutes from './routes/stripe-bridge';
 import mcpTRoutes from './routes/mcp-t';
 import insuranceRoutes from './routes/insurance';
+import { runMigrations } from '@percival/vouch-db';
 import { initTreasury, reconcileTreasury, runTreasuryRebalance, checkYieldReinvestment } from './services/treasury-service';
 import { cleanupExpiredPendingStakes, retryPendingSlashCharges } from './services/staking-service';
 import { revalidateActiveStakeLocks } from './services/nwc-service';
@@ -238,6 +239,18 @@ if (pendingStakeCleanupInterval && typeof pendingStakeCleanupInterval === 'objec
 }
 
 // ── Initialize Treasury wallet (non-blocking) ──
+// ── Database migrations (BEFORE anything touches tables; fail-closed) ──
+// Production drifted 17 tables behind the committed schema because no deploy step ever ran
+// migrations (repaired + baselined 2026-07-03). Top-level await: Bun finishes this before the
+// default-export server accepts traffic. A failed migration throws and the deploy crashes
+// loudly — a half-migrated database serving requests is the worse outcome. Opt out with
+// DB_MIGRATE_ON_START=false (e.g. running against a DB you're mid-surgery on).
+if (process.env.DB_MIGRATE_ON_START !== 'false') {
+  const migrateStart = Date.now();
+  await runMigrations();
+  console.log(`[vouch-api] DB migrations up to date (${Date.now() - migrateStart}ms)`);
+}
+
 initTreasury().catch((err) => {
   console.warn('[vouch-api] Treasury init failed (Lightning payments unavailable):', err instanceof Error ? err.message : err);
 });
