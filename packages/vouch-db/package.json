@@ -12,6 +12,7 @@
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
     "studio": "drizzle-kit studio",
+    "db:check": "bash scripts/db-check.sh",
     "test": "bun test"
   },
   "dependencies": {
