@@ -1,0 +1,17 @@
+{
+  "name": "@percival/acp-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@percival/vouch-db": "workspace:*",
+    "viem": "^2.46.2",
+    "drizzle-orm": "^0.38.0"
+  }
+}

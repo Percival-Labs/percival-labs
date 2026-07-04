@@ -47,3 +47,12 @@ docs/gateway-budget-analysis.md
 outreach/
 logs/
 .worktrees/
+
+# ── Monorepo hygiene (2026-07-04, committing the 11 untracked workspaces) ──
+# Literal $HOME dirs: unquoted-shell-variable bug artifacts holding misdirected
+# PAI harness state (.claude caches, session data) — never source, never committed.
+**/$HOME/
+# Tauri Rust build output (engram-desktop had 9k of it)
+**/src-tauri/target/
+# Stripe app build output
+apps/vouch-stripe/.build/
