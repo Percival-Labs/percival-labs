@@ -19,6 +19,11 @@ const mockConfirmPremiumPayment = mock(async () => ({
   ok: true as const,
   settlement: { policyId: 'p1', status: 'paid' as const, amountSats: 500 },
 }));
+const mockSettleClaim = mock(async () => ({
+  ok: true as const,
+  settlement: { claimId: 'c1', payoutSats: 1000, paymentStatus: 'pending' as const },
+}));
+const mockGetReserve = mock(async () => 42_000);
 
 // getPolicy is used by the premium-invoice/confirm routes for caller-binding, so it needs a
 // realistic per-test return — default to a policy held by 'me'.
@@ -36,6 +41,8 @@ mock.module('../services/insurance-service', () => ({
   adjudicateClaim: mockAdjudicate,
   createPremiumInvoice: mockCreatePremiumInvoice,
   confirmPremiumPayment: mockConfirmPremiumPayment,
+  settleClaim: mockSettleClaim,
+  getInsuranceReserveSats: mockGetReserve,
   COVERED_EVENT_TYPES: ['scope_violation'],
 }));
 
@@ -153,5 +160,24 @@ describe('insurance route authorization (#4)', () => {
     expect(res.status).toBe(200);
     expect(mockConfirmPremiumPayment).toHaveBeenCalledTimes(1);
     expect(mockConfirmPremiumPayment).toHaveBeenCalledWith('p1');
+  });
+
+  test('settle rejects non-admin callers — a claimant must never trigger their own payout', async () => {
+    const res = await appAs('me').request('/insurance/claims/c1/settle', json({}));
+    expect(res.status).toBe(403);
+    expect(mockSettleClaim).not.toHaveBeenCalled();
+  });
+
+  test('settle succeeds for the admin and passes the optional wallet through', async () => {
+    const res = await appAs('admin-agent').request('/insurance/claims/c1/settle', json({ nwcConnectionId: 'nwc-9' }));
+    expect(res.status).toBe(200);
+    expect(mockSettleClaim).toHaveBeenCalledWith('c1', { nwcConnectionId: 'nwc-9' });
+  });
+
+  test('reserve telemetry is admin-only', async () => {
+    expect((await appAs('me').request('/insurance/reserve')).status).toBe(403);
+    const ok = await appAs('admin-agent').request('/insurance/reserve');
+    expect(ok.status).toBe(200);
+    expect(mockGetReserve).toHaveBeenCalledTimes(1);
   });
 });

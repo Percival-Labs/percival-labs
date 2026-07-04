@@ -191,6 +191,10 @@ mock.module('./behavioral-trace-service', () => ({ computeBehavioralFidelity: mo
 mock.module('./staking-service', () => ({ getPoolByAgent: mockGetPoolByAgent }));
 mock.module('./albyhub-service', () => ({ createInvoice: mockCreateInvoice, lookupInvoice: mockLookupInvoice }));
 
+// NWC push for claim settlement (settleClaim's best-effort Lightning leg).
+const mockPayYield = mock(async (_nwcId: string, sats: number) => ({ paymentHash: `paid-${sats}` }));
+mock.module('./nwc-service', () => ({ payYield: mockPayYield }));
+
 const svc = await import('./insurance-service');
 
 const ULID = '01HVAGENT0000000000000000';
@@ -210,6 +214,8 @@ function reset() {
   mockCreateInvoice.mockClear();
   mockLookupInvoice.mockClear();
   mockLookupInvoice.mockImplementation(async (_paymentHash: string) => ({ settled: true, amountSats: 999_999_999 }));
+  mockPayYield.mockClear();
+  mockPayYield.mockImplementation(async (_nwcId: string, sats: number) => ({ paymentHash: `paid-${sats}` }));
 }
 
 /** Bind a quoted policy held by ULID, covering scope_violation. */
@@ -416,5 +422,127 @@ describe('premium collection (createPremiumInvoice / confirmPremiumPayment)', ()
   test('confirmPremiumPayment with no invoice ever created fails closed', async () => {
     const bind = await bindQuotedPolicy();
     expect(await svc.confirmPremiumPayment(bind.policyId)).toEqual({ ok: false, reason: 'no_pending_premium_invoice' });
+  });
+});
+
+describe('claim settlement — the money leg + reserve invariant', () => {
+  beforeEach(reset);
+
+  /** Full pipeline to an APPROVED claim: bind → premium → activate → claim → adjudicate. */
+  async function approvedClaim() {
+    const bind = await bindQuotedPolicy();
+    const inv = await svc.createPremiumInvoice(bind.policyId);
+    if (!inv.ok) throw new Error('invoice failed');
+    const conf = await svc.confirmPremiumPayment(bind.policyId);
+    if (!conf.ok) throw new Error('confirm failed');
+    const act = await svc.activatePolicy(bind.policyId);
+    if (!act.ok) throw new Error('activate failed');
+    const filed = await svc.fileClaim({
+      policyId: bind.policyId, claimantId: ULID, claimantType: 'agent',
+      claimType: 'scope_violation', claimedAmountSats: 500_000, evidenceEventIds: ['evt-scope-1'],
+    });
+    if (!filed.ok) throw new Error('file failed');
+    const adj = await svc.adjudicateClaim(filed.claimId);
+    if (!adj.ok || adj.status !== 'approved') throw new Error('adjudication did not approve');
+    return { policyId: bind.policyId, claimId: filed.claimId, payoutSats: adj.payoutSats };
+  }
+
+  /** Fund the reserve directly: a settled premium collection row (as confirmPremiumPayment writes). */
+  function seedReserve(sats: number) {
+    store.payment_events!.push({
+      id: genId(), paymentHash: `seed-${sats}-${genId()}`, amountSats: sats,
+      purpose: 'treasury_fee', status: 'paid', metadata: { type: 'insurance_premium', policyId: 'seed' },
+    });
+  }
+
+  test('reserve = settled premiums minus committed payouts (pending payouts count)', async () => {
+    seedReserve(1_000_000);
+    seedReserve(250_000);
+    store.payment_events!.push({
+      id: genId(), paymentHash: 'claimpayout:x', amountSats: 300_000,
+      purpose: 'agent_payout', status: 'pending', metadata: { type: 'insurance_claim_payout', claimId: 'x' },
+    });
+    expect(await svc.getInsuranceReserveSats()).toBe(950_000);
+  });
+
+  test('THE INVARIANT: settlement is refused when the payout exceeds the reserve', async () => {
+    // Only the policy's own (small) premium has ever been collected — a 500k payout must not fly.
+    const { claimId } = await approvedClaim();
+    const res = await svc.settleClaim(claimId);
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error('unreachable');
+    expect(res.reason).toBe('insufficient_reserve');
+    // Nothing moved, nothing flipped: the claim is still approved and no payout row exists.
+    expect((await svc.getClaim(claimId))!.status).toBe('approved');
+    expect(store.payment_events!.some((p) => p.metadata?.type === 'insurance_claim_payout')).toBe(false);
+  });
+
+  test('funded reserve, no wallet: payout is committed as pending and the claim flips to paid', async () => {
+    seedReserve(10_000_000);
+    const { claimId, payoutSats } = await approvedClaim();
+    const res = await svc.settleClaim(claimId);
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('unreachable');
+    expect(res.settlement.payoutSats).toBe(payoutSats);
+    expect(res.settlement.paymentStatus).toBe('pending'); // awaiting wallet/claim — never dropped
+    expect((await svc.getClaim(claimId))!.status).toBe('paid');
+    const row = store.payment_events!.find((p) => p.metadata?.type === 'insurance_claim_payout');
+    expect(row!.amountSats).toBe(payoutSats);
+    expect(row!.metadata.reason).toBe('no_nwc_connection');
+    // The committed payout now reduces the reserve.
+    expect(await svc.getInsuranceReserveSats()).toBeLessThan(10_000_000);
+  });
+
+  test('idempotent: a second settle returns the same settlement and mints no second payout', async () => {
+    seedReserve(10_000_000);
+    const { claimId, payoutSats } = await approvedClaim();
+    await svc.settleClaim(claimId);
+    const again = await svc.settleClaim(claimId);
+    expect(again.ok).toBe(true);
+    if (!again.ok) throw new Error('unreachable');
+    expect(again.settlement.payoutSats).toBe(payoutSats);
+    expect(store.payment_events!.filter((p) => p.metadata?.type === 'insurance_claim_payout')).toHaveLength(1);
+  });
+
+  test('with a wallet: sats push over NWC and the row settles paid with the real hash', async () => {
+    seedReserve(10_000_000);
+    const { claimId, payoutSats } = await approvedClaim();
+    const res = await svc.settleClaim(claimId, { nwcConnectionId: 'nwc-1' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('unreachable');
+    expect(res.settlement.paymentStatus).toBe('paid');
+    expect(mockPayYield).toHaveBeenCalledWith('nwc-1', payoutSats);
+    const row = store.payment_events!.find((p) => p.metadata?.type === 'insurance_claim_payout');
+    expect(row!.status).toBe('paid');
+    expect(row!.paymentHash).toBe(`paid-${payoutSats}`);
+  });
+
+  test('a failed Lightning push degrades to pending with the error recorded — never lost', async () => {
+    seedReserve(10_000_000);
+    mockPayYield.mockImplementationOnce(async () => { throw new Error('wallet offline'); });
+    const { claimId } = await approvedClaim();
+    const res = await svc.settleClaim(claimId, { nwcConnectionId: 'nwc-1' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('unreachable');
+    expect(res.settlement.paymentStatus).toBe('pending');
+    const row = store.payment_events!.find((p) => p.metadata?.type === 'insurance_claim_payout');
+    expect(row!.status).toBe('pending');
+    expect(row!.metadata.lastPayError).toContain('wallet offline');
+  });
+
+  test('only approved claims settle: filed and denied claims are refused', async () => {
+    seedReserve(10_000_000);
+    // Fresh ACTIVE policy, claim filed but NOT adjudicated — settlement must refuse it.
+    const bind = await bindQuotedPolicy();
+    await svc.createPremiumInvoice(bind.policyId);
+    await svc.confirmPremiumPayment(bind.policyId);
+    await svc.activatePolicy(bind.policyId);
+    const filed = await svc.fileClaim({
+      policyId: bind.policyId, claimantId: ULID, claimantType: 'agent',
+      claimType: 'scope_violation', claimedAmountSats: 100_000, evidenceEventIds: ['evt-scope-1'],
+    });
+    if (!filed.ok) throw new Error('file failed');
+    expect(await svc.settleClaim(filed.claimId)).toEqual({ ok: false, reason: 'claim_not_approved' });
+    expect(await svc.settleClaim('ghost')).toEqual({ ok: false, reason: 'claim_not_found' });
   });
 });

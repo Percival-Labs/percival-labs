@@ -346,6 +346,141 @@ export async function confirmPremiumPayment(policyId: string): Promise<
   return { ok: true, settlement: { policyId, status: 'paid', amountSats: gated[0]!.amountSats } };
 }
 
+// ── Claim Settlement (the money leg) ──
+//
+// adjudicateClaim (below) rules on evidence and sets payoutSats — but ruling is not paying.
+// settleClaim is where sats actually move, under the same money-in-before-out invariant the
+// C1 treasury fix established: a payout may never exceed the INSURANCE RESERVE — premiums
+// actually collected minus payouts already committed. No dipping into the treasury, staking
+// pools, or uncollected quotes. If the reserve can't cover an approved claim, settlement is
+// refused loudly (`insufficient_reserve`) for a human to resolve — never a silent overdraft.
+//
+// Crash-safety ordering: the payout INTENT row (a pending paymentEvents row with the
+// deterministic hash `claimpayout:<claimId>`) is written BEFORE the claim flips to `paid`,
+// so a crash between the two leaves committed money visible to the reserve computation and a
+// re-call converges (the intent row is found, not re-inserted — and in Postgres the
+// payment_hash unique constraint makes the double-insert impossible even under a race).
+
+/** Sum of settled premium collections minus payouts already committed (paid OR pending —
+ *  an intent is committed money). The bound every settlement must respect. */
+export async function getInsuranceReserveSats(): Promise<number> {
+  const rows = await db.select().from(paymentEvents);
+  let reserve = 0;
+  for (const p of rows) {
+    const meta = (p.metadata ?? {}) as Record<string, unknown>;
+    if (meta.type === 'insurance_premium' && p.status === 'paid') {
+      reserve += Number(p.amountSats ?? 0);
+    } else if (meta.type === 'insurance_claim_payout' && (p.status === 'paid' || p.status === 'pending')) {
+      reserve -= Number(p.amountSats ?? 0);
+    }
+  }
+  return reserve;
+}
+
+/** The (at most one) payout paymentEvents row for a claim, any status. */
+async function findPayoutPaymentEvent(claimId: string): Promise<PaymentEventRow | null> {
+  const rows = await db.select().from(paymentEvents);
+  const match = rows.find((p) => {
+    const meta = (p.metadata ?? {}) as Record<string, unknown>;
+    return meta.type === 'insurance_claim_payout' && meta.claimId === claimId;
+  });
+  return match ?? null;
+}
+
+export interface ClaimSettlement {
+  claimId: string;
+  payoutSats: number;
+  /** 'paid' = sats pushed over Lightning now; 'pending' = recorded, awaiting wallet/claim —
+   *  the same best-effort posture as settle-payouts (never silently dropped). */
+  paymentStatus: 'paid' | 'pending';
+}
+
+/**
+ * Settle an APPROVED claim: enforce the reserve invariant, commit the payout intent, flip the
+ * claim to `paid`, then (when a wallet is known) push the sats over NWC. Idempotent — a claim
+ * already settled returns its existing settlement instead of paying twice.
+ */
+export async function settleClaim(
+  claimId: string,
+  opts: { nwcConnectionId?: string } = {},
+): Promise<{ ok: true; settlement: ClaimSettlement } | { ok: false; reason: string; reserveSats?: number }> {
+  const claim = await getClaim(claimId);
+  if (!claim) return { ok: false, reason: 'claim_not_found' };
+  if (claim.status === 'paid') {
+    const existing = await findPayoutPaymentEvent(claimId);
+    return existing
+      ? { ok: true, settlement: { claimId, payoutSats: existing.amountSats, paymentStatus: existing.status === 'paid' ? 'paid' : 'pending' } }
+      : { ok: false, reason: 'settled_but_no_payout_record' }; // inconsistent — human review
+  }
+  if (claim.status !== 'approved') return { ok: false, reason: 'claim_not_approved' };
+  const payoutSats = Number(claim.payoutSats ?? 0);
+  if (payoutSats <= 0) return { ok: false, reason: 'no_payout_amount' };
+
+  // 1. The invariant: committed money only. (Narrow cross-claim race window is closed by the
+  //    admin-gated, low-volume nature of settlement + the per-claim unique hash; a genuinely
+  //    concurrent overdraft would need two DIFFERENT claims in the same instant — acceptable
+  //    residual, documented.)
+  let intent = await findPayoutPaymentEvent(claimId);
+  if (!intent) {
+    const reserve = await getInsuranceReserveSats();
+    if (payoutSats > reserve) {
+      return { ok: false, reason: 'insufficient_reserve', reserveSats: reserve };
+    }
+    // 2. Commit the intent BEFORE flipping the claim (crash-safe ordering; see header). A
+    //    unique-hash collision means a concurrent settle won the insert — either way the row
+    //    is re-read below, so both racers converge on the same single money record.
+    try {
+      await db.insert(paymentEvents).values({
+        paymentHash: `claimpayout:${claimId}`,
+        amountSats: payoutSats,
+        purpose: 'agent_payout',
+        status: 'pending',
+        metadata: {
+          type: 'insurance_claim_payout',
+          claimId,
+          policyId: claim.policyId,
+          claimantId: claim.claimantId,
+          ...(opts.nwcConnectionId ? {} : { reason: 'no_nwc_connection' }),
+        },
+      });
+    } catch { /* payment_events_payment_hash_unique — the concurrent winner's row is used */ }
+    intent = await findPayoutPaymentEvent(claimId);
+    if (!intent) return { ok: false, reason: 'payout_commit_failed' };
+  }
+
+  // 3. Flip the claim. Conditional so a concurrent settle can't double-flip; either way the
+  //    payout row above is the single money record.
+  await db
+    .update(insuranceClaims)
+    .set({ status: 'paid', updatedAt: new Date() })
+    .where(and(eq(insuranceClaims.id, claimId), eq(insuranceClaims.status, 'approved')));
+
+  // 4. Best-effort Lightning push, OUTSIDE any lock (network never runs under a DB gate —
+  //    the #6 discipline). Failure leaves the pending intent for retry; nothing is lost.
+  if (opts.nwcConnectionId && intent.status === 'pending') {
+    try {
+      const { payYield } = await import('./nwc-service');
+      const result = await payYield(opts.nwcConnectionId, payoutSats);
+      await db
+        .update(paymentEvents)
+        .set({ status: 'paid', paymentHash: result.paymentHash, nwcConnectionId: opts.nwcConnectionId, webhookReceivedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(paymentEvents.id, intent.id), eq(paymentEvents.status, 'pending')));
+      return { ok: true, settlement: { claimId, payoutSats, paymentStatus: 'paid' } };
+    } catch (err) {
+      await db
+        .update(paymentEvents)
+        .set({
+          metadata: { ...((intent.metadata ?? {}) as Record<string, unknown>), lastPayError: err instanceof Error ? err.message : String(err) },
+          updatedAt: new Date(),
+        })
+        .where(eq(paymentEvents.id, intent.id));
+      return { ok: true, settlement: { claimId, payoutSats, paymentStatus: 'pending' } };
+    }
+  }
+
+  return { ok: true, settlement: { claimId, payoutSats, paymentStatus: intent.status === 'paid' ? 'paid' : 'pending' } };
+}
+
 export interface FileClaimRequest {
   policyId: string;
   claimantId: string;

@@ -20,6 +20,8 @@ import {
   fileClaim,
   getClaim,
   adjudicateClaim,
+  settleClaim,
+  getInsuranceReserveSats,
   createPremiumInvoice,
   confirmPremiumPayment,
   COVERED_EVENT_TYPES,
@@ -235,6 +237,47 @@ app.post('/claims/:id/adjudicate', async (c) => {
   } catch (err) {
     console.error('[vouch-api] POST /insurance/claims/:id/adjudicate error:', err);
     return error(c, 500, 'INTERNAL_ERROR', 'Failed to adjudicate claim');
+  }
+});
+
+const SettleSchema = z.object({
+  nwcConnectionId: z.string().min(1).optional(),
+});
+
+/**
+ * POST /claims/:id/settle — admin/oracle: move the money for an APPROVED claim.
+ * Adjudication ruled; this pays — bounded by the insurance reserve (collected premiums minus
+ * payouts already committed), never the treasury or staked collateral. Same admin gate as
+ * adjudicate: a claimant must never trigger their own payout.
+ */
+app.post('/claims/:id/settle', async (c) => {
+  try {
+    if (!callerIsAdmin(c)) return error(c, 403, 'FORBIDDEN', 'Settlement requires admin access');
+    const parsed = SettleSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return error(c, 400, 'INVALID_PARAMS', parsed.error.errors[0]?.message ?? 'Invalid body');
+    const result = await settleClaim(c.req.param('id'), parsed.data);
+    if (!result.ok) {
+      return error(c, 422, 'CANNOT_SETTLE', result.reason + (result.reserveSats !== undefined ? ` (reserve: ${result.reserveSats} sats)` : ''));
+    }
+    return success(c, {
+      claim_id: result.settlement.claimId,
+      payout_sats: result.settlement.payoutSats,
+      payment_status: result.settlement.paymentStatus,
+    });
+  } catch (err) {
+    console.error('[vouch-api] POST /insurance/claims/:id/settle error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to settle claim');
+  }
+});
+
+/** GET /reserve — the insurance reserve position (admin: money telemetry, not public data) */
+app.get('/reserve', async (c) => {
+  try {
+    if (!callerIsAdmin(c)) return error(c, 403, 'FORBIDDEN', 'Reserve telemetry requires admin access');
+    return success(c, { reserve_sats: await getInsuranceReserveSats() });
+  } catch (err) {
+    console.error('[vouch-api] GET /insurance/reserve error:', err);
+    return error(c, 500, 'INTERNAL_ERROR', 'Failed to compute reserve');
   }
 });
 
