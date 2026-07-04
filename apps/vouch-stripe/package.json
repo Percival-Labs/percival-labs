@@ -1,0 +1,21 @@
+{
+  "name": "vouch-stripe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vouch trust verification for Stripe — trust scores for agent commerce across ACP, Issuing, and x402",
+  "scripts": {
+    "dev": "stripe apps start",
+    "build": "stripe apps build",
+    "upload": "stripe apps upload"
+  },
+  "dependencies": {
+    "@stripe/ui-extension-sdk": "^2.2.0",
+    "react": "17.0.2",
+    "react-dom": "17.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "17.0.2",
+    "@types/react-dom": "17.0.2",
+    "typescript": "^5.8.3"
+  }
+}

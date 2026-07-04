@@ -1,0 +1,67 @@
+{
+  "id": "com.percival-labs.vouch",
+  "version": "1.0.0",
+  "name": "Vouch Trust Scoring",
+  "icon": "./icon.png",
+  "distribution_type": "public",
+  "stripe_api_access_type": "oauth",
+  "allowed_redirect_uris": [
+    "https://percivalvouch-api-production.up.railway.app/v1/stripe/oauth/callback"
+  ],
+  "permissions": [
+    {
+      "permission": "payment_intent_read",
+      "purpose": "Read payment details and metadata to look up agent trust scores"
+    },
+    {
+      "permission": "customer_read",
+      "purpose": "Read customer records to map to Vouch agent identities"
+    },
+    {
+      "permission": "payment_intent_write",
+      "purpose": "Add trust score metadata to payment intents for flagging"
+    },
+    {
+      "permission": "webhook_read",
+      "purpose": "Receive transaction outcome events for trust score updates"
+    }
+  ],
+  "ui_extension": {
+    "views": [
+      {
+        "viewport": "stripe.dashboard.payment.detail",
+        "component": "PaymentTrustView"
+      },
+      {
+        "viewport": "stripe.dashboard.customer.detail",
+        "component": "CustomerAgentView"
+      },
+      {
+        "viewport": "stripe.dashboard.drawer.default",
+        "component": "TrustOverviewDrawer"
+      },
+      {
+        "viewport": "stripe.dashboard.settings.page",
+        "component": "VouchSettingsView"
+      }
+    ],
+    "actions": [],
+    "content_security_policy": {
+      "connect-src": [
+        "https://percivalvouch-api-production.up.railway.app/v1/stripe/"
+      ],
+      "image-src": [
+        "https://vouch.percival-labs.ai/"
+      ],
+      "purpose": "Connect to Vouch trust scoring API to retrieve and display agent trust data"
+    }
+  },
+  "post_install_action": {
+    "type": "settings"
+  },
+  "constants": {
+    "VOUCH_API_BASE": "https://percivalvouch-api-production.up.railway.app",
+    "DEFAULT_THRESHOLD": 400,
+    "DEFAULT_DOMAIN": "financial"
+  }
+}
