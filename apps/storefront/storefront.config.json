@@ -1,0 +1,9 @@
+{
+  "storefrontSlug": "my-store",
+  "apiUrl": "https://percivalvouch-api-production.up.railway.app",
+  "relayUrls": ["wss://relay.damus.io", "wss://nos.lol"],
+  "theme": {
+    "primaryColor": "#6366f1",
+    "accentColor": "#f59e0b"
+  }
+}
