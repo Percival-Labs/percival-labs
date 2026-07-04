@@ -3,6 +3,7 @@
 // GET /status — Public, rate-limited. Polls for AgentKey after Stripe Checkout.
 
 import { Hono } from 'hono';
+import { timingSafeEqual } from 'node:crypto';
 import { db, accounts } from '@percival/vouch-db';
 import { eq } from 'drizzle-orm';
 import { success, error } from '../lib/response';
@@ -187,7 +188,9 @@ app.get('/status', async (c) => {
   );
   const expectedToken = Buffer.from(expectedBytes).toString('hex');
 
-  if (token !== expectedToken) {
+  const tokenBuf = Buffer.from(token, 'hex');
+  const expectedBuf = Buffer.from(expectedToken, 'hex');
+  if (tokenBuf.length !== expectedBuf.length || !timingSafeEqual(tokenBuf, expectedBuf)) {
     return error(c, 403, 'INVALID_TOKEN', 'Invalid verification token');
   }
 
