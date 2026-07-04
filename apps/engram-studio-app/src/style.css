@@ -1,0 +1,50 @@
+:root {
+  --bg: #0f0f14;
+  --bar-bg: #16161e;
+  --text: #e2e2e9;
+  --accent: #818cf8;
+  --dim: #565f89;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  overflow: hidden;
+}
+
+#status-bar {
+  height: 24px;
+  background: var(--bar-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--dim);
+  -webkit-app-region: drag;
+  user-select: none;
+  border-bottom: 1px solid #1e1e2e;
+}
+
+#status-text { color: var(--accent); }
+
+#quit-btn {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 24px;
+}
+#quit-btn:hover { color: #f7768e; }
+
+#terminal {
+  height: calc(100% - 24px);
+  width: 100%;
+}
