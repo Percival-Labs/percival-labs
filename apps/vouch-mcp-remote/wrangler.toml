@@ -1,0 +1,30 @@
+# Vouch MCP Remote — Cloudflare Worker
+# Remote MCP server for ACP trust verification queries.
+# Stateless — delegates all data queries to Vouch API public endpoints.
+
+name = "vouch-mcp-remote"
+main = "src/index.ts"
+compatibility_date = "2025-02-24"
+
+# -- Custom Domain --
+# Routes the worker to mcp.percival-labs.ai
+# Cloudflare automatically manages DNS + SSL for custom_domain routes.
+
+[[routes]]
+pattern = "mcp.percival-labs.ai"
+custom_domain = true
+
+# -- Environment Variables --
+
+[vars]
+VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
+ENVIRONMENT = "production"
+
+# -- Dev Environment --
+
+[env.dev]
+name = "vouch-mcp-remote-dev"
+
+[env.dev.vars]
+VOUCH_API_URL = "https://percivalvouch-api-production.up.railway.app"
+ENVIRONMENT = "development"
