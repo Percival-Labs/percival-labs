@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import ChatMessage, { TypingIndicator } from "../components/ChatMessage";
 import { useEngine } from "../hooks/useEngine";
+import type { ChatMessage as EngineChatMessage } from "../hooks/useEngine";
 import type { EngramConfig } from "../App";
 
 interface Message {
@@ -56,7 +57,13 @@ export default function Chat({ config }: ChatProps) {
     const assistantId = `assistant-${Date.now()}`;
 
     try {
-      const stream = sendMessage(text);
+      // Build conversation history from all non-welcome messages + the new one
+      const history: EngineChatMessage[] = messages
+        .filter((m) => m.id !== "welcome" && !m.isStreaming)
+        .map((m) => ({ role: m.role, content: m.content }));
+      history.push({ role: "user", content: text });
+
+      const stream = sendMessage(history);
       let fullContent = "";
 
       setMessages((prev) => [
@@ -146,7 +153,6 @@ export default function Chat({ config }: ChatProps) {
             rows={1}
             className="wizard-input resize-none min-h-[44px] max-h-[120px]"
             style={{
-              height: "auto",
               height: `${Math.min(input.split("\n").length * 22 + 22, 120)}px`,
             }}
           />

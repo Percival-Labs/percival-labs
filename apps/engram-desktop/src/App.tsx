@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import Wizard from "./pages/Wizard";
 import Chat from "./pages/Chat";
+import Terminal from "./pages/Terminal";
+import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
 
-type Page = "wizard" | "chat" | "settings";
+type Page = "wizard" | "chat" | "terminal" | "skills" | "settings";
 
 interface EngramConfig {
   userName: string;
@@ -16,10 +18,19 @@ interface EngramConfig {
     tone: number;
   };
   connection: {
-    method: "gateway" | "byok";
+    method: "gateway" | "byok" | "team-server";
     apiKey?: string;
     agentKey?: string;
+    provider?: string;
     model?: string;
+  };
+  accountTier?: "personal" | "team";
+  interfaceMode?: "chat" | "terminal";
+  teamConfig?: {
+    serverUrl: string;
+    authToken: string;
+    teamId: string;
+    teamName: string;
   };
 }
 
@@ -46,14 +57,14 @@ export default function App() {
     const existing = loadConfig();
     if (existing) {
       setConfig(existing);
-      setPage("chat");
+      setPage(existing.interfaceMode ?? "chat");
     }
   }, []);
 
   const handleWizardComplete = (newConfig: EngramConfig) => {
     setConfig(newConfig);
     saveConfig(newConfig);
-    setPage("chat");
+    setPage(newConfig.interfaceMode ?? "chat");
   };
 
   const handleResetConfig = () => {
@@ -62,34 +73,69 @@ export default function App() {
     setPage("wizard");
   };
 
+  const handleUpdateConfig = (updates: Partial<EngramConfig>) => {
+    if (!config) return;
+    const updated = { ...config, ...updates };
+    setConfig(updated);
+    saveConfig(updated);
+  };
+
+  const isTeam = config?.accountTier === "team";
+
   return (
     <div className="h-full flex flex-col bg-surface-950">
       {/* Navigation bar */}
       {page !== "wizard" && (
         <nav className="flex items-center justify-between px-4 py-2 border-b border-surface-800 bg-surface-900/50 backdrop-blur">
-          <button
-            onClick={() => setPage("chat")}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              page === "chat"
-                ? "bg-surface-700 text-white"
-                : "text-surface-400 hover:text-white"
-            }`}
-          >
-            Chat
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage("chat")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                page === "chat"
+                  ? "bg-surface-700 text-white"
+                  : "text-surface-400 hover:text-white"
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setPage("terminal")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                page === "terminal"
+                  ? "bg-surface-700 text-white"
+                  : "text-surface-400 hover:text-white"
+              }`}
+            >
+              Terminal
+            </button>
+          </div>
           <span className="text-surface-400 text-sm font-medium">
             {config?.aiName || "Engram"}
           </span>
-          <button
-            onClick={() => setPage("settings")}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              page === "settings"
-                ? "bg-surface-700 text-white"
-                : "text-surface-400 hover:text-white"
-            }`}
-          >
-            Settings
-          </button>
+          <div className="flex items-center gap-1">
+            {isTeam && (
+              <button
+                onClick={() => setPage("skills")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  page === "skills"
+                    ? "bg-surface-700 text-white"
+                    : "text-surface-400 hover:text-white"
+                }`}
+              >
+                Skills
+              </button>
+            )}
+            <button
+              onClick={() => setPage("settings")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                page === "settings"
+                  ? "bg-surface-700 text-white"
+                  : "text-surface-400 hover:text-white"
+              }`}
+            >
+              Settings
+            </button>
+          </div>
         </nav>
       )}
 
@@ -97,8 +143,14 @@ export default function App() {
       <main className="flex-1 overflow-hidden">
         {page === "wizard" && <Wizard onComplete={handleWizardComplete} />}
         {page === "chat" && config && <Chat config={config} />}
+        {page === "terminal" && config && <Terminal config={config} />}
+        {page === "skills" && config && isTeam && <Skills config={config} />}
         {page === "settings" && config && (
-          <Settings config={config} onReset={handleResetConfig} />
+          <Settings
+            config={config}
+            onReset={handleResetConfig}
+            onUpdate={handleUpdateConfig}
+          />
         )}
       </main>
     </div>

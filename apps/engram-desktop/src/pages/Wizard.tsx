@@ -6,7 +6,7 @@ interface WizardProps {
   onComplete: (config: EngramConfig) => void;
 }
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 const USE_CASES = [
   { id: "coding", label: "Coding Assistant", icon: ">" },
@@ -21,6 +21,20 @@ const EXPERIENCE_LEVELS = [
   { id: "advanced", label: "Power User", desc: "Give me full control" },
 ];
 
+const ENGINE_URL = "http://localhost:3939";
+
+function mapPersonality(sliders: { formality: number; detail: number; tone: number }) {
+  return {
+    humor: Math.round(sliders.tone * 0.7),
+    excitement: Math.round(50 + (sliders.tone - 50) * 0.4),
+    curiosity: Math.round(50 + sliders.detail * 0.3),
+    precision: Math.round(40 + sliders.detail * 0.5),
+    professionalism: sliders.formality,
+    directness: Math.round(80 - sliders.detail * 0.3),
+    playfulness: sliders.tone,
+  };
+}
+
 export default function Wizard({ onComplete }: WizardProps) {
   const [step, setStep] = useState<Step>(1);
   const [userName, setUserName] = useState("");
@@ -32,12 +46,29 @@ export default function Wizard({ onComplete }: WizardProps) {
     detail: 50,
     tone: 50,
   });
+  const [accountTier, setAccountTier] = useState<"personal" | "team">("personal");
   const [connectionMethod, setConnectionMethod] = useState<"gateway" | "byok">(
     "gateway"
   );
   const [apiKey, setApiKey] = useState("");
   const [agentKey, setAgentKey] = useState("");
+  const [byokProvider, setByokProvider] = useState("");
+  const [byokModel, setByokModel] = useState("");
+  const [providers, setProviders] = useState<{ id: string; name: string; requiresApiKey: boolean }[]>([]);
+  const [models, setModels] = useState<{ id: string; name: string }[]>([]);
+  const [byokStep, setByokStep] = useState<1 | 2 | 3>(1); // 1=provider, 2=key, 3=model
+  const [validating, setValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [engineReachable, setEngineReachable] = useState<boolean | null>(null);
   const [installProgress, setInstallProgress] = useState(0);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  // Team-specific state
+  const [teamServerUrl, setTeamServerUrl] = useState("");
+  const [teamAuthToken, setTeamAuthToken] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [teamValidating, setTeamValidating] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  const [interfaceMode, setInterfaceMode] = useState<"chat" | "terminal">("chat");
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -47,51 +78,262 @@ export default function Wizard({ onComplete }: WizardProps) {
     }
   }, [step]);
 
-  // Step 7: simulate installation progress
+  // BYOK: check engine health + fetch providers when BYOK selected
   useEffect(() => {
-    if (step !== 7) return;
-    const interval = setInterval(() => {
-      setInstallProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
+    if (connectionMethod !== "byok" || step < 7) return;
+    let cancelled = false;
+
+    async function checkEngine() {
+      setEngineReachable(null);
+      try {
+        const res = await fetch(`${ENGINE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        if (!res.ok) throw new Error();
+        if (!cancelled) setEngineReachable(true);
+
+        // Fetch providers
+        const provRes = await fetch(`${ENGINE_URL}/setup/providers`, { signal: AbortSignal.timeout(5000) });
+        if (provRes.ok) {
+          const data = await provRes.json();
+          const apiProviders = (data.providers || data || []).filter(
+            (p: { requiresApiKey?: boolean }) => p.requiresApiKey !== false
+          );
+          if (!cancelled) setProviders(apiProviders);
         }
-        return prev + Math.random() * 15 + 5;
+      } catch {
+        if (!cancelled) setEngineReachable(false);
+      }
+    }
+
+    checkEngine();
+    return () => { cancelled = true; };
+  }, [connectionMethod, step]);
+
+  // BYOK: validate API key when entered
+  async function validateByokKey() {
+    if (!byokProvider || !apiKey) return;
+    setValidating(true);
+    setValidationError(null);
+    try {
+      const res = await fetch(`${ENGINE_URL}/setup/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: byokProvider, apiKey }),
+        signal: AbortSignal.timeout(10000),
       });
-    }, 400);
-    return () => clearInterval(interval);
-  }, [step]);
+      const data = await res.json();
+      if (!data.valid) {
+        setValidationError(data.message || "Invalid API key");
+        setValidating(false);
+        return;
+      }
+      // Fetch models for this provider
+      const modRes = await fetch(`${ENGINE_URL}/setup/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: byokProvider, apiKey }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (modRes.ok) {
+        const modData = await modRes.json();
+        setModels(modData.models || modData || []);
+      }
+      setByokStep(3);
+    } catch {
+      setValidationError("Could not reach engine for validation");
+    }
+    setValidating(false);
+  }
+
+  // Team server validation
+  async function validateTeamServer() {
+    if (!teamServerUrl.trim() || !teamAuthToken.trim()) return;
+    setTeamValidating(true);
+    setTeamError(null);
+    try {
+      // Check health (no auth)
+      const healthRes = await fetch(`${teamServerUrl.replace(/\/$/, '')}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!healthRes.ok) throw new Error(`Server returned ${healthRes.status}`);
+      const healthData = await healthRes.json();
+      if (!healthData.serverMode) {
+        throw new Error("Server is not running in team/multi-user mode");
+      }
+
+      // Check auth
+      const infoRes = await fetch(`${teamServerUrl.replace(/\/$/, '')}/info`, {
+        headers: { Authorization: `Bearer ${teamAuthToken}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (infoRes.status === 401 || infoRes.status === 403) {
+        throw new Error("Auth token was rejected. Check your token.");
+      }
+      if (!infoRes.ok) throw new Error(`Server returned ${infoRes.status}`);
+
+      // If team account, go to interface preference step
+      setStep(8);
+    } catch (err) {
+      setTeamError(err instanceof Error ? err.message : "Connection failed");
+    } finally {
+      setTeamValidating(false);
+    }
+  }
+
+  // Final validation + setup (step 8 for personal, step 9 for team)
+  const validationStep = accountTier === "team" ? 9 : 8;
 
   useEffect(() => {
-    if (installProgress >= 100) {
-      const timeout = setTimeout(() => {
-        onComplete({
-          userName,
-          aiName: aiName || "Engram",
-          useCase,
-          experience,
-          personality,
-          connection: {
-            method: connectionMethod,
-            apiKey: connectionMethod === "byok" ? apiKey : undefined,
-            agentKey: connectionMethod === "gateway" ? agentKey : undefined,
-          },
-        });
-      }, 800);
-      return () => clearTimeout(timeout);
+    if (step !== validationStep) return;
+    let cancelled = false;
+
+    async function runSetup() {
+      try {
+        setSetupError(null);
+
+        // Team server — already validated, just finalize
+        if (accountTier === "team") {
+          if (!cancelled) setInstallProgress(30);
+          await new Promise((r) => setTimeout(r, 300));
+          if (!cancelled) setInstallProgress(70);
+          await new Promise((r) => setTimeout(r, 300));
+          if (!cancelled) {
+            setInstallProgress(100);
+            await new Promise((r) => setTimeout(r, 600));
+            onComplete({
+              userName,
+              aiName: aiName || "Engram",
+              useCase,
+              experience,
+              personality,
+              connection: { method: "team-server" },
+              accountTier: "team",
+              interfaceMode,
+              teamConfig: {
+                serverUrl: teamServerUrl.replace(/\/$/, ''),
+                authToken: teamAuthToken,
+                teamId: teamName.toLowerCase().replace(/\s+/g, '-'),
+                teamName,
+              },
+            });
+          }
+          return;
+        }
+
+        // Personal flow — unchanged
+        if (!cancelled) setInstallProgress(15);
+        await new Promise((r) => setTimeout(r, 300));
+
+        if (connectionMethod === "gateway") {
+          if (!/^[a-f0-9]{64}$/i.test(agentKey)) {
+            throw new Error("AgentKey must be a 64-character hex string");
+          }
+        } else {
+          if (!apiKey || !byokProvider || !byokModel) {
+            throw new Error("Provider, API key, and model are all required");
+          }
+        }
+
+        if (!cancelled) setInstallProgress(35);
+        if (connectionMethod === "gateway") {
+          try {
+            const res = await fetch("https://gateway.percival-labs.ai/health", {
+              signal: AbortSignal.timeout(5000),
+            });
+            if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
+          } catch {
+            throw new Error(
+              `Cannot reach Engram Gateway. Check your internet connection.`
+            );
+          }
+        }
+
+        if (!cancelled) setInstallProgress(60);
+        if (connectionMethod === "gateway") {
+          try {
+            const res = await fetch(
+              "https://gateway.percival-labs.ai/auto/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Vouch-Auth": `AgentKey ${agentKey}`,
+                },
+                body: JSON.stringify({
+                  model: "fast",
+                  messages: [{ role: "user", content: "ping" }],
+                  max_tokens: 5,
+                  stream: false,
+                }),
+                signal: AbortSignal.timeout(15000),
+              }
+            );
+            if (res.status === 401 || res.status === 403) {
+              throw new Error(
+                "AgentKey was rejected. Check that your key is correct."
+              );
+            }
+          } catch (err) {
+            if (err instanceof Error && err.message.includes("AgentKey was rejected")) {
+              throw err;
+            }
+          }
+        }
+
+        if (connectionMethod === "byok") {
+          if (!cancelled) setInstallProgress(70);
+          const setupRes = await fetch(`${ENGINE_URL}/setup/complete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userName,
+              aiName: aiName || "Engram",
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              personality: mapPersonality(personality),
+              provider: { id: byokProvider, apiKey, model: byokModel },
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+          const setupData = await setupRes.json();
+          if (!setupData.success) {
+            throw new Error(setupData.message || "Engine setup failed");
+          }
+        }
+
+        if (!cancelled) setInstallProgress(85);
+        await new Promise((r) => setTimeout(r, 300));
+
+        if (!cancelled) {
+          setInstallProgress(100);
+          await new Promise((r) => setTimeout(r, 600));
+          onComplete({
+            userName,
+            aiName: aiName || "Engram",
+            useCase,
+            experience,
+            personality,
+            connection: {
+              method: connectionMethod,
+              apiKey: connectionMethod === "byok" ? apiKey : undefined,
+              agentKey: connectionMethod === "gateway" ? agentKey : undefined,
+              provider: connectionMethod === "byok" ? byokProvider : undefined,
+              model: connectionMethod === "byok" ? byokModel : undefined,
+            },
+            accountTier: "personal",
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSetupError(
+            err instanceof Error ? err.message : "Setup failed"
+          );
+          setInstallProgress(0);
+        }
+      }
     }
-  }, [
-    installProgress,
-    onComplete,
-    userName,
-    aiName,
-    useCase,
-    experience,
-    personality,
-    connectionMethod,
-    apiKey,
-    agentKey,
-  ]);
+
+    runSetup();
+    return () => { cancelled = true; };
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,7 +506,7 @@ export default function Wizard({ onComplete }: WizardProps) {
           </>
         )}
 
-        {/* Step 6: Connection Method */}
+        {/* Step 6: Account Type */}
         {step >= 6 && (
           <>
             <div className="flex justify-end mb-3">
@@ -272,7 +514,52 @@ export default function Wizard({ onComplete }: WizardProps) {
                 Personality configured
               </div>
             </div>
-            <WizardStep prompt="Last thing -- how do you want to connect? You can use our Gateway (easiest) or bring your own API key.">
+            <WizardStep prompt="How will you be using Engram?">
+              <div className="space-y-2 min-w-[280px]">
+                <button
+                  onClick={() => {
+                    setAccountTier("personal");
+                    setStep(7);
+                  }}
+                  className={`wizard-button-outline w-full text-left ${
+                    accountTier === "personal" && step > 6
+                      ? "border-accent text-white"
+                      : ""
+                  }`}
+                >
+                  <div className="font-medium">Personal</div>
+                  <div className="text-xs text-surface-400 mt-0.5">
+                    Individual use with Gateway or your own API key
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setAccountTier("team");
+                    setStep(7);
+                  }}
+                  className={`wizard-button-outline w-full text-left ${
+                    accountTier === "team" && step > 6
+                      ? "border-accent text-white"
+                      : ""
+                  }`}
+                >
+                  <div className="font-medium">Team / Business</div>
+                  <div className="text-xs text-surface-400 mt-0.5">
+                    Connect to a shared team server with shared skills
+                  </div>
+                </button>
+              </div>
+            </WizardStep>
+          </>
+        )}
+
+        {/* Step 7: Connection Method (personal) or Team Server (team) */}
+        {step >= 7 && accountTier === "personal" && (
+          <>
+            <div className="flex justify-end mb-3">
+              <div className="chat-bubble-user">Personal</div>
+            </div>
+            <WizardStep prompt="How do you want to connect? You can use our Gateway (easiest) or bring your own API key.">
               <div className="space-y-2 min-w-[280px]">
                 <button
                   onClick={() => setConnectionMethod("gateway")}
@@ -313,7 +600,7 @@ export default function Wizard({ onComplete }: WizardProps) {
                       Get your AgentKey from the Percival Labs account portal
                     </div>
                     <button
-                      onClick={() => setStep(7)}
+                      onClick={() => setStep(8)}
                       className="wizard-button w-full"
                       disabled={!agentKey.trim()}
                     >
@@ -323,20 +610,84 @@ export default function Wizard({ onComplete }: WizardProps) {
                 )}
                 {connectionMethod === "byok" && (
                   <div className="mt-3 space-y-2">
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="sk-..."
-                      className="wizard-input"
-                    />
-                    <button
-                      onClick={() => setStep(7)}
-                      className="wizard-button w-full"
-                      disabled={!apiKey.trim()}
-                    >
-                      Connect
-                    </button>
+                    {engineReachable === false && (
+                      <div className="text-red-400 text-sm p-2 bg-red-400/10 rounded-lg">
+                        Engram engine not running. Start it with: <code className="text-red-300">engram serve-http</code>
+                      </div>
+                    )}
+                    {engineReachable === null && (
+                      <div className="text-surface-400 text-sm">Checking engine...</div>
+                    )}
+                    {engineReachable && (
+                      <>
+                        <select
+                          value={byokProvider}
+                          onChange={(e) => {
+                            setByokProvider(e.target.value);
+                            setApiKey("");
+                            setByokModel("");
+                            setModels([]);
+                            setValidationError(null);
+                            setByokStep(2);
+                          }}
+                          className="wizard-input"
+                        >
+                          <option value="">Select provider...</option>
+                          {providers.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+
+                        {byokProvider && byokStep >= 2 && (
+                          <>
+                            <input
+                              type="password"
+                              value={apiKey}
+                              onChange={(e) => {
+                                setApiKey(e.target.value);
+                                setValidationError(null);
+                              }}
+                              placeholder="API key..."
+                              className="wizard-input"
+                            />
+                            {validationError && (
+                              <div className="text-red-400 text-xs">{validationError}</div>
+                            )}
+                            {byokStep === 2 && (
+                              <button
+                                onClick={validateByokKey}
+                                className="wizard-button w-full"
+                                disabled={!apiKey.trim() || validating}
+                              >
+                                {validating ? "Validating..." : "Validate Key"}
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {byokStep >= 3 && (
+                          <>
+                            <select
+                              value={byokModel}
+                              onChange={(e) => setByokModel(e.target.value)}
+                              className="wizard-input"
+                            >
+                              <option value="">Select model...</option>
+                              {models.map((m) => (
+                                <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => setStep(8)}
+                              className="wizard-button w-full"
+                              disabled={!byokModel}
+                            >
+                              Connect
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -344,56 +695,163 @@ export default function Wizard({ onComplete }: WizardProps) {
           </>
         )}
 
-        {/* Step 7: Installation Progress */}
-        {step >= 7 && (
+        {/* Step 7: Team Server Connection */}
+        {step >= 7 && accountTier === "team" && (
+          <>
+            <div className="flex justify-end mb-3">
+              <div className="chat-bubble-user">Team / Business</div>
+            </div>
+            <WizardStep prompt="Enter your team server details. Your admin should have these for you.">
+              <div className="space-y-3 min-w-[280px]">
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  placeholder="Team name (e.g. Westerlies)"
+                  className="wizard-input"
+                />
+                <input
+                  type="text"
+                  value={teamServerUrl}
+                  onChange={(e) => {
+                    setTeamServerUrl(e.target.value);
+                    setTeamError(null);
+                  }}
+                  placeholder="Server URL (e.g. http://100.x.x.x:3939)"
+                  className="wizard-input"
+                />
+                <input
+                  type="password"
+                  value={teamAuthToken}
+                  onChange={(e) => {
+                    setTeamAuthToken(e.target.value);
+                    setTeamError(null);
+                  }}
+                  placeholder="Auth token"
+                  className="wizard-input"
+                />
+                {teamError && (
+                  <div className="text-red-400 text-xs">{teamError}</div>
+                )}
+                <button
+                  onClick={validateTeamServer}
+                  className="wizard-button w-full"
+                  disabled={!teamServerUrl.trim() || !teamAuthToken.trim() || !teamName.trim() || teamValidating}
+                >
+                  {teamValidating ? "Connecting..." : "Connect"}
+                </button>
+              </div>
+            </WizardStep>
+          </>
+        )}
+
+        {/* Step 8: Interface Preference (team only) */}
+        {step >= 8 && accountTier === "team" && (
+          <>
+            <div className="flex justify-end mb-3">
+              <div className="chat-bubble-user">Connected to {teamName}</div>
+            </div>
+            <WizardStep prompt="Which interface do you prefer? You can always switch between them later.">
+              <div className="space-y-2 min-w-[280px]">
+                <button
+                  onClick={() => {
+                    setInterfaceMode("chat");
+                    setStep(9);
+                  }}
+                  className="wizard-button-outline w-full text-left"
+                >
+                  <div className="font-medium">Chat Interface</div>
+                  <div className="text-xs text-surface-400 mt-0.5">
+                    Friendly conversation style, recommended for most users
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setInterfaceMode("terminal");
+                    setStep(9);
+                  }}
+                  className="wizard-button-outline w-full text-left"
+                >
+                  <div className="font-medium">Terminal Interface</div>
+                  <div className="text-xs text-surface-400 mt-0.5">
+                    Power-user CLI feel, command-line style
+                  </div>
+                </button>
+              </div>
+            </WizardStep>
+          </>
+        )}
+
+        {/* Validation / Installation Progress */}
+        {step >= validationStep && (
           <>
             <div className="flex justify-end mb-3">
               <div className="chat-bubble-user">
-                {connectionMethod === "gateway"
-                  ? "Engram Gateway"
-                  : "Own API key"}
+                {accountTier === "team"
+                  ? interfaceMode === "terminal" ? "Terminal" : "Chat"
+                  : connectionMethod === "gateway"
+                    ? "Engram Gateway"
+                    : "Own API key"}
               </div>
             </div>
             <WizardStep
-              prompt={`Setting up ${aiName || "Engram"} for you...`}
+              prompt={setupError
+                ? `Something went wrong. Let's try again.`
+                : `Setting up ${aiName || "Engram"} for you...`}
               showInput={false}
             >
               <div />
             </WizardStep>
             <div className="flex justify-start">
               <div className="chat-bubble-assistant min-w-[280px]">
-                <div className="space-y-2">
-                  <ProgressItem
-                    label="Initializing engine"
-                    done={installProgress > 20}
-                  />
-                  <ProgressItem
-                    label="Loading model configuration"
-                    done={installProgress > 40}
-                  />
-                  <ProgressItem
-                    label="Setting up personality"
-                    done={installProgress > 60}
-                  />
-                  <ProgressItem
-                    label="Connecting to provider"
-                    done={installProgress > 80}
-                  />
-                  <ProgressItem
-                    label="Ready!"
-                    done={installProgress >= 100}
-                  />
-                  <div className="mt-3">
-                    <div className="h-1.5 bg-surface-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent rounded-full transition-all duration-300"
-                        style={{
-                          width: `${Math.min(installProgress, 100)}%`,
-                        }}
-                      />
+                {setupError ? (
+                  <div className="space-y-3">
+                    <div className="text-red-400 text-sm">{setupError}</div>
+                    <button
+                      onClick={() => {
+                        setSetupError(null);
+                        setInstallProgress(0);
+                        setStep(accountTier === "team" ? 7 : 7);
+                      }}
+                      className="wizard-button w-full"
+                    >
+                      Go Back
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <ProgressItem
+                      label={accountTier === "team" ? "Connecting to team server" : "Validating credentials"}
+                      done={installProgress > 20}
+                    />
+                    <ProgressItem
+                      label={accountTier === "team"
+                        ? "Loading team configuration"
+                        : connectionMethod === "gateway" ? "Checking Gateway connection" : "Connecting to provider"}
+                      done={installProgress > 40}
+                    />
+                    <ProgressItem
+                      label={accountTier === "team"
+                        ? "Preparing workspace"
+                        : connectionMethod === "gateway" ? "Testing authentication" : "Configuring engine"}
+                      done={installProgress > 65}
+                    />
+                    <ProgressItem
+                      label="Ready!"
+                      done={installProgress >= 100}
+                    />
+                    <div className="mt-3">
+                      <div className="h-1.5 bg-surface-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-accent rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(installProgress, 100)}%`,
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </>

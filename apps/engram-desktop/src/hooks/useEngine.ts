@@ -1,6 +1,11 @@
 const GATEWAY_URL = "https://gateway.percival-labs.ai/auto/v1";
 const LOCAL_URL = "http://localhost:3939";
 
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
 export interface EngineEvent {
   type: "token" | "done" | "error";
   data: string;
@@ -18,9 +23,11 @@ export interface CommandResult {
 }
 
 export interface EngineConfig {
-  method: "gateway" | "byok";
+  method: "gateway" | "byok" | "team-server";
   apiKey?: string;
   agentKey?: string;
+  teamServerUrl?: string;
+  authToken?: string;
 }
 
 function buildHeaders(config?: EngineConfig): Record<string, string> {
@@ -32,10 +39,17 @@ function buildHeaders(config?: EngineConfig): Record<string, string> {
     headers["X-Vouch-Auth"] = `AgentKey ${config.agentKey}`;
   }
 
+  if (config?.method === "team-server" && config.authToken) {
+    headers["Authorization"] = `Bearer ${config.authToken}`;
+  }
+
   return headers;
 }
 
 function getBaseUrl(config?: EngineConfig): string {
+  if (config?.method === "team-server" && config.teamServerUrl) {
+    return config.teamServerUrl;
+  }
   return config?.method === "gateway" ? GATEWAY_URL : LOCAL_URL;
 }
 
@@ -100,7 +114,7 @@ export function useEngine(config?: EngineConfig) {
   const baseUrl = getBaseUrl(config);
   const headers = buildHeaders(config);
 
-  function sendMessage(text: string): AsyncGenerator<EngineEvent> {
+  function sendMessage(messages: ChatMessage[]): AsyncGenerator<EngineEvent> {
     const chatUrl =
       config?.method === "gateway"
         ? `${baseUrl}/chat/completions`
@@ -109,9 +123,19 @@ export function useEngine(config?: EngineConfig) {
     return streamSSE(
       chatUrl,
       {
-        messages: [{ role: "user", content: text }],
+        model: config?.method === "gateway" ? "fast" : undefined,
+        messages,
         stream: true,
+        max_tokens: 4096,
       },
+      headers
+    );
+  }
+
+  function sendChat(message: string): AsyncGenerator<EngineEvent> {
+    return streamSSE(
+      `${baseUrl}/chat`,
+      { message },
       headers
     );
   }
@@ -138,5 +162,5 @@ export function useEngine(config?: EngineConfig) {
     }
   }
 
-  return { sendMessage, sendCommand, getInfo };
+  return { sendMessage, sendChat, sendCommand, getInfo };
 }
