@@ -2,7 +2,10 @@
   "name": "percival-labs",
   "version": "0.2.0",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun run --filter @percival/registry dev",
     "dev:agents": "bun run --filter @percival/agents dev",
@@ -22,7 +25,8 @@
     "seed:pai": "bun run packages/db/src/seed-pai.ts",
     "x:post": "bun scripts/x/post.ts",
     "x:queue": "bun scripts/x/post.ts --queue",
-    "x:preview": "bun scripts/x/post.ts --queue --dry-run"
+    "x:preview": "bun scripts/x/post.ts --queue --dry-run",
+    "check:integrity": "bun scripts/check-untracked-imports.ts"
   },
   "engines": {
     "node": ">=20",
