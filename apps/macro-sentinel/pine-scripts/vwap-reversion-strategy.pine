@@ -1,0 +1,76 @@
+//@version=6
+strategy("Macro Sentinel: VWAP Mean Reversion", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=5)
+
+// ── Inputs ──
+devThreshold   = input.float(2.0, "VWAP Deviation Threshold (σ)", minval=1.0, maxval=3.0, step=0.25)
+devLength      = input.int(20, "Deviation Lookback Periods")
+atrMultiplier  = input.float(1.0, "ATR Stop Multiplier", minval=0.5, maxval=2.0, step=0.1)
+atrLength      = input.int(14, "ATR Length")
+rsiFilter      = input.bool(true, "Use RSI Confirmation")
+rsiLength      = input.int(14, "RSI Length")
+rsiOversold    = input.int(30, "RSI Oversold")
+rsiOverbought  = input.int(70, "RSI Overbought")
+volumeFilter   = input.float(1.2, "Volume Filter (x avg)", minval=1.0, maxval=3.0, step=0.1)
+volumeAvgLen   = input.int(20, "Volume Average Length")
+
+// ── Session ──
+isRegularHours = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+// Avoid first 15 min (too chaotic) and last 15 min (spread widens)
+isTradingWindow = not na(time(timeframe.period, "0945-1545", "America/New_York"))
+
+// ── VWAP Calculation ──
+vwapValue = ta.vwap(hlc3)
+
+// ── Standard Deviation Bands ──
+vwapDev = ta.stdev(close - vwapValue, devLength)
+upperBand = vwapValue + (vwapDev * devThreshold)
+lowerBand = vwapValue - (vwapDev * devThreshold)
+
+// ── Indicators ──
+atr    = ta.atr(atrLength)
+rsi    = ta.rsi(close, rsiLength)
+avgVol = ta.sma(volume, volumeAvgLen)
+volOk  = volume > avgVol * volumeFilter
+
+// ── Entry Conditions ──
+// Long: price below lower band (oversold relative to VWAP), expect reversion up
+longSignal  = close < lowerBand and isTradingWindow and volOk
+longRSI     = not rsiFilter or rsi < rsiOversold
+
+// Short: price above upper band (overbought relative to VWAP), expect reversion down
+shortSignal = close > upperBand and isTradingWindow and volOk
+shortRSI    = not rsiFilter or rsi > rsiOverbought
+
+entryLong  = longSignal  and longRSI
+entryShort = shortSignal and shortRSI
+
+// ── Exits ──
+// Target: reversion to VWAP. Stop: ATR-based.
+longStop  = close - (atr * atrMultiplier)
+shortStop = close + (atr * atrMultiplier)
+
+// ── Strategy Logic ──
+if entryLong and strategy.position_size == 0
+    strategy.entry("VWAP Long", strategy.long)
+    strategy.exit("VWAP Long Exit", "VWAP Long", stop=longStop, limit=vwapValue)
+
+if entryShort and strategy.position_size == 0
+    strategy.entry("VWAP Short", strategy.short)
+    strategy.exit("VWAP Short Exit", "VWAP Short", stop=shortStop, limit=vwapValue)
+
+// Close at end of day
+if not isRegularHours and strategy.position_size != 0
+    strategy.close_all("EOD Close")
+
+// ── Plots ──
+plot(vwapValue, "VWAP", color=color.new(color.blue, 0), linewidth=2)
+plot(upperBand, "Upper Band", color=color.new(color.red, 50), linewidth=1, style=plot.style_stepline)
+plot(lowerBand, "Lower Band", color=color.new(color.green, 50), linewidth=1, style=plot.style_stepline)
+
+// Entry markers
+plotshape(entryLong,  "Long Entry",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(entryShort, "Short Entry", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// ── Webhook Alerts ──
+alertcondition(entryLong,  "VWAP Long Signal",  '{"strategy":"vwap_reversion","ticker":"{{ticker}}","action":"buy","price":{{close}},"timestamp":"{{timenow}}","passphrase":"macro-sentinel-dev"}')
+alertcondition(entryShort, "VWAP Short Signal", '{"strategy":"vwap_reversion","ticker":"{{ticker}}","action":"sell","price":{{close}},"timestamp":"{{timenow}}","passphrase":"macro-sentinel-dev"}')

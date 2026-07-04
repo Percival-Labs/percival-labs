@@ -1,0 +1,74 @@
+//@version=6
+strategy("Macro Sentinel: Opening Range Breakout", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=5)
+
+// ── Inputs ──
+orbMinutes     = input.int(30, "Opening Range Minutes", minval=5, maxval=60, step=5)
+atrMultiplier  = input.float(1.5, "ATR Stop Multiplier", minval=0.5, maxval=3.0, step=0.1)
+atrLength      = input.int(14, "ATR Length")
+riskRewardMin  = input.float(2.0, "Minimum Risk:Reward", minval=1.0, maxval=5.0, step=0.5)
+volumeFilter   = input.float(1.5, "Volume Filter (x avg)", minval=1.0, maxval=3.0, step=0.1)
+volumeAvgLen   = input.int(20, "Volume Average Length")
+useWebhook     = input.bool(true, "Send Webhook Alerts")
+
+// ── Session Calculations ──
+isRegularHours = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+isORBPeriod    = not na(time(timeframe.period, "0930-" + str.tostring(9 * 60 + 30 + orbMinutes, "#"), "America/New_York"))
+
+var float orbHigh = na
+var float orbLow  = na
+var bool  orbSet  = false
+
+// Reset at market open
+if session.isfirstbar
+    orbHigh := high
+    orbLow  := low
+    orbSet  := false
+
+// Build opening range
+if isORBPeriod and not orbSet
+    orbHigh := math.max(orbHigh, high)
+    orbLow  := math.min(orbLow, low)
+
+// Mark ORB as set after the period
+if not isORBPeriod and not orbSet and not na(orbHigh)
+    orbSet := true
+
+// ── Indicators ──
+atr      = ta.atr(atrLength)
+avgVol   = ta.sma(volume, volumeAvgLen)
+volOk    = volume > avgVol * volumeFilter
+
+// ── Entry Conditions ──
+breakoutLong  = orbSet and close > orbHigh and volOk and isRegularHours
+breakoutShort = orbSet and close < orbLow  and volOk and isRegularHours
+
+// ── Stop Loss & Take Profit ──
+longStop   = orbLow - (atr * atrMultiplier)
+shortStop  = orbHigh + (atr * atrMultiplier)
+longTP     = close + ((close - longStop) * riskRewardMin)
+shortTP    = close - ((shortStop - close) * riskRewardMin)
+
+// ── Strategy Logic ──
+if breakoutLong and strategy.position_size == 0
+    strategy.entry("ORB Long", strategy.long)
+    strategy.exit("ORB Long Exit", "ORB Long", stop=longStop, limit=longTP)
+
+if breakoutShort and strategy.position_size == 0
+    strategy.entry("ORB Short", strategy.short)
+    strategy.exit("ORB Short Exit", "ORB Short", stop=shortStop, limit=shortTP)
+
+// Close all at end of day (day trade)
+if not isRegularHours and strategy.position_size != 0
+    strategy.close_all("EOD Close")
+
+// ── Plots ──
+plot(orbSet ? orbHigh : na, "ORB High", color=color.new(color.green, 30), linewidth=2, style=plot.style_stepline)
+plot(orbSet ? orbLow  : na, "ORB Low",  color=color.new(color.red, 30),   linewidth=2, style=plot.style_stepline)
+
+// ── Webhook Alert JSON ──
+// TradingView alert message (set in alert dialog):
+// Long:  {"strategy":"orb","ticker":"{{ticker}}","action":"buy","price":{{close}},"stop_loss":{{plot("ORB Low")}},"timestamp":"{{timenow}}","passphrase":"YOUR_PASSPHRASE"}
+// Short: {"strategy":"orb","ticker":"{{ticker}}","action":"sell","price":{{close}},"stop_loss":{{plot("ORB High")}},"timestamp":"{{timenow}}","passphrase":"YOUR_PASSPHRASE"}
+
+alertcondition(breakoutLong,  "ORB Long Signal",  '{"strategy":"orb","ticker":"{{ticker}}","action":"buy","price":{{close}},"timestamp":"{{timenow}}","passphrase":"macro-sentinel-dev"}')
+alertcondition(breakoutShort, "ORB Short Signal", '{"strategy":"orb","ticker":"{{ticker}}","action":"sell","price":{{close}},"timestamp":"{{timenow}}","passphrase":"macro-sentinel-dev"}')
